@@ -1,0 +1,74 @@
+//
+//  ComponentArray.swift
+//  Components
+//
+//  Created by Patrick Horlebein (extern) on 11.09.25.
+//
+
+struct ComponentArray<Component>: Collection {
+    private var components: ContiguousArray<Component> = []
+    private var entityToComponents: [Entity.ID: Array.Index] = [:]
+    private var componentsToEntities: [Array.Index: Entity.ID] = [:]
+
+    init(_ pairs: (Entity.ID, Component)...) {
+        for (id, component) in pairs {
+            append(component, to: id)
+        }
+    }
+
+    init(_ pairs: [(Entity.ID, Component)]) {
+        for (id, component) in pairs {
+            append(component, to: id)
+        }
+    }
+
+    mutating func append(_ component: Component, to entityID: Entity.ID) {
+        components.append(component)
+        entityToComponents[entityID] = components.endIndex - 1
+        componentsToEntities[components.endIndex - 1] = entityID
+    }
+
+    mutating func remove(_ entityID: Entity.ID) {
+        guard let componentIndex = entityToComponents[entityID] else { return }
+        guard componentIndex != components.endIndex - 1 else {
+            componentsToEntities.removeValue(forKey: components.endIndex - 1)
+            entityToComponents.removeValue(forKey: entityID)
+            components.removeLast()
+            return
+        }
+
+        guard let lastComponentEntity = componentsToEntities.removeValue(forKey: components.endIndex - 1) else {
+            fatalError("Missing entity for last component.")
+        }
+        components[componentIndex] = components.removeLast()
+        componentsToEntities[componentIndex] = lastComponentEntity
+        entityToComponents[lastComponentEntity] = componentIndex
+        entityToComponents.removeValue(forKey: entityID)
+    }
+
+    subscript(_ entityID: Entity.ID) -> Component {
+        get {
+            guard let index = entityToComponents[entityID] else {
+                fatalError("Entity does not exist.")
+            }
+            return components[index]
+        }
+        set {
+            guard let index = entityToComponents[entityID] else {
+                fatalError("Entity does not exist.")
+            }
+            components[index] = newValue
+        }
+    }
+
+    var startIndex: ContiguousArray.Index { components.startIndex }
+    var endIndex: ContiguousArray.Index { components.endIndex }
+
+    func index(after i: ContiguousArray.Index) -> ContiguousArray.Index {
+        components.index(after: i)
+    }
+
+    subscript(position: ContiguousArray.Index) -> Component {
+        components[position]
+    }
+}
