@@ -75,16 +75,16 @@ struct PhysicsSystem: System {
     let signature = ComponentSignature(Gravity.componentTag, RigidBody.componentTag, Transform.componentTag)
 
     func update(deltaTime: Float, coordinator: inout Coordinator) {
-        for entityID in entities {
-            let rigidBody = coordinator[RigidBody.self, entityID]
-            let gravity = coordinator[Gravity.self, entityID]
-            coordinator.modify(Transform.self, entityID) { transform in
-                transform.position.x += rigidBody.velocity.x * deltaTime
-            }
-            coordinator.modify(RigidBody.self, entityID) { rigidBody in
-                rigidBody.velocity.x += gravity.force.x * deltaTime
-            }
-        }
+//        for entityID in entities {
+//            let rigidBody = coordinator[RigidBody.self, entityID]
+//            let gravity = coordinator[Gravity.self, entityID]
+//            coordinator.modify(Transform.self, entityID) { transform in
+//                transform.position.x += rigidBody.velocity.x * deltaTime
+//            }
+//            coordinator.modify(RigidBody.self, entityID) { rigidBody in
+//                rigidBody.velocity.x += gravity.force.x * deltaTime
+//            }
+//        }
     }
 }
 

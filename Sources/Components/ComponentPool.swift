@@ -1,8 +1,5 @@
 struct ComponentPool {
     private(set) var components: [ComponentTag: AnyComponentArray] = [:]
-    // TODO: Array<any Component> is an issue, because we have to case every single component.
-    // It would be better to have an actual typed array, but hide the whole typed array in an erased wrapper
-    // then there only needs to be one single case for the array as a whole.
 
     init(components: [ComponentTag : AnyComponentArray] = [:]) {
         self.components = components
@@ -18,15 +15,6 @@ struct ComponentPool {
 }
 
 extension ComponentPool {
-    func pointer<C: Component>(_ c: C.Type = C.self) -> UnsafeMutableBufferPointer<C> {
-        let array = components[C.componentTag]!
-        var x: ContiguousArray<C> = []
-        let p = x.withUnsafeMutableBufferPointer { pointer in
-            pointer
-        }
-        return p
-    }
-
     mutating func append<C: Component>(_ component: C, for enitityID: Entity.ID) {
         components[C.componentTag]?.append(component, id: enitityID)
     }
@@ -43,25 +31,50 @@ extension ComponentPool {
         }
     }
 
-    // TODO: This algorithm is complete shit.
     func entities<each C: Component>(_ components: repeat (each C).Type) -> [Entity.ID] {
-        var result: Set<Entity.ID> = []
-        var initial = true
+        // Collect the AnyComponentArray for each requested component type.
+        var arrays: [AnyComponentArray] = [] // inline array
+
         for component in repeat each components {
             let tag = component.componentTag
-            let new = self.components[tag]!.entityIDsInStorageOrder()
-            if initial {
-                initial = false
-                result.formUnion(new)
-            } else {
-                result.formIntersection(new)
+            // If any tag is missing or empty, there can be no matches.
+            guard let array = self.components[tag], !array.entityToComponents.isEmpty else {
+                return []
             }
+            arrays.append(array)
         }
-        return Array(result)
+
+        // Sort by ascending number of entities to minimize membership checks.
+        arrays.sort { lhs, rhs in
+            lhs.entityToComponents.count < rhs.entityToComponents.count
+        }
+
+        // Take the smallest set of IDs as the candidate base.
+        let smallest = arrays[0]
+        if arrays.count == 1 {
+            return Array(smallest.entityToComponents.keys)
+        }
+
+        // Prepare the remaining dictionaries for O(1) membership checks.
+        let others = arrays.dropFirst().map { $0.entityToComponents }
+
+        // Filter candidate IDs by ensuring presence in all other component maps.
+        var result: [Entity.ID] = []
+        result.reserveCapacity(smallest.entityToComponents.count)
+        for id in smallest.entityToComponents.keys {
+            var presentInAll = true
+            for dict in others {
+                if dict[id] == nil { presentInAll = false; break }
+            }
+            if presentInAll { result.append(id) }
+        }
+        return result
     }
 
     subscript<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) -> C {
-        components[C.componentTag]![entityID: entityID] as! C
+        _read {
+            yield components[C.componentTag]![entityID: entityID] as! C
+        }
     }
 
     subscript(_ componentTag: ComponentTag, _ entityID: Entity.ID) -> any Component {
@@ -71,11 +84,5 @@ extension ComponentPool {
         _modify {
             yield &components[componentTag]![entityID: entityID]
         }
-    }
-
-    mutating func modify<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID, map: (inout C) -> Void) {
-        var component = components[C.componentTag]![entityID: entityID] as! C
-        map(&component)
-        components[C.componentTag]![entityID: entityID] = component
     }
 }

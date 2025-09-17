@@ -30,8 +30,4 @@ struct Coordinator {
     mutating func updateSystemSignature(_ signature: ComponentSignature, systemID: SystemID) {
         systemManager.setSignature(signature, systemID: systemID)
     }
-
-    mutating func modify<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID, map: (inout C) -> Void) {
-        componentPool.modify(componentType, entityID, map: map)
-    }
 }

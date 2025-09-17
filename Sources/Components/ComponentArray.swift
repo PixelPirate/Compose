@@ -1,35 +1,22 @@
-// TODO: This was made so that we don't cast every single component but rather the whole array once. But it seems this didn't have any effect?
-//       Maybe there are just some other problems which just prevent this optimization from being utilized. Maybe first fix the QueryTransit stuff.
-protocol AnyComponentArrayBox {
-    mutating func remove(id: Entity.ID) -> Void
-    mutating func append(_: any Component, id: Entity.ID) -> Void
-    func get(_: Entity.ID) -> any Component
-    mutating func `set`(_: Entity.ID, newValue: any Component) -> Void
-    func entityIDsInStorageOrder() -> [Entity.ID]
-}
+// TODO: Make ComponentArray a proper SparseSet, this should improve entity membership performance
+//       Especially when querying one entity for many entities, a sparse set should be best (why?)
+// TODO: When I have sparse sets, then I guess I could add EnTT groups on top?
+// TODO: Do I want archetypes? If yes, I definitely want the option to store specific components as spare sets.
+// TODO: Do I want all three? Archetypes and SparseSets and then a group option for the sparse set components?
+//       E.g. one could say Transform, Mesh and Material are all sparse and then also make a group for these three.
+//       Then other general purpose components just get the archetype magic and some flags just get a sparse set
+//       without groups.
+//       Sounds kind of cool.
+// TODO: Parallelise queries. It should be memory safe since every entity has it's own memory location.
+//       I don't think systems can be parallel though, right?
 
-//extension ComponentArray: AnyComponentArrayBox {
-//    mutating func remove(id: Entity.ID) -> Void {
-//        self.remove(id)
-//    }
-//
-//    mutating func append(_ component: any Components.Component, id: Entity.ID) -> Void {
-//        self.append(component as! Component, to: id)
-//    }
-//
-//    func get(_ id: Entity.ID) -> any Components.Component {
-//        self[id]
-//    }
-//
-//    mutating func `set`(_ id: Entity.ID, newValue: any Components.Component) -> Void {
-//        self[id] = newValue as! Component
-//    }
-//
-//    func `as`<C: Components.Component>(_: C.Type) -> ComponentArray<C> {
-//        guard C.self == Component.self else { fatalError("Mismatching type.") }
-//        return self as! ComponentArray<C>
-//    }
-//}
+protocol AnyComponentArrayBox: AnyObject {
+    func remove(id: Entity.ID) -> Void
+    func append(_: any Component, id: Entity.ID) -> Void
+    func get(_: Entity.ID) -> any Component
+    func `set`(_: Entity.ID, newValue: any Component) -> Void
+    var entityToComponents: [Entity.ID: Array.Index] { get }
+}
 
 final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     var base: ComponentArray<C>
@@ -54,8 +41,10 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
         base[id] = newValue as! C
     }
 
-    func entityIDsInStorageOrder() -> [Entity.ID] {
-        base.entityIDsInStorageOrder()
+    var entityToComponents: [Entity.ID: Array.Index] {
+        _read {
+            yield base.entityToComponents
+        }
     }
 }
 
@@ -83,22 +72,28 @@ struct AnyComponentArray {
         }
     }
 
-    func entityIDsInStorageOrder() -> [Entity.ID] {
-        base.entityIDsInStorageOrder()
+    var entityToComponents: [Entity.ID: Array.Index] {
+        _read {
+            yield base.entityToComponents
+        }
     }
 
-    func withBuffer<C: Component, Result>(_ of: C.Type, _ body: (UnsafeMutableBufferPointer<C>) throws -> Result) rethrows -> Result {
+    func withBuffer<C: Component, Result>(
+        _ of: C.Type,
+        _ body: (UnsafeMutableBufferPointer<C>, [Entity.ID : Array.Index]) throws -> Result
+    ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
-        return try typed.base.withUnsafeMutableBufferPointer { buf in
-             try body(buf)
+        let indices = typed.entityToComponents
+        return try typed.base.withUnsafeMutableBufferPointer { buffer in
+             try body(buffer, indices)
         }
     }
 }
 
 struct ComponentArray<Component: Components.Component>: Collection {
     private var components: ContiguousArray<Component> = []
-    private var entityToComponents: [Entity.ID: Array.Index] = [:]
-    private var componentsToEntities: [Array.Index: Entity.ID] = [:]
+    private(set) var entityToComponents: [Entity.ID: Array.Index] = [:]
+    private(set) var componentsToEntities: [Array.Index: Entity.ID] = [:]
 
     init(_ pairs: (Entity.ID, Component)...) {
         for (id, component) in pairs {
@@ -116,17 +111,6 @@ struct ComponentArray<Component: Components.Component>: Collection {
     @inline(__always)
     mutating func withUnsafeMutableBufferPointer<R>(_ body: (inout UnsafeMutableBufferPointer<Element>) throws -> R) rethrows -> R {
         try components.withUnsafeMutableBufferPointer(body)
-    }
-
-    /// Returns the entity IDs in the same order as their components are stored.
-    func entityIDsInStorageOrder() -> [Entity.ID] {
-        var ids: [Entity.ID] = []
-        ids.reserveCapacity(components.count)
-        for idx in components.indices {
-            guard let id = componentsToEntities[idx] else { fatalError("Missing entity mapping for component index.") }
-            ids.append(id)
-        }
-        return ids
     }
 
     /// Returns true if this array contains a component for the given entity.
