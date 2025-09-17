@@ -6,8 +6,6 @@ protocol AnyComponentArrayBox {
     func get(_: Entity.ID) -> any Component
     mutating func `set`(_: Entity.ID, newValue: any Component) -> Void
     func entityIDsInStorageOrder() -> [Entity.ID]
-
-
 }
 
 //extension ComponentArray: AnyComponentArrayBox {
@@ -34,7 +32,7 @@ protocol AnyComponentArrayBox {
 //}
 
 final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
-    private var base: ComponentArray<C>
+    var base: ComponentArray<C>
 
     init(_ base: ComponentArray<C>) {
         self.base = base
@@ -88,6 +86,13 @@ struct AnyComponentArray {
     func entityIDsInStorageOrder() -> [Entity.ID] {
         base.entityIDsInStorageOrder()
     }
+
+    func withBuffer<C: Component, Result>(_ of: C.Type, _ body: (UnsafeMutableBufferPointer<C>) throws -> Result) rethrows -> Result {
+        let typed = base as! ComponentArrayBox<C>
+        return try typed.base.withUnsafeMutableBufferPointer { buf in
+             try body(buf)
+        }
+    }
 }
 
 struct ComponentArray<Component: Components.Component>: Collection {
@@ -105,6 +110,12 @@ struct ComponentArray<Component: Components.Component>: Collection {
         for (id, component) in pairs {
             append(component, to: id)
         }
+    }
+
+    @inlinable
+    @inline(__always)
+    mutating func withUnsafeMutableBufferPointer<R>(_ body: (inout UnsafeMutableBufferPointer<Element>) throws -> R) rethrows -> R {
+        try components.withUnsafeMutableBufferPointer(body)
     }
 
     /// Returns the entity IDs in the same order as their components are stored.

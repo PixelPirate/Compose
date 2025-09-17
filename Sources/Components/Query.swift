@@ -31,23 +31,44 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
     func perform(_ pool: inout ComponentPool, _ handler: (repeat (each T).ResolvedType) -> Void) {
         // TODO: Use the parameter pack to make a big tuple with a typed accessor for each component type.
         //       This accessor should have a `var value { _read _modify }` so it allows to immediatly write to the component.
-        @inline(__always)
-        func get(_ tag: ComponentTag, _ id: Entity.ID) -> any Component {
-            pool[tag, id] // TODO: This is bad, because this does some CoW, casting, etc. on each single component. Instead get all the components beforhand in a typed array
-        }
-        @inline(__always)
-        func set(_ tag: ComponentTag, _ id: Entity.ID, _ newValue: any Component) -> Void {
-            pool[tag, id] = newValue
-        }
+//        @inline(__always)
+//        func get(_ tag: ComponentTag, _ id: Entity.ID) -> any Component {
+//            pool[tag, id] // TODO: This is bad, because this does some CoW, casting, etc. on each single component. Instead get all the components beforhand in a typed array
+//        }
+//        @inline(__always)
+//        func set(_ tag: ComponentTag, _ id: Entity.ID, _ newValue: any Component) -> Void {
+//            pool[tag, id] = newValue
+//        }
+//        let entityIDs = pool.entities(repeat (each T).InnerType.self)
+//        withoutActuallyEscaping(get) { getClosure in
+//            withoutActuallyEscaping(set) { setClosure in
+//                let transit = QueryTransit(get: getClosure, set: setClosure)
+//                for entityID in entityIDs {
+//                    handler(repeat (each T).makeResolved(transit: transit, entityID: entityID))
+//                }
+//            }
+//        }
+
         let entityIDs = pool.entities(repeat (each T).InnerType.self)
-        withoutActuallyEscaping(get) { getClosure in
-            withoutActuallyEscaping(set) { setClosure in
-                let transit = QueryTransit(get: getClosure, set: setClosure)
-                for entityID in entityIDs {
-                    handler(repeat (each T).makeResolved(transit: transit, entityID: entityID))
-                }
+        withTypedBuffers(&pool) { (buffers: repeat UnsafeMutableBufferPointer<(each T).InnerType>) in
+            let accessors = (repeat TypedAccess(array: each buffers, indexOf: { entityID in 0 /* TODO: Implement */ }))
+            for entityId in entityIDs {
+                handler(repeat (each T).makeResolved2(access: each accessors, entityID: entityId))
             }
         }
+
+//        comp1.withBuffer { buff1 in
+//            comp2.withBuffer { buff2 in
+//                comp3.withBuffer { buff3 in
+//                    let acc1 = Acc(buff1)
+//                    let acc2 = Acc(buff2)
+//                    let acc3 = Acc(buff3)
+//                    for entitiy {
+//                        handler(res(acc1, entitiy), res(acc2, entitiy), res(acc3, entitiy))
+//                    }
+//                }
+//            }
+//        }
     }
 
     func callAsFunction(_ pool: inout ComponentPool, _ handler: (repeat (each T).ResolvedType) -> Void) {
@@ -114,7 +135,7 @@ struct TypedAccess<C: Component> {
         _read {
             yield array[indexOf(id)]
         }
-        _modify {
+        nonmutating _modify {
             yield &array[indexOf(id)]
         }
     }
@@ -124,11 +145,16 @@ protocol ComponentResolving {
     associatedtype ResolvedType = Self
     associatedtype InnerType: Component = Self
     static func makeResolved(transit: QueryTransit, entityID: Entity.ID) -> ResolvedType
+    static func makeResolved2(access: TypedAccess<InnerType>, entityID: Entity.ID) -> ResolvedType
 }
 
 extension ComponentResolving where Self: Component, ResolvedType == Self, InnerType == Self {
     static func makeResolved(transit: QueryTransit, entityID: Entity.ID) -> Self {
         transit[InnerType.self, entityID]
+    }
+
+    static func makeResolved2(access: TypedAccess<InnerType>, entityID: Entity.ID) -> Self {
+        access[entityID]
     }
 }
 
@@ -143,6 +169,14 @@ extension Write: ComponentResolving {
             transit.modify(Wrapped.self, entityID) { component in
                 component = newValue
             }
+        }
+    }
+
+    static func makeResolved2(access: TypedAccess<Wrapped>, entityID: Entity.ID) -> Write<Wrapped> {
+        Write<Wrapped> {
+            access[entityID]
+        } set: { newValue in
+            access[entityID] = newValue
         }
     }
 }
@@ -236,3 +270,31 @@ struct With<C: Component>: Component {
 }
 
 // TODO: Without<C>
+
+
+@discardableResult
+func withTypedBuffers<each C: Component, R>(
+    _ pool: inout ComponentPool,
+    _ body: (repeat UnsafeMutableBufferPointer<each C>) throws -> R
+) rethrows -> R? {
+    // Collect all buffers into a tuple matching the pack shape
+    var tuple: (repeat UnsafeMutableBufferPointer<each C>)? = nil
+
+    // A helper that builds the tuple
+    func buildTuple() -> (repeat UnsafeMutableBufferPointer<each C>)? {
+        return (repeat tryGetBuffer((each C).self)!)
+    }
+
+    func tryGetBuffer<D: Component>(_ type: D.Type) -> UnsafeMutableBufferPointer<D>? {
+        guard let anyArray = pool.components[D.componentTag] else { return nil }
+        var result: UnsafeMutableBufferPointer<D>? = nil
+        anyArray.withBuffer(D.self) { buf in
+            result = buf
+        }
+        return result
+    }
+
+    guard let built = buildTuple() else { return nil }
+    tuple = built
+    return try body(repeat each tuple!)
+}

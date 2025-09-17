@@ -18,6 +18,15 @@ struct ComponentPool {
 }
 
 extension ComponentPool {
+    func pointer<C: Component>(_ c: C.Type = C.self) -> UnsafeMutableBufferPointer<C> {
+        let array = components[C.componentTag]!
+        var x: ContiguousArray<C> = []
+        let p = x.withUnsafeMutableBufferPointer { pointer in
+            pointer
+        }
+        return p
+    }
+
     mutating func append<C: Component>(_ component: C, for enitityID: Entity.ID) {
         components[C.componentTag]?.append(component, id: enitityID)
     }
