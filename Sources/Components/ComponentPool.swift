@@ -1,13 +1,25 @@
 struct ComponentPool {
-    private(set) var components: [ComponentTag: ComponentArray<any Component>] = [:]
+    private(set) var components: [ComponentTag: AnyComponentArray] = [:]
     // TODO: Array<any Component> is an issue, because we have to case every single component.
     // It would be better to have an actual typed array, but hide the whole typed array in an erased wrapper
     // then there only needs to be one single case for the array as a whole.
+
+    init(components: [ComponentTag : AnyComponentArray] = [:]) {
+        self.components = components
+    }
+
+    init<each T: Component>(_ elements: repeat (ComponentTag, ComponentArray<each T>)) {
+        var newComponents: [ComponentTag : AnyComponentArray] = [:]
+        for element in repeat each elements {
+            newComponents[element.0] = AnyComponentArray(element.1)
+        }
+        components = newComponents
+    }
 }
 
 extension ComponentPool {
     mutating func append<C: Component>(_ component: C, for enitityID: Entity.ID) {
-        components[C.componentTag]?.append(component, to: enitityID)
+        components[C.componentTag]?.append(component, id: enitityID)
     }
 
     mutating func remove<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) {
@@ -40,21 +52,21 @@ extension ComponentPool {
     }
 
     subscript<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) -> C {
-        components[C.componentTag]![entityID] as! C
+        components[C.componentTag]![entityID: entityID] as! C
     }
 
     subscript(_ componentTag: ComponentTag, _ entityID: Entity.ID) -> any Component {
-        get {
-            components[componentTag]![entityID]
+        _read {
+            yield components[componentTag]![entityID: entityID]
         }
-        set {
-            components[componentTag]![entityID] = newValue
+        _modify {
+            yield &components[componentTag]![entityID: entityID]
         }
     }
 
     mutating func modify<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID, map: (inout C) -> Void) {
-        var component = components[C.componentTag]![entityID] as! C
+        var component = components[C.componentTag]![entityID: entityID] as! C
         map(&component)
-        components[C.componentTag]![entityID] = component
+        components[C.componentTag]![entityID: entityID] = component
     }
 }

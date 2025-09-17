@@ -29,15 +29,17 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @inlinable @inline(__always)
     func perform(_ pool: inout ComponentPool, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        // TODO: Use the parameter pack to make a big tuple with a typed accessor for each component type.
+        //       This accessor should have a `var value { _read _modify }` so it allows to immediatly write to the component.
         @inline(__always)
         func get(_ tag: ComponentTag, _ id: Entity.ID) -> any Component {
-            pool[tag, id]
+            pool[tag, id] // TODO: This is bad, because this does some CoW, casting, etc. on each single component. Instead get all the components beforhand in a typed array
         }
         @inline(__always)
         func set(_ tag: ComponentTag, _ id: Entity.ID, _ newValue: any Component) -> Void {
             pool[tag, id] = newValue
         }
-        let entityIDs = pool.entities(repeat (each T).self)
+        let entityIDs = pool.entities(repeat (each T).InnerType.self)
         withoutActuallyEscaping(get) { getClosure in
             withoutActuallyEscaping(set) { setClosure in
                 let transit = QueryTransit(get: getClosure, set: setClosure)
@@ -69,15 +71,20 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 }
 
-struct QueryTransit {
-    let get: (ComponentTag, Entity.ID) -> any Component
-    let set: (ComponentTag, Entity.ID, any Component) -> Void
+struct QueryTransit { // TODO: This needs to become typed somehow. We can't afford to do `as` casts for each individual component. We need to supply _read and _modify here!
+    private let get: (ComponentTag, Entity.ID) -> any Component
+    private let set: (ComponentTag, Entity.ID, any Component) -> Void
+
+    init(get: @escaping (ComponentTag, Entity.ID) -> any Component, set: @escaping (ComponentTag, Entity.ID, any Component) -> Void) {
+        self.get = get
+        self.set = set
+    }
 
     subscript<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) -> C {
         `get`(C.componentTag, entityID) as! C
     }
 
-    mutating func modify<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID, map: (inout C) -> Void) {
+    func modify<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID, map: (inout C) -> Void) {
         var component = get(C.componentTag, entityID) as! C
         map(&component)
         set(C.componentTag, entityID, component)
@@ -98,25 +105,44 @@ struct QueryTransit {
 //    @usableFromInline var indexOf: (Entity.ID) -> Int
 //}
 
+struct TypedAccess<C: Component> {
+    @usableFromInline var array: UnsafeMutableBufferPointer<C>
+    @usableFromInline var indexOf: (Entity.ID) -> Int
+
+    @inlinable
+    subscript(_ id: Entity.ID) -> C {
+        _read {
+            yield array[indexOf(id)]
+        }
+        _modify {
+            yield &array[indexOf(id)]
+        }
+    }
+}
+
 protocol ComponentResolving {
     associatedtype ResolvedType = Self
+    associatedtype InnerType: Component = Self
     static func makeResolved(transit: QueryTransit, entityID: Entity.ID) -> ResolvedType
 }
 
-extension ComponentResolving where Self: Component, ResolvedType == Self {
+extension ComponentResolving where Self: Component, ResolvedType == Self, InnerType == Self {
     static func makeResolved(transit: QueryTransit, entityID: Entity.ID) -> Self {
-        transit.get(Self.componentTag, entityID) as! Self
+        transit[InnerType.self, entityID]
     }
 }
 
 extension Write: ComponentResolving {
     typealias ResolvedType = Write<Wrapped>
+    typealias InnerType = Wrapped
 
     static func makeResolved(transit: QueryTransit, entityID: Entity.ID) -> Write<Wrapped> {
         Write<Wrapped> {
-            transit.get(Wrapped.componentTag, entityID) as! Wrapped
+            transit[Wrapped.self, entityID]
         } set: { newValue in
-            transit.set(Wrapped.componentTag, entityID, newValue)
+            transit.modify(Wrapped.self, entityID) { component in
+                component = newValue
+            }
         }
     }
 }
@@ -173,6 +199,7 @@ struct Write<C: Component>: WritableComponent {
 
     typealias Wrapped = C
 
+    // TODO: Give this an TypedAccessor so that we can use _read and _modify here too!
     let get: () -> C
     let set: (C) -> Void
 

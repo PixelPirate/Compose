@@ -20,20 +20,26 @@ func testComposite() throws {
     )
 
     var pool = ComponentPool(
-        components: [
-            Transform.componentTag : ComponentArray(
+        (
+            Transform.componentTag, ComponentArray(
                 (Entity.ID(rawValue: 0), Transform(position: .zero, rotation: .zero, scale: .zero))
-            ),
-            Gravity.componentTag : ComponentArray(
+            )
+        ),
+        (
+            Gravity.componentTag, ComponentArray(
                 (Entity.ID(rawValue: 0), Gravity(force: Vector3(x: 1, y: 1, z: 1)))
-            ),
-            RigidBody.componentTag : ComponentArray(
+            )
+        ),
+        (
+            RigidBody.componentTag, ComponentArray(
                 (Entity.ID(rawValue: 0), RigidBody(velocity: .zero, acceleration: .zero))
-            ),
-            Person.componentTag : ComponentArray(
+            )
+        ),
+        (
+            Person.componentTag, ComponentArray(
                 (Entity.ID(rawValue: 0), Person())
-            ),
-        ]
+            )
+        )
     )
 
     query(&pool) { transform, gravity in
@@ -56,8 +62,8 @@ func testPerformance() throws {
     let setup = clock.measure {
         pool = ComponentPool(
             components: [
-                Transform.componentTag : ComponentArray((0...1_000_000).map { (Entity.ID(rawValue: $0), Transform(position: .zero, rotation: .zero, scale: .zero)) }),
-                Gravity.componentTag : ComponentArray((0...1_000_000).map { (Entity.ID(rawValue: $0), Gravity(force: Vector3(x: 1, y: 1, z: 1))) }),
+                Transform.componentTag : AnyComponentArray(ComponentArray((0...1_000_000).map { (Entity.ID(rawValue: $0), Transform(position: .zero, rotation: .zero, scale: .zero)) })),
+                Gravity.componentTag : AnyComponentArray(ComponentArray((0...1_000_000).map { (Entity.ID(rawValue: $0), Gravity(force: Vector3(x: 1, y: 1, z: 1))) })),
             ]
         )
     }
@@ -68,6 +74,6 @@ func testPerformance() throws {
             transform.position.x += gravity.force.x
         }
     }
-//2 seconds
+//~2 seconds
     print(duration)
 }
