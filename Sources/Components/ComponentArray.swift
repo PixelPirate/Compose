@@ -1,10 +1,3 @@
-//
-//  ComponentArray.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 11.09.25.
-//
-
 struct ComponentArray<Component>: Collection {
     private var components: ContiguousArray<Component> = []
     private var entityToComponents: [Entity.ID: Array.Index] = [:]
@@ -20,6 +13,22 @@ struct ComponentArray<Component>: Collection {
         for (id, component) in pairs {
             append(component, to: id)
         }
+    }
+
+    /// Returns the entity IDs in the same order as their components are stored.
+    func entityIDsInStorageOrder() -> [Entity.ID] {
+        var ids: [Entity.ID] = []
+        ids.reserveCapacity(components.count)
+        for idx in components.indices {
+            guard let id = componentsToEntities[idx] else { fatalError("Missing entity mapping for component index.") }
+            ids.append(id)
+        }
+        return ids
+    }
+
+    /// Returns true if this array contains a component for the given entity.
+    func containsEntity(_ entityID: Entity.ID) -> Bool {
+        entityToComponents[entityID] != nil
     }
 
     mutating func append(_ component: Component, to entityID: Entity.ID) {

@@ -13,6 +13,20 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
         Query<repeat each T, U>(backstageComponents: backstageComponents)
     }
 
+//    extension ComponentArray {
+//        subscript(reference entityID: Entity.ID) -> C {
+//            _read {
+//                let idx = entityToComponents[entityID]!; yield components[idx]
+//            }
+//            _modify {
+//                let idx = entityToComponents[entityID]!; yield &components[idx]
+//            }
+//        }
+//    }
+//    query(&pool) { (transform: inout Transform, gravity: Gravity) in
+//        transform.position.x += gravity.force.x
+//    }
+
     @inlinable @inline(__always)
     func perform(_ pool: inout ComponentPool, _ handler: (repeat (each T).ResolvedType) -> Void) {
         @inline(__always)
@@ -23,36 +37,17 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
         func set(_ tag: ComponentTag, _ id: Entity.ID, _ newValue: any Component) -> Void {
             pool[tag, id] = newValue
         }
+        let entityIDs = pool.entities(repeat (each T).self)
         withoutActuallyEscaping(get) { getClosure in
             withoutActuallyEscaping(set) { setClosure in
                 let transit = QueryTransit(get: getClosure, set: setClosure)
-                handler(repeat (each T).makeResolved(transit: transit))
+                for entityID in entityIDs {
+                    handler(repeat (each T).makeResolved(transit: transit, entityID: entityID))
+                }
             }
         }
     }
 
-//     @inlinable @inline(__always)
-//     func perform(_ pool: inout ComponentPool, _ handler: (repeat each T) -> Void) {
-//         @inline(__always)
-//         func get(_ tag: ComponentTag, _ id: Entity.ID) -> any Component {
-//             pool[tag, id]
-//         }
-//         @inline(__always)
-//         func set(_ tag: ComponentTag, _ id: Entity.ID, _ newValue: any Component) -> Void {
-//             pool[tag, id] = newValue
-//         }
-//         withoutActuallyEscaping(get) { getClosure in
-//             withoutActuallyEscaping(set) { setClosure in
-//                 let transit = QueryTransit(get: getClosure, set: setClosure)
-//                 handler(repeat ComponentResolver<each T>.resolve(transit))
-//             }
-//         }
-//     }
-
-
-//    func callAsFunction(_ pool: inout ComponentPool, _ handler: (repeat each T) -> Void) {
-//        perform(&pool, handler)
-//    }
     func callAsFunction(_ pool: inout ComponentPool, _ handler: (repeat (each T).ResolvedType) -> Void) {
         perform(&pool, handler)
     }
@@ -88,99 +83,43 @@ struct QueryTransit {
         set(C.componentTag, entityID, component)
     }
 }
+//struct TypedAccess<C: Component> {
+//    @usableFromInline var array: UnsafeMutableBufferPointer<C>
+//    @usableFromInline var indexOf: (Entity.ID) -> Int
+//}
+//struct QueryAccess<each T: Component> {
+//    // One typed accessor per pack element
+//    let accessors: (repeat TypedAccess<each T>)
+//}
+//struct TypedTransit<C: Component> {
+//    @usableFromInline var array: UnsafeMutableBufferPointer<C>
+//    @inlinable func get(_ id: Entity.ID) -> C { array[indexOf(id)] }
+//    @inlinable func set(_ id: Entity.ID, _ value: C) { array[indexOf(id)] = value }
+//    @usableFromInline var indexOf: (Entity.ID) -> Int
+//}
 
 protocol ComponentResolving {
     associatedtype ResolvedType = Self
-    static func makeResolved(transit: QueryTransit) -> ResolvedType
+    static func makeResolved(transit: QueryTransit, entityID: Entity.ID) -> ResolvedType
 }
 
 extension ComponentResolving where Self: Component, ResolvedType == Self {
-    static func makeResolved(transit: QueryTransit) -> Self {
-        transit.get(Self.componentTag, Entity.ID(rawValue: 0)) as! Self
+    static func makeResolved(transit: QueryTransit, entityID: Entity.ID) -> Self {
+        transit.get(Self.componentTag, entityID) as! Self
     }
 }
 
 extension Write: ComponentResolving {
     typealias ResolvedType = Write<Wrapped>
 
-    static func makeResolved(transit: QueryTransit) -> Write<Wrapped> {
+    static func makeResolved(transit: QueryTransit, entityID: Entity.ID) -> Write<Wrapped> {
         Write<Wrapped> {
-            transit.get(Wrapped.componentTag, Entity.ID(rawValue: 0)) as! Wrapped
+            transit.get(Wrapped.componentTag, entityID) as! Wrapped
         } set: { newValue in
-            transit.set(Wrapped.componentTag, Entity.ID(rawValue: 0), newValue)
+            transit.set(Wrapped.componentTag, entityID, newValue)
         }
     }
 }
-
-enum ComponentResolver<T: Component> {
-    typealias Output = T
-
-    @inlinable @inline(__always)
-    static func resolve(_ transit: QueryTransit) -> T {
-        if let writableType = T.self as? any WritableComponent.Type {
-            return resolveWritable(writableType, transit: transit) as! T
-        } else {
-            return transit.get(T.componentTag, Entity.ID(rawValue: 0)) as! T
-        }
-    }
-
-    @inline(__always)
-    private static func resolveWritable<W: WritableComponent, Wrapped>(_: W.Type, transit: QueryTransit) -> any Component where Wrapped == W.Wrapped {
-        Write<Wrapped> {
-            transit.get(Wrapped.componentTag, Entity.ID(rawValue: 0)) as! Wrapped
-        } set: { newValue in
-            transit.set(Wrapped.componentTag, Entity.ID(rawValue: 0), newValue)
-        }
-    }
-}
-
-struct TestSystem: System {
-    let id = SystemID(name: "Test")
-
-    var entities: Set<Entity.ID> = []
-
-    let query = Query {
-        Transform.self
-    }
-
-    var signature: ComponentSignature {
-        query.signature
-    }
-
-    func callAsFunction(_ pool: inout ComponentPool) {
-        query(&pool) { transform in
-
-        }
-    }
-}
-
-/*
-@System
-struct TestSystem/*: System*/ {
-    //let id = SystemID(name: "TestSystem")
-
-    //var entities: Set<Entity.ID> = []
-
-    //let query = CompositeV3 {
-    //    Transform.self,
-    //    Geometry.self,
-    //    Gravity.self
-    //}
-
-    //var signature: ComponentSignature {
-    //    query.signature
-    //}
-
-    //func callAsFunction(_ pool: ComponentPool) {
-    //    query.doSomething(pool) { transform, geometry, gravity in
-    //        perform(transform: transform, geometry: geometry, gravity)
-    //    }
-    //}
-
-   func perform(transform: Write<Transform>, geometry: Geometry, _ gravity: With<Gravity>) { // Take all the parameters here to generate the above.
-   }
-}
- */
 
 struct BuiltQuery<each T: Component & ComponentResolving> {
     let composite: Query<repeat each T>
@@ -248,9 +187,25 @@ struct Write<C: Component>: WritableComponent {
         }
     }
 }
+//static func makeResolved(transit: TypedTransit<C>, entityID: Entity.ID) -> Write<C> {
+//    let idx = transit.indexOf(entityID)
+//    return Write(ptr: transit.array.baseAddress!.advanced(by: idx))
+//}
+//@dynamicMemberLookup
+//struct Write<C: Component> {
+//    @usableFromInline var ptr: UnsafeMutablePointer<C>
+//
+//    @inlinable
+//    subscript<R>(dynamicMember keyPath: WritableKeyPath<C, R>) -> R {
+//        get { ptr.pointee[keyPath: keyPath] }
+//        nonmutating set { ptr.pointee[keyPath: keyPath] = newValue }
+//    }
+//}
 
 struct With<C: Component>: Component {
     static var componentTag: ComponentTag { C.componentTag }
 
     typealias Wrapped = C
 }
+
+// TODO: Without<C>

@@ -1,10 +1,3 @@
-//
-//  Coordinator.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 12.09.25.
-//
-
 struct Coordinator {
     private var systemManager = SystemManager()
     private var componentPool = ComponentPool()

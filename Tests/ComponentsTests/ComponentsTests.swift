@@ -56,8 +56,8 @@ func testPerformance() throws {
     let setup = clock.measure {
         pool = ComponentPool(
             components: [
-                Transform.componentTag : ComponentArray((0...10_000_000).map { (Entity.ID(rawValue: $0), Transform(position: .zero, rotation: .zero, scale: .zero)) }),
-                Gravity.componentTag : ComponentArray((0...10_000_000).map { (Entity.ID(rawValue: $0), Gravity(force: Vector3(x: 1, y: 1, z: 1))) }),
+                Transform.componentTag : ComponentArray((0...1_000_000).map { (Entity.ID(rawValue: $0), Transform(position: .zero, rotation: .zero, scale: .zero)) }),
+                Gravity.componentTag : ComponentArray((0...1_000_000).map { (Entity.ID(rawValue: $0), Gravity(force: Vector3(x: 1, y: 1, z: 1))) }),
             ]
         )
     }
@@ -68,6 +68,6 @@ func testPerformance() throws {
             transform.position.x += gravity.force.x
         }
     }
-//6.7375e-05 seconds
+//2 seconds
     print(duration)
 }

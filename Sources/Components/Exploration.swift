@@ -1,11 +1,3 @@
-//
-//  Exploration.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 12.09.25.
-//
-
-
 /* In Bevy:
  #[derive(Component)]
  struct Position {

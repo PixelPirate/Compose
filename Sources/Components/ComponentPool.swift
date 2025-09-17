@@ -1,12 +1,8 @@
-//
-//  ComponentPool.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 11.09.25.
-//
-
 struct ComponentPool {
     private(set) var components: [ComponentTag: ComponentArray<any Component>] = [:]
+    // TODO: Array<any Component> is an issue, because we have to case every single component.
+    // It would be better to have an actual typed array, but hide the whole typed array in an erased wrapper
+    // then there only needs to be one single case for the array as a whole.
 }
 
 extension ComponentPool {
@@ -24,6 +20,23 @@ extension ComponentPool {
             array.remove(enitityID)
             return array
         }
+    }
+
+    // TODO: This algorithm is complete shit.
+    func entities<each C: Component>(_ components: repeat (each C).Type) -> [Entity.ID] {
+        var result: Set<Entity.ID> = []
+        var initial = true
+        for component in repeat each components {
+            let tag = component.componentTag
+            let new = self.components[tag]!.entityIDsInStorageOrder()
+            if initial {
+                initial = false
+                result.formUnion(new)
+            } else {
+                result.formIntersection(new)
+            }
+        }
+        return Array(result)
     }
 
     subscript<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) -> C {
