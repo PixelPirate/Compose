@@ -1,6 +1,6 @@
 struct Query<each T: Component> where repeat each T: ComponentResolving {
     /// These components will be used for selecting the correct archetype, but they will not be included in the query output.
-    let backstageComponents: [ComponentTag] // Or witnessComponents?
+    let backstageComponents: Set<ComponentTag> // Or witnessComponents?
 
     func appending<U>(_ type: U.Type = U.self) -> Query<repeat each T, U> {
         Query<repeat each T, U>(backstageComponents: backstageComponents)
@@ -8,7 +8,7 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @inlinable @inline(__always)
     func perform(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        let entityIDs = coordinator.pool.entities(repeat (each T).InnerType.self)
+        let entityIDs = coordinator.pool.entities(repeat (each T).InnerType.self, tags: backstageComponents)
         withTypedBuffers(&coordinator.pool) { (
             buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, [Entity.ID: Array.Index])
         ) in
@@ -17,6 +17,37 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
                 handler(repeat (each T).makeResolved(access: each accessors, entityID: entityId))
             }
         }
+    }
+
+    func fetchAll(_ coordinator: inout Coordinator) -> [Entity.ID: (repeat (each T).InnerType)] {
+        var result: [Entity.ID: (repeat (each T).InnerType)] = [:]
+        let entityIDs = coordinator.pool.entities(repeat (each T).InnerType.self, tags: backstageComponents)
+        withTypedBuffers(&coordinator.pool) { (
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, [Entity.ID: Array.Index])
+        ) in
+            let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
+            for entityId in entityIDs {
+                result[entityId] = (repeat (each accessors).access(entityId).value)
+            }
+        }
+
+        return result
+    }
+
+    func fetchOne(_ coordinator: inout Coordinator) -> (entityID: Entity.ID, components: (repeat (each T).InnerType))? {
+        var result: (entityID: Entity.ID, components: (repeat (each T).InnerType))? = nil
+        let entityIDs = coordinator.pool.entities(repeat (each T).InnerType.self, tags: backstageComponents)
+        withTypedBuffers(&coordinator.pool) { (
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, [Entity.ID: Array.Index])
+        ) in
+            let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
+            for entityId in entityIDs {
+                result = (entityID: entityId, (repeat (each accessors).access(entityId).value))
+                break
+            }
+        }
+
+        return result
     }
 
     // TODO: Make a version which returns the result (Most useful together with entity ID filters).
@@ -127,7 +158,7 @@ enum QueryBuilder {
         BuiltQuery(
             composite: Query<repeat each T,
             repeat each U>(
-                backstageComponents: accumulated.composite.backstageComponents + next.composite.backstageComponents
+                backstageComponents: accumulated.composite.backstageComponents.union(next.composite.backstageComponents)
             )
         )
     }

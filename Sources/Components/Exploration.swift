@@ -50,7 +50,7 @@ struct Gravity: Component {
     var force: Vector3
 }
 
-struct RigidBody: Component {
+struct RigidBody: Component, Equatable {
     static let componentTag = ComponentTag.makeTag()
 
     var velocity: Vector3

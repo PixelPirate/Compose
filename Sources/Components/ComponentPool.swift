@@ -35,12 +35,20 @@ extension ComponentPool {
         }
     }
 
-    func entities<each C: Component>(_ components: repeat (each C).Type) -> [Entity.ID] {
+    func entities<each C: Component>(_ components: repeat (each C).Type, tags: Set<ComponentTag> = []) -> [Entity.ID] {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = [] // inline array
 
         for component in repeat each components {
             let tag = component.componentTag
+            // If any tag is missing or empty, there can be no matches.
+            guard let array = self.components[tag], !array.entityToComponents.isEmpty else {
+                return []
+            }
+            arrays.append(array)
+        }
+
+        for tag in tags {
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.entityToComponents.isEmpty else {
                 return []

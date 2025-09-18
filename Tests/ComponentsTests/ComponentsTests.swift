@@ -72,3 +72,64 @@ func testPerformance() throws {
 //~0.6 seconds
     print(duration)
 }
+
+@Test func with() async throws {
+    let query = Query {
+        Transform.self
+        With<Gravity>.self
+    }
+
+    var coordinator = Coordinator()
+
+    coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero)
+    )
+
+    #expect(query.fetchOne(&coordinator) == nil)
+}
+
+@Test func fetchAll() throws {
+    var coordinator = Coordinator()
+
+    for _ in 0..<1_000 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero),
+            Gravity(force: Vector3(x: 1, y: 1, z: 1))
+        )
+    }
+
+    let transforms: [Entity.ID: Transform] = Query {
+        Write<Transform>.self
+    }
+    .fetchAll(&coordinator)
+
+    #expect(transforms.count == 1_000)
+
+    let multiComponents: [Entity.ID: (Transform, Gravity)] = Query {
+        Write<Transform>.self
+        Gravity.self
+    }
+    .fetchAll(&coordinator)
+
+    #expect(multiComponents.count == 1_000)
+}
+
+@Test func fetchOne() {
+    var coordinator = Coordinator()
+
+    for _ in 0..<1_000 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero),
+            Gravity(force: Vector3(x: 1, y: 1, z: 1))
+        )
+    }
+    let expectedEntityID = coordinator.spawn(RigidBody(velocity: Vector3(x: 1, y: 2, z: 3), acceleration: .zero))
+
+    let rigidBody = Query {
+        RigidBody.self
+    }
+    .fetchOne(&coordinator)
+
+    #expect(rigidBody?.entityID == expectedEntityID)
+    #expect(rigidBody?.components == RigidBody(velocity: Vector3(x: 1, y: 2, z: 3), acceleration: .zero))
+}
