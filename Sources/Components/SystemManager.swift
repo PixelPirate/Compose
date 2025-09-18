@@ -14,6 +14,7 @@ struct SystemManager {
             fatalError("System already registered.")
         }
         systems[system.id] = system
+        setSignature(system.signature, systemID: system.id)
     }
 
     mutating func setSignature(_ signature: ComponentSignature, systemID: SystemID) {
@@ -29,6 +30,11 @@ struct SystemManager {
             newSystem.entities.remove(entityID)
             return newSystem
         }
+    }
+
+    mutating func remove(_ systemID: SystemID) {
+        systems.removeValue(forKey: systemID)
+        signatures.removeValue(forKey: systemID)
     }
 
     mutating func updateSignature(_ signature: ComponentSignature, for entityID: Entity.ID) {

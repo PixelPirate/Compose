@@ -94,27 +94,27 @@ func test() {
     coordinator.add(physicsSystem)
     coordinator.updateSystemSignature(physicsSystem.signature, systemID: physicsSystem.id)
 
-    let entities = (0..<100).map { Entity(id: Entity.ID(rawValue: $0)) }
+    let entities = (0..<100).map { _ in coordinator.spawn() }
 
-    for var entity in entities {
-        coordinator.addComponent(
+    for entityID in entities {
+        coordinator.add(
             Gravity(force: Vector3(x: 0, y: 0, z: 0)),
-            to: &entity
+            to: entityID
         )
-        coordinator.addComponent(
+        coordinator.add(
             RigidBody(
                 velocity: Vector3(x: 0, y: 0, z: 0),
                 acceleration: Vector3(x: 0, y: 0, z: 0)
             ),
-            to: &entity
+            to: entityID
         )
-        coordinator.addComponent(
+        coordinator.add(
             Transform(
                 position: Vector3(x: 0, y: 0, z: 0),
                 rotation: Vector3(x: 0, y: 0, z: 0),
                 scale: Vector3(x: 0, y: 0, z: 0)
             ),
-            to: &entity
+            to: entityID
         )
     }
 

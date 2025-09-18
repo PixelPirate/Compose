@@ -19,7 +19,7 @@ func testComposite() async throws {
         query.signature == ComponentSignature(Transform.componentTag, Gravity.componentTag, RigidBody.componentTag)
     )
 
-    var coordinator = Coordinator2()
+    var coordinator = Coordinator()
     coordinator.spawn(
         Transform(position: .zero, rotation: .zero, scale: .zero),
         Gravity(force: Vector3(x: 1, y: 1, z: 1)),
@@ -51,7 +51,7 @@ func testPerformance() throws {
     }
     let clock = ContinuousClock()
 
-    var coordinator = Coordinator2()
+    var coordinator = Coordinator()
 
     let setup = clock.measure {
         for _ in 0...1_000_000 {

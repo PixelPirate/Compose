@@ -18,9 +18,23 @@ struct ComponentSignature: Hashable {
         }
     }
 
+    mutating func append(_ tag: ComponentTag) {
+        rawHashValue.insert(tag.rawValue)
+    }
+
     func appending(_ tag: ComponentTag) -> Self {
         var newSignature = rawHashValue
         newSignature.insert(tag.rawValue)
+        return ComponentSignature(raw: newSignature)
+    }
+
+    mutating func remove(_ tag: ComponentTag) {
+        rawHashValue.remove(tag.rawValue)
+    }
+
+    func removing(_ tag: ComponentTag) -> Self {
+        var newSignature = rawHashValue
+        newSignature.remove(tag.rawValue)
         return ComponentSignature(raw: newSignature)
     }
 }

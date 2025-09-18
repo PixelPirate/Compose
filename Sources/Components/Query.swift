@@ -7,7 +7,7 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @inlinable @inline(__always)
-    func perform(_ coordinator: inout Coordinator2, _ handler: (repeat (each T).ResolvedType) -> Void) {
+    func perform(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let entityIDs = coordinator.pool.entities(repeat (each T).InnerType.self)
         withTypedBuffers(&coordinator.pool) { (
             buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, [Entity.ID: Array.Index])
@@ -19,7 +19,10 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
         }
     }
 
-    func callAsFunction(_ coordinator: inout Coordinator2, _ handler: (repeat (each T).ResolvedType) -> Void) {
+    // TODO: Make a version which returns the result (Most useful together with entity ID filters).
+    //       Call it `fetchAll` and `fetchOne`.
+    //       E.g.: let transform = coordinator.fetchOne(Query { Transform.self; Entities(4) })
+    func callAsFunction(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
         perform(&coordinator, handler)
     }
 
