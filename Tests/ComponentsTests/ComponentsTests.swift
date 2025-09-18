@@ -62,8 +62,23 @@ func testPerformance() throws {
     let setup = clock.measure {
         pool = ComponentPool(
             components: [
-                Transform.componentTag : AnyComponentArray(ComponentArray((0...1_000_000).map { (Entity.ID(rawValue: $0), Transform(position: .zero, rotation: .zero, scale: .zero)) })),
-                Gravity.componentTag : AnyComponentArray(ComponentArray((0...1_000_000).map { (Entity.ID(rawValue: $0), Gravity(force: Vector3(x: 1, y: 1, z: 1))) })),
+                Transform.componentTag : AnyComponentArray(
+                    ComponentArray(
+                        (0...1_000_000)
+                            .map {
+                                (Entity.ID(rawValue: $0), Transform(position: .zero, rotation: .zero, scale: .zero))
+                            }
+                    )
+                ),
+                Gravity.componentTag : AnyComponentArray(
+                    ComponentArray(
+                        (0...1_000_000)
+                            .map {
+                                (Entity.ID(rawValue: $0), Gravity(force: Vector3(x: 1, y: 1, z: 1)))
+                            }
+                            .shuffled() // Make sure that the second component is not initiated in the same order.
+                    )
+                ),
             ]
         )
     }
@@ -74,6 +89,7 @@ func testPerformance() throws {
             transform.position.x += gravity.force.x
         }
     }
-//~2 seconds
+// Bevy seems to need 6.7ms for this
+//~0.6 seconds
     print(duration)
 }
