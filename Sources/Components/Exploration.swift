@@ -36,37 +36,61 @@
 
 import Foundation
 
-struct Vector3: Hashable {
-    var x: Float
-    var y: Float
-    var z: Float
+public struct Vector3: Hashable, Sendable {
+    public var x: Float
+    public var y: Float
+    public var z: Float
 
-    static let zero = Vector3(x: 0, y: 0, z: 0)
+    public static let zero = Vector3(x: 0, y: 0, z: 0)
+
+    public init(x: Float, y: Float, z: Float) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
 }
 
-struct Gravity: Component {
-    static let componentTag = ComponentTag.makeTag()
+public struct Gravity: Component {
+    public static let componentTag = ComponentTag.makeTag()
 
-    var force: Vector3
+    public var force: Vector3
+
+    public init(force: Vector3) {
+        self.force = force
+    }
 }
 
-struct RigidBody: Component, Equatable {
-    static let componentTag = ComponentTag.makeTag()
+public struct RigidBody: Component, Equatable {
+    public static let componentTag = ComponentTag.makeTag()
 
-    var velocity: Vector3
-    var acceleration: Vector3
+    public var velocity: Vector3
+    public var acceleration: Vector3
+
+    public init(velocity: Vector3, acceleration: Vector3) {
+        self.velocity = velocity
+        self.acceleration = acceleration
+    }
 }
 
-struct Transform: Component {
-    static let componentTag = ComponentTag.makeTag()
+public struct Transform: Component {
+    public static let componentTag = ComponentTag.makeTag()
 
-    var position: Vector3
-    var rotation: Vector3
-    var scale: Vector3
+    public var position: Vector3
+    public var rotation: Vector3
+    public var scale: Vector3
+
+    public init(position: Vector3, rotation: Vector3, scale: Vector3) {
+        self.position = position
+        self.rotation = rotation
+        self.scale = scale
+    }
 }
 
-struct Person: Component {
-    static let componentTag = ComponentTag.makeTag()
+public struct Person: Component {
+    public static let componentTag = ComponentTag.makeTag()
+
+    public init() {
+    }
 }
 
 struct PhysicsSystem: System {

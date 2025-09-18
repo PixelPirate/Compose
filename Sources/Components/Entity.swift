@@ -1,7 +1,7 @@
-struct Entity {
-    struct ID: Hashable {
-        typealias Index = Int
-        let rawValue: Index
+public struct Entity {
+    public struct ID: Hashable {
+        public typealias Index = Int
+        public let rawValue: Index
         /*
          // TODO: I need this for a proper sparse set.
          //       I need some registry to track the current generation count and free IDs (after destroy).
@@ -9,11 +9,11 @@ struct Entity {
          let generation: Int
          */
     }
-    let id: ID
-    var signature = ComponentSignature()
+    public let id: ID
+    public var signature = ComponentSignature()
 }
 
-typealias SlotIndex = Int
+public typealias SlotIndex = Int
 
 struct IndexRegistry {
     struct ArchetypeRow {

@@ -6,16 +6,16 @@
 //
 
 
-protocol System {
+public protocol System {
     var id: SystemID { get }
     var entities: Set<Entity.ID> { get set }
     var signature: ComponentSignature { get }
 }
 
-struct SystemID: Hashable {
-    let rawHashValue: Int
+public struct SystemID: Hashable {
+    public let rawHashValue: Int
 
-    init(name: String) {
+    public init(name: String) {
         rawHashValue = name.hashValue
     }
 }

@@ -1,11 +1,11 @@
-struct ComponentPool {
+public struct ComponentPool {
     private(set) var components: [ComponentTag: AnyComponentArray] = [:]
 
-    init(components: [ComponentTag : AnyComponentArray] = [:]) {
+    public init(components: [ComponentTag : AnyComponentArray] = [:]) {
         self.components = components
     }
 
-    init<each T: Component>(_ elements: repeat (ComponentTag, ComponentArray<each T>)) {
+    public init<each T: Component>(_ elements: repeat (ComponentTag, ComponentArray<each T>)) {
         var newComponents: [ComponentTag : AnyComponentArray] = [:]
         for element in repeat each elements {
             newComponents[element.0] = AnyComponentArray(element.1)
@@ -35,9 +35,15 @@ extension ComponentPool {
         }
     }
 
-    func entities<each C: Component>(_ components: repeat (each C).Type, tags: Set<ComponentTag> = []) -> [Entity.ID] {
+    @usableFromInline
+    func entities<each C: Component>(
+        _ components: repeat (each C).Type,
+        included: Set<ComponentTag> = [],
+        excluded: Set<ComponentTag> = []
+    ) -> [Entity.ID] {
         // Collect the AnyComponentArray for each requested component type.
-        var arrays: [AnyComponentArray] = [] // inline array
+        var arrays: [AnyComponentArray] = []
+        var excludedArrays: [AnyComponentArray] = []
 
         for component in repeat each components {
             let tag = component.componentTag
@@ -48,12 +54,20 @@ extension ComponentPool {
             arrays.append(array)
         }
 
-        for tag in tags {
+        for tag in included {
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.entityToComponents.isEmpty else {
                 return []
             }
             arrays.append(array)
+        }
+
+        for tag in excluded {
+            // If any tag is missing or empty, there can be no matches.
+            guard let array = self.components[tag], !array.entityToComponents.isEmpty else {
+                return []
+            }
+            excludedArrays.append(array)
         }
 
         // Sort by ascending number of entities to minimize membership checks.
@@ -64,7 +78,15 @@ extension ComponentPool {
         // Take the smallest set of IDs as the candidate base.
         let smallest = arrays[0]
         if arrays.count == 1 {
-            return Array(smallest.entityToComponents.keys)
+            if excluded.isEmpty {
+                return Array(smallest.entityToComponents.keys)
+            } else {
+                return smallest.entityToComponents.keys.filter { id in
+                    excludedArrays.allSatisfy { component in
+                        component.entityToComponents[id] == nil
+                    }
+                }
+            }
         }
 
         // Prepare the remaining dictionaries for O(1) membership checks.
@@ -76,9 +98,18 @@ extension ComponentPool {
         for id in smallest.entityToComponents.keys {
             var presentInAll = true
             for dict in others {
-                if dict[id] == nil { presentInAll = false; break }
+                if dict[id] == nil {
+                    presentInAll = false
+                    break
+                }
             }
-            if presentInAll { result.append(id) }
+            for excluded in excludedArrays where excluded.entityToComponents[id] != nil {
+                presentInAll = false
+                break
+            }
+            if presentInAll {
+                result.append(id)
+            }
         }
         return result
     }

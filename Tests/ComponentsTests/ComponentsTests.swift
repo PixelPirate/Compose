@@ -1,50 +1,7 @@
 import Testing
-@testable import Components
+/*@testable*/ import Components
 
-@Test
-func testComposite() async throws {
-    let query = Query {
-        Write<Transform>.self
-        Gravity.self
-        With<RigidBody>.self
-    }
-
-    #expect(
-        query.backstageComponents == [
-            RigidBody.componentTag
-        ]
-    )
-
-    #expect(
-        query.signature == ComponentSignature(Transform.componentTag, Gravity.componentTag, RigidBody.componentTag)
-    )
-
-    var coordinator = Coordinator()
-    coordinator.spawn(
-        Transform(position: .zero, rotation: .zero, scale: .zero),
-        Gravity(force: Vector3(x: 1, y: 1, z: 1)),
-        RigidBody(velocity: .zero, acceleration: .zero),
-        Person()
-    )
-
-    coordinator.perform(query) { transform, gravity in
-        transform.position = Vector3(x: gravity.force.x, y: gravity.force.y, z: gravity.force.z)
-    }
-
-    await confirmation(expectedCount: 1) { confirmation in
-        coordinator.perform(
-            Query {
-                Transform.self
-            }
-        ) { transform in
-            #expect(transform.position == Vector3(x: 1, y: 1, z: 1))
-            confirmation()
-        }
-    }
-}
-
-@Test
-func testPerformance() throws {
+@Test func testPerformance() throws {
     let query = Query {
         Write<Transform>.self
         Gravity.self
@@ -73,16 +30,65 @@ func testPerformance() throws {
     print(duration)
 }
 
-@Test func with() async throws {
+@Test func write() throws {
+    let query = Query {
+        Write<Transform>.self
+        Gravity.self
+    }
+
+    #expect(query.backstageComponents == [])
+    #expect(query.excludedComponents == [])
+    #expect(query.signature == ComponentSignature(Transform.componentTag, Gravity.componentTag))
+
+    var coordinator = Coordinator()
+
+    coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+    )
+
+    coordinator.perform(query) { (transform: Write<Transform>, gravity: Gravity) in
+        transform.position.x += gravity.force.x
+    }
+
+    let position = try #require(Query { Transform.self }.fetchOne(&coordinator))
+    #expect(position.components.position == Vector3(x: 1, y: 0, z: 0))
+}
+
+@Test func with() throws {
     let query = Query {
         Transform.self
         With<Gravity>.self
     }
 
+    #expect(query.backstageComponents == [Gravity.componentTag])
+    #expect(query.excludedComponents == [])
+    #expect(query.signature == ComponentSignature(Transform.componentTag, Gravity.componentTag))
+
     var coordinator = Coordinator()
 
     coordinator.spawn(
         Transform(position: .zero, rotation: .zero, scale: .zero)
+    )
+
+    #expect(query.fetchOne(&coordinator) == nil)
+}
+
+@Test func without() throws {
+    let query = Query {
+        Transform.self
+        Without<Gravity>.self
+    }
+
+    #expect(query.backstageComponents == [])
+    #expect(query.excludedComponents == [Gravity.componentTag])
+    #expect(query.signature == ComponentSignature(Transform.componentTag))
+
+    var coordinator = Coordinator()
+
+    coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        Gravity(force: Vector3(x: 1, y: 1, z: 1))
     )
 
     #expect(query.fetchOne(&coordinator) == nil)

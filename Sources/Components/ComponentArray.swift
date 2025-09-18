@@ -48,22 +48,22 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     }
 }
 
-struct AnyComponentArray {
+public struct AnyComponentArray {
     private var base: any AnyComponentArrayBox
 
-    init<C: Component>(_ base: ComponentArray<C>) {
+    public init<C: Component>(_ base: ComponentArray<C>) {
         self.base = ComponentArrayBox(base)
     }
 
-    mutating func remove(_ entityID: Entity.ID) {
+    public mutating func remove(_ entityID: Entity.ID) {
         base.remove(id: entityID)
     }
 
-    mutating func append(_ component: any Component, id: Entity.ID) -> Void {
+    public mutating func append(_ component: any Component, id: Entity.ID) -> Void {
         base.append(component, id: id)
     }
 
-    subscript(entityID entityID: Entity.ID) -> any Component {
+    public subscript(entityID entityID: Entity.ID) -> any Component {
         _read {
             yield base.get(entityID)
         }
@@ -72,13 +72,13 @@ struct AnyComponentArray {
         }
     }
 
-    var entityToComponents: [Entity.ID: Array.Index] {
+    public var entityToComponents: [Entity.ID: Array.Index] {
         _read {
             yield base.entityToComponents
         }
     }
 
-    func withBuffer<C: Component, Result>(
+    public func withBuffer<C: Component, Result>(
         _ of: C.Type,
         _ body: (UnsafeMutableBufferPointer<C>, [Entity.ID : Array.Index]) throws -> Result
     ) rethrows -> Result {
@@ -90,18 +90,19 @@ struct AnyComponentArray {
     }
 }
 
-struct ComponentArray<Component: Components.Component>: Collection {
-    private var components: ContiguousArray<Component> = []
+public struct ComponentArray<Component: Components.Component>: Collection {
+    @usableFromInline
+    internal var components: ContiguousArray<Component> = []
     private(set) var entityToComponents: [Entity.ID: Array.Index] = [:]
     private(set) var componentsToEntities: [Array.Index: Entity.ID] = [:]
 
-    init(_ pairs: (Entity.ID, Component)...) {
+    public init(_ pairs: (Entity.ID, Component)...) {
         for (id, component) in pairs {
             append(component, to: id)
         }
     }
 
-    init(_ pairs: [(Entity.ID, Component)]) {
+    public init(_ pairs: [(Entity.ID, Component)]) {
         for (id, component) in pairs {
             append(component, to: id)
         }
@@ -109,22 +110,22 @@ struct ComponentArray<Component: Components.Component>: Collection {
 
     @inlinable
     @inline(__always)
-    mutating func withUnsafeMutableBufferPointer<R>(_ body: (inout UnsafeMutableBufferPointer<Element>) throws -> R) rethrows -> R {
+    public mutating func withUnsafeMutableBufferPointer<R>(_ body: (inout UnsafeMutableBufferPointer<Element>) throws -> R) rethrows -> R {
         try components.withUnsafeMutableBufferPointer(body)
     }
 
     /// Returns true if this array contains a component for the given entity.
-    func containsEntity(_ entityID: Entity.ID) -> Bool {
+    public func containsEntity(_ entityID: Entity.ID) -> Bool {
         entityToComponents[entityID] != nil
     }
 
-    mutating func append(_ component: Component, to entityID: Entity.ID) {
+    public mutating func append(_ component: Component, to entityID: Entity.ID) {
         components.append(component)
         entityToComponents[entityID] = components.endIndex - 1
         componentsToEntities[components.endIndex - 1] = entityID
     }
 
-    mutating func remove(_ entityID: Entity.ID) {
+    public mutating func remove(_ entityID: Entity.ID) {
         guard let componentIndex = entityToComponents[entityID] else { return }
         guard componentIndex != components.endIndex - 1 else {
             componentsToEntities.removeValue(forKey: components.endIndex - 1)
@@ -142,7 +143,7 @@ struct ComponentArray<Component: Components.Component>: Collection {
         entityToComponents.removeValue(forKey: entityID)
     }
 
-    subscript(_ entityID: Entity.ID) -> Component {
+    public subscript(_ entityID: Entity.ID) -> Component {
         _read {
             guard let index = entityToComponents[entityID] else {
                 fatalError("Entity does not exist.")
@@ -157,14 +158,14 @@ struct ComponentArray<Component: Components.Component>: Collection {
         }
     }
 
-    var startIndex: ContiguousArray.Index { components.startIndex }
-    var endIndex: ContiguousArray.Index { components.endIndex }
+    public var startIndex: ContiguousArray.Index { components.startIndex }
+    public var endIndex: ContiguousArray.Index { components.endIndex }
 
-    func index(after i: ContiguousArray.Index) -> ContiguousArray.Index {
+    public func index(after i: ContiguousArray.Index) -> ContiguousArray.Index {
         components.index(after: i)
     }
 
-    subscript(position: ContiguousArray.Index) -> Component {
+    public subscript(position: ContiguousArray.Index) -> Component {
         components[position]
     }
 }

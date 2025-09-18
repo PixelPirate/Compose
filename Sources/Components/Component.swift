@@ -1,50 +1,50 @@
 import BitCollections
 import Atomics
 
-protocol Component: ComponentResolving {
+public protocol Component: ComponentResolving {
     static var componentTag: ComponentTag { get }
 }
 
-struct ComponentSignature: Hashable {
+public struct ComponentSignature: Hashable {
     var rawHashValue: BitSet
 
     private init(raw: BitSet) {
         rawHashValue = raw
     }
 
-    init(_ tags: ComponentTag...) {
+    public init(_ tags: ComponentTag...) {
         rawHashValue = tags.reduce(into: BitSet()) { bitSet, tag in
             bitSet.insert(tag.rawValue)
         }
     }
 
-    mutating func append(_ tag: ComponentTag) {
+    public mutating func append(_ tag: ComponentTag) {
         rawHashValue.insert(tag.rawValue)
     }
 
-    func appending(_ tag: ComponentTag) -> Self {
+    public func appending(_ tag: ComponentTag) -> Self {
         var newSignature = rawHashValue
         newSignature.insert(tag.rawValue)
         return ComponentSignature(raw: newSignature)
     }
 
-    mutating func remove(_ tag: ComponentTag) {
+    public mutating func remove(_ tag: ComponentTag) {
         rawHashValue.remove(tag.rawValue)
     }
 
-    func removing(_ tag: ComponentTag) -> Self {
+    public func removing(_ tag: ComponentTag) -> Self {
         var newSignature = rawHashValue
         newSignature.remove(tag.rawValue)
         return ComponentSignature(raw: newSignature)
     }
 }
 
-struct ComponentTag: Hashable {
-    let rawValue: Int
+public struct ComponentTag: Hashable, Sendable {
+    public let rawValue: Int
 
     nonisolated(unsafe) private static var nextTag: UnsafeAtomic<Int> = .create(0)
 
-    static func makeTag() -> Self {
+    public static func makeTag() -> Self {
         ComponentTag(
             rawValue: Self.nextTag.loadThenWrappingIncrement(ordering: .sequentiallyConsistent)
         )
