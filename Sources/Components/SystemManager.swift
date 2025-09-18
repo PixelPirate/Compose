@@ -23,10 +23,10 @@ struct SystemManager {
         signatures[systemID] = signature
     }
 
-    mutating func remove(_ entity: Entity) {
+    mutating func remove(_ entityID: Entity.ID) {
         systems = systems.mapValues { system in
             var newSystem = system
-            newSystem.entities.remove(entity.id)
+            newSystem.entities.remove(entityID)
             return newSystem
         }
     }

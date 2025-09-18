@@ -16,11 +16,15 @@ struct ComponentPool {
 
 extension ComponentPool {
     mutating func append<C: Component>(_ component: C, for enitityID: Entity.ID) {
-        components[C.componentTag]?.append(component, id: enitityID)
+        components[C.componentTag, default: AnyComponentArray(ComponentArray<C>())].append(component, id: enitityID)
     }
 
     mutating func remove<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) {
-        components[C.componentTag]?.remove(entityID)
+        remove(C.componentTag, entityID)
+    }
+
+    mutating func remove(_ componentTag: ComponentTag, _ entityID: Entity.ID) {
+        components[componentTag]?.remove(entityID)
     }
 
     mutating func remove(_ enitityID: Entity.ID) {

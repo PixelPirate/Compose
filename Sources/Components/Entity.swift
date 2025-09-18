@@ -15,7 +15,7 @@ struct Entity {
 
 typealias SlotIndex = Int
 
-struct ArchetypeRegistry {
+struct IndexRegistry {
     struct ArchetypeRow {
         let id: Int
         let row: Array.Index

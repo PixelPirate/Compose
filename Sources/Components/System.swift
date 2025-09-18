@@ -20,25 +20,25 @@ struct SystemID: Hashable {
     }
 }
 
-struct TestSystem: System {
-    let id = SystemID(name: "Test")
-
-    var entities: Set<Entity.ID> = []
-
-    let query = Query {
-        Transform.self
-    }
-
-    var signature: ComponentSignature {
-        query.signature
-    }
-
-    func callAsFunction(_ pool: inout ComponentPool) {
-        query(&pool) { transform in
-
-        }
-    }
-}
+//struct TestSystem: System {
+//    let id = SystemID(name: "Test")
+//
+//    var entities: Set<Entity.ID> = []
+//
+//    let query = Query {
+//        Transform.self
+//    }
+//
+//    var signature: ComponentSignature {
+//        query.signature
+//    }
+//
+//    func callAsFunction(_ pool: inout ComponentPool) {
+//        query(&pool) { transform in
+//
+//        }
+//    }
+//}
 
 /*
  @System

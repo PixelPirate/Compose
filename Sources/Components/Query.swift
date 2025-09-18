@@ -7,9 +7,9 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @inlinable @inline(__always)
-    func perform(_ pool: inout ComponentPool, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        let entityIDs = pool.entities(repeat (each T).InnerType.self)
-        withTypedBuffers(&pool) { (
+    func perform(_ coordinator: inout Coordinator2, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        let entityIDs = coordinator.pool.entities(repeat (each T).InnerType.self)
+        withTypedBuffers(&coordinator.pool) { (
             buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, [Entity.ID: Array.Index])
         ) in
             let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
@@ -19,8 +19,8 @@ struct Query<each T: Component> where repeat each T: ComponentResolving {
         }
     }
 
-    func callAsFunction(_ pool: inout ComponentPool, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        perform(&pool, handler)
+    func callAsFunction(_ coordinator: inout Coordinator2, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        perform(&coordinator, handler)
     }
 
     var signature: ComponentSignature {

@@ -2,7 +2,7 @@ import Testing
 @testable import Components
 
 @Test
-func testComposite() throws {
+func testComposite() async throws {
     let query = Query {
         Write<Transform>.self
         Gravity.self
@@ -19,35 +19,28 @@ func testComposite() throws {
         query.signature == ComponentSignature(Transform.componentTag, Gravity.componentTag, RigidBody.componentTag)
     )
 
-    var pool = ComponentPool(
-        (
-            Transform.componentTag, ComponentArray(
-                (Entity.ID(rawValue: 0), Transform(position: .zero, rotation: .zero, scale: .zero))
-            )
-        ),
-        (
-            Gravity.componentTag, ComponentArray(
-                (Entity.ID(rawValue: 0), Gravity(force: Vector3(x: 1, y: 1, z: 1)))
-            )
-        ),
-        (
-            RigidBody.componentTag, ComponentArray(
-                (Entity.ID(rawValue: 0), RigidBody(velocity: .zero, acceleration: .zero))
-            )
-        ),
-        (
-            Person.componentTag, ComponentArray(
-                (Entity.ID(rawValue: 0), Person())
-            )
-        )
+    var coordinator = Coordinator2()
+    coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        Gravity(force: Vector3(x: 1, y: 1, z: 1)),
+        RigidBody(velocity: .zero, acceleration: .zero),
+        Person()
     )
 
-    query(&pool) { transform, gravity in
+    coordinator.perform(query) { transform, gravity in
         transform.position = Vector3(x: gravity.force.x, y: gravity.force.y, z: gravity.force.z)
     }
 
-    let newTransform = pool[Transform.self, Entity.ID(rawValue: 0)]
-    #expect(newTransform.position == Vector3(x: 1, y: 1, z: 1))
+    await confirmation(expectedCount: 1) { confirmation in
+        coordinator.perform(
+            Query {
+                Transform.self
+            }
+        ) { transform in
+            #expect(transform.position == Vector3(x: 1, y: 1, z: 1))
+            confirmation()
+        }
+    }
 }
 
 @Test
@@ -58,34 +51,20 @@ func testPerformance() throws {
     }
     let clock = ContinuousClock()
 
-    var pool = ComponentPool()
+    var coordinator = Coordinator2()
+
     let setup = clock.measure {
-        pool = ComponentPool(
-            components: [
-                Transform.componentTag : AnyComponentArray(
-                    ComponentArray(
-                        (0...1_000_000)
-                            .map {
-                                (Entity.ID(rawValue: $0), Transform(position: .zero, rotation: .zero, scale: .zero))
-                            }
-                    )
-                ),
-                Gravity.componentTag : AnyComponentArray(
-                    ComponentArray(
-                        (0...1_000_000)
-                            .map {
-                                (Entity.ID(rawValue: $0), Gravity(force: Vector3(x: 1, y: 1, z: 1)))
-                            }
-                            .shuffled() // Make sure that the second component is not initiated in the same order.
-                    )
-                ),
-            ]
-        )
+        for _ in 0...1_000_000 {
+            coordinator.spawn(
+                Transform(position: .zero, rotation: .zero, scale: .zero),
+                Gravity(force: Vector3(x: 1, y: 1, z: 1))
+            )
+        }
     }
     print("Setup:", setup)
 
     let duration = clock.measure {
-        query(&pool) { transform, gravity in
+        coordinator.perform(query) { transform, gravity in
             transform.position.x += gravity.force.x
         }
     }
