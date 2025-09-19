@@ -16,7 +16,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             excluded: excludedComponents
         )
         withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, [Entity.ID: Array.Index])
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, ContiguousArray<ContiguousArray.Index>)
         ) in
             let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
             for entityId in entityIDs {
@@ -33,7 +33,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             excluded: excludedComponents
         )
         withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, [Entity.ID: Array.Index])
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, ContiguousArray<ContiguousArray.Index>)
         ) in
             let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
             for entityId in entityIDs {
@@ -52,7 +52,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             excluded: excludedComponents
         )
         withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, [Entity.ID: Array.Index])
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, ContiguousArray<ContiguousArray.Index>)
         ) in
             let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
             for entityId in entityIDs {
@@ -90,10 +90,10 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
 public struct TypedAccess<C: Component> {
     /*@usableFromInline*/ public var buffer: UnsafeMutableBufferPointer<C>
-    /*@usableFromInline*/ public var indices: [Entity.ID: Array.Index]
+    /*@usableFromInline*/ public var indices: ContiguousArray<ContiguousArray.Index>
 
     @usableFromInline
-    init(buffer: UnsafeMutableBufferPointer<C>, indices: [Entity.ID : Array.Index]) {
+    init(buffer: UnsafeMutableBufferPointer<C>, indices: ContiguousArray<ContiguousArray.Index>) {
         self.buffer = buffer
         self.indices = indices
     }
@@ -101,16 +101,16 @@ public struct TypedAccess<C: Component> {
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C {
         _read {
-            yield buffer[indices[id]!]
+            yield buffer[indices[id.slot.rawValue]]
         }
         nonmutating _modify {
-            yield &buffer[indices[id]!]
+            yield &buffer[indices[id.slot.rawValue]]
         }
     }
 
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C> {
-        SingleTypedAccess(buffer: buffer.baseAddress!.advanced(by: indices[id]!))
+        SingleTypedAccess(buffer: buffer.baseAddress!.advanced(by: indices[id.slot.rawValue]))
     }
 }
 
@@ -239,17 +239,17 @@ public struct Without<C: Component>: Component {
 @usableFromInline
 func withTypedBuffers<each C: Component, R>(
     _ pool: inout ComponentPool,
-    _ body: (repeat (UnsafeMutableBufferPointer<each C>, [Entity.ID: Array.Index])) throws -> R
+    _ body: (repeat (UnsafeMutableBufferPointer<each C>, ContiguousArray<ContiguousArray.Index>)) throws -> R
 ) rethrows -> R? {
-    var tuple: (repeat (UnsafeMutableBufferPointer<each C>, [Entity.ID: Array.Index]))? = nil
+    var tuple: (repeat (UnsafeMutableBufferPointer<each C>, ContiguousArray<ContiguousArray.Index>))? = nil
 
-    func buildTuple() -> (repeat (UnsafeMutableBufferPointer<each C>, [Entity.ID: Array.Index]))? {
+    func buildTuple() -> (repeat (UnsafeMutableBufferPointer<each C>, ContiguousArray<ContiguousArray.Index>))? {
         return (repeat tryGetBuffer((each C).self)!)
     }
 
-    func tryGetBuffer<D: Component>(_ type: D.Type) -> (UnsafeMutableBufferPointer<D>, [Entity.ID: Array.Index])? {
+    func tryGetBuffer<D: Component>(_ type: D.Type) -> (UnsafeMutableBufferPointer<D>, ContiguousArray<ContiguousArray.Index>)? {
         guard let anyArray = pool.components[D.componentTag] else { return nil }
-        var result: (UnsafeMutableBufferPointer<D>, [Entity.ID: Array.Index])? = nil
+        var result: (UnsafeMutableBufferPointer<D>, ContiguousArray<ContiguousArray.Index>)? = nil
         anyArray.withBuffer(D.self) { buffer, entitiesToIndices in
             result = (buffer, entitiesToIndices)
         }

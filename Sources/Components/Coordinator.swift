@@ -5,15 +5,13 @@ public struct Coordinator {
     var indices = IndexRegistry()
     var systemManager = SystemManager()
 
-    private var nextEntityID: Entity.ID.Index = 1
     private var entitySignatures: [Entity.ID: ComponentSignature] = [:]
 
     public init() {}
 
     @discardableResult
     public mutating func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
-        let newEntity = Entity.ID(rawValue: nextEntityID)
-        nextEntityID += 1
+        let newEntity = indices.allocateID()
         for component in repeat each components {
             pool.append(component, for: newEntity)
         }
@@ -28,8 +26,7 @@ public struct Coordinator {
 
     @discardableResult
     public mutating func spawn() -> Entity.ID {
-        let newEntity = Entity.ID(rawValue: nextEntityID)
-        nextEntityID += 1
+        let newEntity = indices.allocateID()
         let signature = ComponentSignature()
         entitySignatures[newEntity] = signature
         return newEntity
@@ -54,6 +51,7 @@ public struct Coordinator {
     }
 
     public mutating func destroy(_ entityID: Entity.ID) {
+        indices.free(id: entityID)
         pool.remove(entityID)
         systemManager.remove(entityID)
         entitySignatures.removeValue(forKey: entityID)

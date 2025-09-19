@@ -15,7 +15,8 @@ protocol AnyComponentArrayBox: AnyObject {
     func append(_: any Component, id: Entity.ID) -> Void
     func get(_: Entity.ID) -> any Component
     func `set`(_: Entity.ID, newValue: any Component) -> Void
-    var entityToComponents: [Entity.ID: Array.Index] { get }
+    var entityToComponents: ContiguousArray<ContiguousArray.Index> { get }
+    var componentsToEntites: ContiguousArray<SlotIndex> { get }
 }
 
 final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
@@ -41,9 +42,15 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
         base[id] = newValue as! C
     }
 
-    var entityToComponents: [Entity.ID: Array.Index] {
+    var entityToComponents: ContiguousArray<ContiguousArray.Index> {
         _read {
-            yield base.entityToComponents
+            yield base.slots
+        }
+    }
+
+    var componentsToEntites: ContiguousArray<SlotIndex> {
+        _read {
+            yield base.entities
         }
     }
 }
@@ -72,15 +79,21 @@ public struct AnyComponentArray {
         }
     }
 
-    public var entityToComponents: [Entity.ID: Array.Index] {
+    public var entityToComponents: ContiguousArray<ContiguousArray.Index> {
         _read {
             yield base.entityToComponents
         }
     }
 
+    var componentsToEntites: ContiguousArray<SlotIndex> {
+        _read {
+            yield base.componentsToEntites
+        }
+    }
+
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (UnsafeMutableBufferPointer<C>, [Entity.ID : Array.Index]) throws -> Result
+        _ body: (UnsafeMutableBufferPointer<C>, ContiguousArray<ContiguousArray.Index>) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents
@@ -90,11 +103,16 @@ public struct AnyComponentArray {
     }
 }
 
+extension ContiguousArray.Index {
+    static let notFound: ContiguousArray.Index = -1
+}
+
 public struct ComponentArray<Component: Components.Component>: Collection {
     @usableFromInline
     internal var components: ContiguousArray<Component> = []
-    private(set) var entityToComponents: [Entity.ID: Array.Index] = [:]
-    private(set) var componentsToEntities: [Array.Index: Entity.ID] = [:]
+
+    private(set) var slots: ContiguousArray<ContiguousArray.Index> = [] // Indexed by SlotIndex.
+    private(set) var entities: ContiguousArray<SlotIndex> = [] // Indexed by component index.
 
     public init(_ pairs: (Entity.ID, Component)...) {
         for (id, component) in pairs {
@@ -116,45 +134,44 @@ public struct ComponentArray<Component: Components.Component>: Collection {
 
     /// Returns true if this array contains a component for the given entity.
     public func containsEntity(_ entityID: Entity.ID) -> Bool {
-        entityToComponents[entityID] != nil
+        entityID.slot.rawValue < slots.count && slots[entityID.slot.rawValue] != .notFound
     }
 
     public mutating func append(_ component: Component, to entityID: Entity.ID) {
         components.append(component)
-        entityToComponents[entityID] = components.endIndex - 1
-        componentsToEntities[components.endIndex - 1] = entityID
+        entities.append(entityID.slot)
+        if !slots.indices.contains(entityID.slot.rawValue) {
+            let missingCount = (entityID.slot.rawValue + 1) - slots.count
+            slots.append(contentsOf: Array(repeating: -1, count: missingCount)) // TODO: Optimize.
+        }
+        slots[entityID.slot.rawValue] = components.endIndex - 1
     }
 
     public mutating func remove(_ entityID: Entity.ID) {
-        guard let componentIndex = entityToComponents[entityID] else { return }
+        guard slots.indices.contains(entityID.slot.rawValue) else { return }
+        let componentIndex = slots[entityID.slot.rawValue]
         guard componentIndex != components.endIndex - 1 else {
-            componentsToEntities.removeValue(forKey: components.endIndex - 1)
-            entityToComponents.removeValue(forKey: entityID)
+            entities.removeLast()
+            slots[entityID.slot.rawValue] = .notFound
             components.removeLast()
             return
         }
 
-        guard let lastComponentEntity = componentsToEntities.removeValue(forKey: components.endIndex - 1) else {
+        guard let lastComponentSlot = entities.popLast() else {
             fatalError("Missing entity for last component.")
         }
         components[componentIndex] = components.removeLast()
-        componentsToEntities[componentIndex] = lastComponentEntity
-        entityToComponents[lastComponentEntity] = componentIndex
-        entityToComponents.removeValue(forKey: entityID)
+        entities[componentIndex] = lastComponentSlot
+        slots[lastComponentSlot.rawValue] = componentIndex
+        slots[entityID.slot.rawValue] = .notFound
     }
 
     public subscript(_ entityID: Entity.ID) -> Component {
         _read {
-            guard let index = entityToComponents[entityID] else {
-                fatalError("Entity does not exist.")
-            }
-            yield components[index]
+            yield components[slots[entityID.slot.rawValue]]
         }
         _modify {
-            guard let index = entityToComponents[entityID] else {
-                fatalError("Entity does not exist.")
-            }
-            yield &components[index]
+            yield &components[slots[entityID.slot.rawValue]]
         }
     }
 

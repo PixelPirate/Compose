@@ -1,7 +1,6 @@
 public struct Entity {
     public struct ID: Hashable {
-        public typealias Index = Int
-        public let rawValue: Index
+        public let slot: SlotIndex
         /*
          // TODO: I need this for a proper sparse set.
          //       I need some registry to track the current generation count and free IDs (after destroy).
@@ -13,7 +12,21 @@ public struct Entity {
     public var signature = ComponentSignature()
 }
 
-public typealias SlotIndex = Int
+public struct SlotIndex: RawRepresentable, Hashable, ExpressibleByIntegerLiteral {
+    public let rawValue: Array.Index
+
+    public init(rawValue: Array.Index) {
+        self.rawValue = rawValue
+    }
+
+    public init(integerLiteral value: Int) {
+        self.rawValue = value
+    }
+
+    mutating func advancing() -> SlotIndex {
+        SlotIndex(rawValue: rawValue + 1)
+    }
+}
 
 struct IndexRegistry {
     struct ArchetypeRow {
@@ -27,29 +40,55 @@ struct IndexRegistry {
         case table(ArchetypeRow)
     }
 
-    private var archetype: [ArchetypeLocation] = [] // Indexed by `SlotIndex`
-    private var slot: [Entity.ID.Index: SlotIndex] = [:]
-    private var generation: [Int] = [] // Indexed by `SlotIndex`
+    private(set) var archetype: [ArchetypeLocation] = [] // Indexed by `SlotIndex`
+    private(set) var generation: [UInt32] = [] // Indexed by `SlotIndex`
+    private(set) var freeIDs: Set<SlotIndex> = []
+    private(set) var nextID: SlotIndex = 0
 
-    subscript(generationFor index: Entity.ID.Index) -> Int {
-        _read {
-            let slotIndex = slot[index]!
-            yield generation[slotIndex]
+    mutating func allocateID() -> Entity.ID {
+        let newIndex = freeIDs.popFirst() ?? popNextID()
+
+        let missingCount = (newIndex.rawValue + 1) - generation.count
+        if missingCount > 0 {
+            generation.append(contentsOf: Array(repeating: 0, count: missingCount)) // TODO: Optimize.
         }
-        _modify {
-            let slotIndex = slot[index]!
-            yield &generation[slotIndex]
+        if archetype.indices.contains(newIndex.rawValue) {
+            archetype[newIndex.rawValue] = .free
+        }
+        self[generationFor: newIndex] += 1
+
+        return Entity.ID(slot: newIndex)
+    }
+
+    mutating func free(id: Entity.ID) {
+        freeIDs.insert(id.slot)
+        self[generationFor: id.slot] += 1
+        if archetype.indices.contains(id.slot.rawValue) {
+            archetype[id.slot.rawValue] = .free
         }
     }
 
-    subscript(archetypeFor index: Entity.ID.Index) -> ArchetypeLocation {
+    private mutating func popNextID() -> SlotIndex {
+        let result = nextID
+        nextID = nextID.advancing()
+        return result
+    }
+
+    subscript(generationFor index: SlotIndex) -> UInt32 {
         _read {
-            let slotIndex = slot[index]!
-            yield archetype[slotIndex]
+            yield generation[index.rawValue]
         }
         _modify {
-            let slotIndex = slot[index]!
-            yield &archetype[slotIndex]
+            yield &generation[index.rawValue]
+        }
+    }
+
+    subscript(archetypeFor index: SlotIndex) -> ArchetypeLocation {
+        _read {
+            yield archetype[index.rawValue]
+        }
+        _modify {
+            yield &archetype[index.rawValue]
         }
     }
 }
