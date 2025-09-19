@@ -1,10 +1,17 @@
-//
-//  System.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 16.09.25.
-//
-
+/* TODO: Flesh out systems.
+ fn enemy_detect_player(
+     // access data from resources
+     mut ai_settings: ResMut<EnemyAiSettings>,
+     gamemode: Res<GameModeData>,
+     // access data from entities/components
+     query_player: Query<&Transform, With<Player>>,
+     query_enemies: Query<&mut Transform, (With<Enemy>, Without<Player>)>,
+     // in case we want to spawn/despawn entities, etc.
+     mut commands: Commands,
+ ) {
+     // ... implement your behavior here ...
+ }
+ */
 
 public protocol System {
     var id: SystemID { get }

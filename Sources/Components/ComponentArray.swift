@@ -1,5 +1,3 @@
-// TODO: Make ComponentArray a proper SparseSet, this should improve entity membership performance
-//       Especially when querying one entity for many entities, a sparse set should be best (why?)
 // TODO: When I have sparse sets, then I guess I could add EnTT groups on top?
 // TODO: Do I want archetypes? If yes, I definitely want the option to store specific components as spare sets.
 // TODO: Do I want all three? Archetypes and SparseSets and then a group option for the sparse set components?

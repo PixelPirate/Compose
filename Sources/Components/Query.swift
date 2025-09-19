@@ -1,3 +1,5 @@
+import Foundation
+
 public struct Query<each T: Component> where repeat each T: ComponentResolving {
     /// These components will be used for selecting the correct archetype, but they will not be included in the query output.
     public let backstageComponents: Set<ComponentTag> // Or witnessComponents?
@@ -22,6 +24,21 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             for entityId in entityIDs {
                 handler(repeat (each T).makeResolved(access: each accessors, entityID: entityId))
             }
+
+            // This does work, but it only makes sense when the workload is massive. How could I detect that beforehand?
+            // In Bevy, the systems need to opt in: https://docs.rs/bevy/latest/bevy/prelude/struct.Query.html#method.par_iter
+            // https://bevy-cheatbook.github.io/programming/par-iter.html
+//            let cores = ProcessInfo.processInfo.processorCount
+//            let chunkSize = (entityIDs.count + cores - 1) / cores
+//
+//            DispatchQueue.concurrentPerform(iterations: cores) { i in
+//                let start = i * chunkSize
+//                let end = min(start + chunkSize, entityIDs.count)
+//
+//                for entityId in entityIDs[start..<end] {
+//                    handler(repeat (each T).makeResolved(access: each accessors, entityID: entityId))
+//                }
+//            }
         }
     }
 

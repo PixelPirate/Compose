@@ -1,5 +1,5 @@
 public struct Entity {
-    public struct ID: Hashable {
+    public struct ID: Hashable, Sendable {
         public let slot: SlotIndex
         /*
          // TODO: I need this for a proper sparse set.
@@ -12,7 +12,7 @@ public struct Entity {
     public var signature = ComponentSignature()
 }
 
-public struct SlotIndex: RawRepresentable, Hashable, ExpressibleByIntegerLiteral {
+public struct SlotIndex: RawRepresentable, Hashable, Sendable, ExpressibleByIntegerLiteral {
     public let rawValue: Array.Index
 
     public init(rawValue: Array.Index) {
