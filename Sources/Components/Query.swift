@@ -67,6 +67,7 @@ public struct LazyQuerySequence<each T: Component>: Sequence {
 
     init() {
         self.entityIDs = []
+        self.accesors = (repeat TypedAccess<(each T).InnerType>.empty)
     }
 
     public func makeIterator() -> AnyIterator<(Entity.ID, repeat (each T).InnerType)> {
@@ -175,7 +176,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         }
 
         guard let accessors else {
-            return QueryIter()
+            return LazyQuerySequence()
         }
 
         return LazyQuerySequence(entityIDs: entityIDs, accessors: repeat each accessors)
