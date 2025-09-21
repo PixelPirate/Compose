@@ -7,6 +7,10 @@ public struct QueryHash: Hashable {
     public init<each T: Component>(_ query: Query<repeat each T>) {
         var inc = BitSet()
         for tag in repeat (each T).componentTag {
+            guard tag.rawValue != -1 else {
+                // TODO: This is a special case for WithEntityID
+                continue
+            }
             inc.insert(tag.rawValue)
         }
 
@@ -56,28 +60,28 @@ extension TypedAccess {
         )
     }
 }
+
 public struct LazyQuerySequence<each T: Component>: Sequence {
     private let entityIDs: [Entity.ID]
-    private let accessors: (repeat TypedAccess<(each T).InnerType>)
+    private let accessors: (repeat TypedAccess<(each T).QueriedComponent>)
 
-    init(entityIDs: [Entity.ID], accessors: repeat TypedAccess<(each T).InnerType>) {
+    init(entityIDs: [Entity.ID], accessors: repeat TypedAccess<(each T).QueriedComponent>) {
         self.entityIDs = entityIDs
         self.accessors = (repeat each accessors)
     }
 
     init() {
         self.entityIDs = []
-        self.accesors = (repeat TypedAccess<(each T).InnerType>.empty)
+        self.accessors = (repeat TypedAccess<(each T).QueriedComponent>.empty)
     }
 
-    public func makeIterator() -> AnyIterator<(Entity.ID, repeat (each T).InnerType)> {
+    public func makeIterator() -> AnyIterator<(repeat (each T).ReadOnlyResolvedType)> {
         var index = 0
         return AnyIterator {
             guard index < entityIDs.count else { return nil }
             let id = entityIDs[index]
             index += 1
-            let tuple = (repeat (each accessors).access(id).value)
-            return (id, tuple)
+            return (repeat (each T).makeReadOnlyResolved(access: each accessors, entityID: id))
         }
     }
 }
@@ -88,51 +92,57 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     public let excludedComponents: Set<ComponentTag>
 
+    public let includeEntityID: Bool
+
     public func appending<U>(_ type: U.Type = U.self) -> Query<repeat each T, U> {
-        Query<repeat each T, U>(backstageComponents: backstageComponents, excludedComponents: excludedComponents)
+        Query<repeat each T, U>(
+            backstageComponents: backstageComponents,
+            excludedComponents: excludedComponents,
+            includeEntityID: includeEntityID
+        )
+    }
+
+    @usableFromInline @inline(__always)
+    internal func getArrays(_ coordinator: inout Coordinator) -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Int>], excluded: [ContiguousArray<Int>])? {
+        let hash = QueryHash(self)
+        if
+            let cached = coordinator.queryCache[hash],
+            cached.version == coordinator.worldVersion
+        {
+            return (
+                cached.base,
+                cached.others,
+                cached.excluded
+            )
+        } else {
+            guard let new = coordinator.pool.baseAndOthers(
+                repeat (each T).QueriedComponent.self,
+                included: backstageComponents,
+                excluded: excludedComponents
+            ) else {
+                return nil
+            }
+            coordinator.queryCache[hash] = QueryPlan(
+                base: new.base,
+                others: new.others,
+                excluded: new.excluded,
+                version: coordinator.worldVersion
+            )
+            return new
+        }
     }
 
     @inlinable @inline(__always)
     public func perform(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        @inline(__always)
-        func getLists() -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Int>], excluded: [ContiguousArray<Int>])? {
-            let hash = QueryHash(self)
-            if
-                let cached = coordinator.queryCache[hash],
-                cached.version == coordinator.worldVersion
-            {
-                return (
-                    cached.base,
-                    cached.others,
-                    cached.excluded
-                )
-            } else {
-                guard let new = coordinator.pool.baseAndOthers(
-                    repeat (each T).InnerType.self,
-                    included: backstageComponents,
-                    excluded: excludedComponents
-                ) else {
-                    return nil
-                }
-                coordinator.queryCache[hash] = QueryPlan(
-                    base: new.base,
-                    others: new.others,
-                    excluded: new.excluded,
-                    version: coordinator.worldVersion
-                )
-                return new
-            }
-        }
-
-        guard let (baseIndices, otherIndexMaps, excludedMaps) = getLists() else { return }
+        guard let (baseIndices, otherIndexMaps, excludedMaps) = getArrays(&coordinator) else { return }
 
         withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, ContiguousArray<ContiguousArray.Index>)
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).QueriedComponent>, ContiguousArray<ContiguousArray.Index>)
         ) in
             let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
             slotLoop: for slot in baseIndices {
                 let slotRaw = slot.rawValue
-                for map in otherIndexMaps where map.indices.contains(slotRaw) && map[slotRaw] == .notFound {
+                for map in otherIndexMaps where !map.indices.contains(slotRaw) || map[slotRaw] == .notFound {
                     // Entity does not have all required components, skip.
                     continue slotLoop
                 }
@@ -142,34 +152,41 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
                 }
                 let id = Entity.ID(slot: SlotIndex(rawValue: slotRaw))
                 handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
-
-//     This does work, but it only makes sense when the workload is massive. How could I detect that beforehand?
-//     In Bevy, the systems need to opt in: https://docs.rs/bevy/latest/bevy/prelude/struct.Query.html#method.par_iter
-//     https://bevy-cheatbook.github.io/programming/par-iter.html
-//                let cores = ProcessInfo.processInfo.processorCount
-//                let chunkSize = (entityIDs.count + cores - 1) / cores
-//
-//                DispatchQueue.concurrentPerform(iterations: cores) { i in
-//                    let start = i * chunkSize
-//                    let end = min(start + chunkSize, entityIDs.count)
-//
-//                    for entityId in entityIDs[start..<end] {
-//                        handler(repeat (each T).makeResolved(access: each accessors, entityID: entityId))
-//                    }
-//                }
             }
         }
     }
 
-    public func fetchAll(_ coordinator: inout Coordinator) -> QueryIter<repeat each T> {
+    @inlinable @inline(__always)
+    public func performParallel(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        let entityIDs = coordinator.pool.entities(repeat (each T).QueriedComponent.self, included: backstageComponents, excluded: excludedComponents)
+
+        withTypedBuffers(&coordinator.pool) { (
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).QueriedComponent>, ContiguousArray<ContiguousArray.Index>)
+        ) in
+            let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
+            let cores = ProcessInfo.processInfo.processorCount
+            let chunkSize = (entityIDs.count + cores - 1) / cores
+
+            DispatchQueue.concurrentPerform(iterations: min(cores, entityIDs.count)) { i in
+                let start = i * chunkSize
+                let end = min(start + chunkSize, entityIDs.count)
+
+                for entityId in entityIDs[start..<end] {
+                    handler(repeat (each T).makeResolved(access: each accessors, entityID: entityId))
+                }
+            }
+        }
+    }
+
+    public func fetchAll(_ coordinator: inout Coordinator) -> LazyQuerySequence<repeat each T> {
         let entityIDs = coordinator.pool.entities(
-            repeat (each T).InnerType.self,
+            repeat (each T).QueriedComponent.self,
             included: backstageComponents,
             excluded: excludedComponents
         )
 
         let accessors = withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>,
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).QueriedComponent>,
                              ContiguousArray<ContiguousArray.Index>)
         ) in
             (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
@@ -181,38 +198,20 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
         return LazyQuerySequence(entityIDs: entityIDs, accessors: repeat each accessors)
     }
-//    public func fetchAll(_ coordinator: inout Coordinator) -> [Entity.ID: (repeat (each T).InnerType)] {
-//        var result: [Entity.ID: (repeat (each T).InnerType)] = [:]
-//        let entityIDs = coordinator.pool.entities(
-//            repeat (each T).InnerType.self,
-//            included: backstageComponents,
-//            excluded: excludedComponents
-//        )
-//        withTypedBuffers(&coordinator.pool) { (
-//            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, ContiguousArray<ContiguousArray.Index>)
-//        ) in
-//            let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
-//            for entityId in entityIDs {
-//                result[entityId] = (repeat (each accessors).access(entityId).value)
-//            }
-//        }
-//
-//        return result
-//    }
 
-    public func fetchOne(_ coordinator: inout Coordinator) -> (entityID: Entity.ID, components: (repeat (each T).InnerType))? {
-        var result: (entityID: Entity.ID, components: (repeat (each T).InnerType))? = nil
+    public func fetchOne(_ coordinator: inout Coordinator) -> (repeat (each T).ReadOnlyResolvedType)? {
+        var result: (repeat (each T).ReadOnlyResolvedType)? = nil
         let entityIDs = coordinator.pool.entities(
-            repeat (each T).InnerType.self,
+            repeat (each T).QueriedComponent.self,
             included: backstageComponents,
             excluded: excludedComponents
         )
         withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, ContiguousArray<ContiguousArray.Index>)
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).QueriedComponent>, ContiguousArray<ContiguousArray.Index>)
         ) in
             let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
             for entityId in entityIDs {
-                result = (entityID: entityId, (repeat (each accessors).access(entityId).value))
+                result = (repeat (each T).makeReadOnlyResolved(access: each accessors, entityID: entityId))
                 break
             }
         }
@@ -220,9 +219,6 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         return result
     }
 
-    // TODO: Make a version which returns the result (Most useful together with entity ID filters).
-    //       Call it `fetchAll` and `fetchOne`.
-    //       E.g.: let transform = coordinator.fetchOne(Query { Transform.self; Entities(4) })
     public func callAsFunction(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
         perform(&coordinator, handler)
     }
@@ -244,7 +240,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 }
 
-public struct TypedAccess<C: Component> {
+public struct TypedAccess<C: Component>: @unchecked Sendable {
     /*@usableFromInline*/ public var buffer: UnsafeMutableBufferPointer<C>
     /*@usableFromInline*/ public var indices: ContiguousArray<ContiguousArray.Index>
 
@@ -291,22 +287,42 @@ public struct SingleTypedAccess<C: Component> {
 
 public protocol ComponentResolving {
     associatedtype ResolvedType = Self
-    associatedtype InnerType: Component = Self
-    static func makeResolved(access: TypedAccess<InnerType>, entityID: Entity.ID) -> ResolvedType
+    associatedtype ReadOnlyResolvedType = Self
+    associatedtype QueriedComponent: Component = Self
+
+    @inlinable @inline(__always)
+    static func makeResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> ResolvedType
+
+    @inlinable @inline(__always)
+    static func makeReadOnlyResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> ReadOnlyResolvedType
 }
 
-public extension ComponentResolving where Self: Component, ResolvedType == Self, InnerType == Self {
-    static func makeResolved(access: TypedAccess<InnerType>, entityID: Entity.ID) -> Self {
+public extension ComponentResolving where Self: Component, ResolvedType == Self, QueriedComponent == Self, ReadOnlyResolvedType == Self {
+
+    @inlinable @inline(__always)
+    static func makeResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> Self {
+        access[entityID]
+    }
+
+    @inlinable @inline(__always)
+    static func makeReadOnlyResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> Self {
         access[entityID]
     }
 }
 
 extension Write: ComponentResolving {
     public typealias ResolvedType = Write<Wrapped>
-    public typealias InnerType = Wrapped
+    public typealias ReadOnlyResolvedType = Wrapped
+    public typealias QueriedComponent = Wrapped
 
+    @inlinable @inline(__always)
     public static func makeResolved(access: TypedAccess<Wrapped>, entityID: Entity.ID) -> Write<Wrapped> {
         Write<Wrapped>(access: access.access(entityID))
+    }
+
+    @inlinable @inline(__always)
+    public static func makeReadOnlyResolved(access: TypedAccess<Wrapped>, entityID: Entity.ID) -> Wrapped {
+        access[entityID]
     }
 }
 
@@ -317,19 +333,53 @@ public struct BuiltQuery<each T: Component & ComponentResolving> {
 @resultBuilder
 public enum QueryBuilder {
     public static func buildExpression<C: Component>(_ c: C.Type) -> BuiltQuery<C> {
-        BuiltQuery(composite: Query<C>(backstageComponents: [], excludedComponents: []))
+        BuiltQuery(
+            composite: Query<C>(
+                backstageComponents: [],
+                excludedComponents: [],
+                includeEntityID: false
+            )
+        )
     }
 
     public static func buildExpression<C: Component>(_ c: Write<C>.Type) -> BuiltQuery<Write<C>> {
-        BuiltQuery(composite: Query<Write<C>>(backstageComponents: [], excludedComponents: []))
+        BuiltQuery(
+            composite: Query<Write<C>>(
+                backstageComponents: [],
+                excludedComponents: [],
+                includeEntityID: false
+            )
+        )
     }
 
     public static func buildExpression<C: Component>(_ c: With<C>.Type) -> BuiltQuery< > {
-        BuiltQuery(composite: Query< >(backstageComponents: [C.componentTag], excludedComponents: []))
+        BuiltQuery(
+            composite: Query< >(
+                backstageComponents: [C.componentTag],
+                excludedComponents: [],
+                includeEntityID: false
+            )
+        )
     }
 
     public static func buildExpression<C: Component>(_ c: Without<C>.Type) -> BuiltQuery< > {
-        BuiltQuery(composite: Query< >(backstageComponents: [], excludedComponents: [C.componentTag]))
+        BuiltQuery(
+            composite: Query< >(
+                backstageComponents: [],
+                excludedComponents: [C.componentTag],
+                includeEntityID: false
+            )
+        )
+    }
+
+    public static func buildExpression(_ c: WithEntityID) -> BuiltQuery<WithEntityID> {
+        BuiltQuery(
+            composite: Query<WithEntityID>(
+                backstageComponents: [],
+                excludedComponents: [],
+                includeEntityID: true
+            )
+        )
     }
 
     public static func buildPartialBlock<each T>(first: BuiltQuery<repeat each T>) -> BuiltQuery<repeat each T> {
@@ -347,6 +397,8 @@ public enum QueryBuilder {
                         accumulated.composite.backstageComponents.union(next.composite.backstageComponents),
                     excludedComponents:
                         accumulated.composite.excludedComponents.union(next.composite.excludedComponents),
+                    includeEntityID:
+                        accumulated.composite.includeEntityID || next.composite.includeEntityID
                 )
         )
     }
@@ -372,6 +424,11 @@ public struct Write<C: Component>: WritableComponent {
     @usableFromInline
     let access: SingleTypedAccess<C>
 
+    @usableFromInline
+    init(access: SingleTypedAccess<C>) {
+        self.access = access
+    }
+
     @inlinable @inline(__always)
     public subscript<R>(dynamicMember keyPath: WritableKeyPath<C, R>) -> R {
         _read {
@@ -387,6 +444,24 @@ public struct With<C: Component>: Component {
     public static var componentTag: ComponentTag { C.componentTag }
 
     public typealias Wrapped = C
+}
+
+public struct WithEntityID: Component {
+    public static var componentTag: ComponentTag { ComponentTag(rawValue: -1) }
+    public typealias ResolvedType = Entity.ID
+    public typealias ReadOnlyResolvedType = Entity.ID
+
+    public init() {}
+
+    @inlinable @inline(__always)
+    public static func makeResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> ResolvedType {
+        entityID
+    }
+
+    @inlinable @inline(__always)
+    public static func makeReadOnlyResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> ResolvedType {
+        entityID
+    }
 }
 
 public struct Without<C: Component>: Component {
@@ -406,6 +481,10 @@ func withTypedBuffers<each C: Component, R>(
     }
 
     func tryGetBuffer<D: Component>(_ type: D.Type) -> (UnsafeMutableBufferPointer<D>, ContiguousArray<ContiguousArray.Index>)? {
+        if D.componentTag.rawValue == -1 {
+            // TODO: This is an exception for WithEntityID
+            return (UnsafeMutableBufferPointer(start: UnsafeMutablePointer(nil), count: 0), ContiguousArray())
+        }
         guard let anyArray = pool.components[D.componentTag] else { return nil }
         var result: (UnsafeMutableBufferPointer<D>, ContiguousArray<ContiguousArray.Index>)? = nil
         anyArray.withBuffer(D.self) { buffer, entitiesToIndices in

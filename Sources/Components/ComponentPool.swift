@@ -52,6 +52,10 @@ extension ComponentPool {
 
         for component in repeat each components {
             let tag = component.componentTag
+            if tag.rawValue == -1 {
+                // TODO: This is an exception for WithEntityID.
+                continue
+            }
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
                 return []
@@ -134,6 +138,10 @@ extension ComponentPool {
 
         for component in repeat each components {
             let tag = component.componentTag
+            guard tag.rawValue != -1 else {
+                // TODO: This is a special case for WithEntityID
+                continue
+            }
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
                 return nil

@@ -103,10 +103,6 @@ public struct Coordinator {
         systemManager.setSignature(signature, systemID: systemID)
     }
 
-    public mutating func perform<each T: Component>(_ query: Query<repeat each T>, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        query(&self, handler)
-    }
-
     public func run() {
         // system, schedule?
     }

@@ -37,7 +37,7 @@ import Testing
     print("Setup:", setup)
 
     let duration = clock.measure {
-        coordinator.perform(query) { transform, gravity in
+        query.perform(&coordinator) { transform, gravity in
             transform.position.x += gravity.force.x
         }
     }
@@ -60,7 +60,7 @@ import Testing
 
     let setup1 = clock.measure {
         for _ in 0..<1000 {
-            coordinator.perform(query) { transform, gravity in
+            query.perform(&coordinator) { transform, gravity in
                 transform.position.x += gravity.force.x
             }
         }
@@ -69,12 +69,81 @@ import Testing
 
     let setup2 = clock.measure {
         for _ in 0..<1000 {
-            coordinator.perform(query) { transform, gravity in
+            query.perform(&coordinator) { transform, gravity in
                 transform.position.x += gravity.force.x
             }
         }
     }
     print("second run (cached):", setup2)
+}
+
+@Test func combined() async throws {
+    let query = Query {
+        WithEntityID.self
+        Write<Transform>.self
+        With<Gravity>.self
+        Without<RigidBody>.self
+    }
+
+    var coordinator = Coordinator()
+
+    let expectedID = coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+    )
+
+    for _ in 0..<100 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero)
+        )
+    }
+
+    for _ in 0..<100 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero),
+            Gravity(force: Vector3(x: 1, y: 1, z: 1)),
+            RigidBody(velocity: .zero, acceleration: .zero)
+        )
+    }
+
+    for _ in 0..<100 {
+        coordinator.spawn(
+            Gravity(force: Vector3(x: 1, y: 1, z: 1))
+        )
+    }
+
+    for _ in 0..<100 {
+        coordinator.spawn(
+            RigidBody(velocity: .zero, acceleration: .zero)
+        )
+    }
+
+    for _ in 0..<100 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero),
+            RigidBody(velocity: .zero, acceleration: .zero)
+        )
+    }
+
+    for _ in 0..<100 {
+        coordinator.spawn(
+            Gravity(force: Vector3(x: 1, y: 1, z: 1)),
+            RigidBody(velocity: .zero, acceleration: .zero)
+        )
+    }
+
+    #expect(query.fetchOne(&coordinator)?.0 == expectedID)
+    #expect(Array(query.fetchAll(&coordinator)).map { $0.0 } == [expectedID])
+    await confirmation(expectedCount: 1) { confirmation in
+        query.perform(&coordinator) { (_: Entity.ID, _: Write<Transform>) in
+            confirmation()
+        }
+    }
+    await confirmation(expectedCount: 1) { confirmation in
+        query.performParallel(&coordinator) { (_: Entity.ID, _: Write<Transform>) in
+            confirmation()
+        }
+    }
 }
 
 @Test func write() throws {
@@ -94,12 +163,12 @@ import Testing
         Gravity(force: Vector3(x: 1, y: 1, z: 1))
     )
 
-    coordinator.perform(query) { (transform: Write<Transform>, gravity: Gravity) in
+    query.perform(&coordinator) { (transform: Write<Transform>, gravity: Gravity) in
         transform.position.x += gravity.force.x
     }
 
-    let position = try #require(Query { Transform.self }.fetchOne(&coordinator))
-    #expect(position.components.position == Vector3(x: 1, y: 0, z: 0))
+    let transform = try #require(Query { Transform.self }.fetchOne(&coordinator))
+    #expect(transform.position == Vector3(x: 1, y: 0, z: 0))
 }
 
 @Test func with() throws {
@@ -157,7 +226,7 @@ import Testing
         Transform(position: .zero, rotation: .zero, scale: .zero)
     )
 
-    #expect(query.fetchOne(&coordinator)?.components == Transform(position: .zero, rotation: .zero, scale: .zero))
+    #expect(query.fetchOne(&coordinator) == Transform(position: .zero, rotation: .zero, scale: .zero))
 }
 
 @Test func fetchAll() throws {
@@ -173,18 +242,17 @@ import Testing
     let transforms = Query {
         Write<Transform>.self
     }
-        .fetchAll(&coordinator).map { ($0, $1) }
-    Dictionary(uniqueKeysWithValues: transforms)
+    .fetchAll(&coordinator)
 
-    #expect(transforms.count == 1_000)
+    #expect(Array(transforms).count == 1_000)
 
-    let multiComponents: [Entity.ID: (Transform, Gravity)] = Query {
+    let multiComponents: LazyQuerySequence<Write<Transform>, Gravity> = Query {
         Write<Transform>.self
         Gravity.self
     }
     .fetchAll(&coordinator)
 
-    #expect(multiComponents.count == 1_000)
+    #expect(Array(multiComponents).count == 1_000)
 }
 
 @Test func fetchOne() {
@@ -198,44 +266,75 @@ import Testing
     }
     let expectedEntityID = coordinator.spawn(RigidBody(velocity: Vector3(x: 1, y: 2, z: 3), acceleration: .zero))
 
-    let rigidBody = Query {
+    let fetchResult = Query {
+        WithEntityID.self
         RigidBody.self
     }
     .fetchOne(&coordinator)
 
-    #expect(rigidBody?.entityID == expectedEntityID)
-    #expect(rigidBody?.components == RigidBody(velocity: Vector3(x: 1, y: 2, z: 3), acceleration: .zero))
+    #expect(fetchResult?.0 == expectedEntityID)
+    #expect(fetchResult?.1 == RigidBody(velocity: Vector3(x: 1, y: 2, z: 3), acceleration: .zero))
+}
+
+@Test func withEntityID() async throws {
+    var coordinator = Coordinator()
+    let expectedID = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+    coordinator.spawn(RigidBody(velocity: .zero, acceleration: .zero))
+
+    let query = Query {
+        WithEntityID.self
+        Transform.self
+    }
+
+    await confirmation(expectedCount: 1) { confirmation in
+        query.perform(&coordinator) { (entityID: Entity.ID, _: Transform) in
+            #expect(entityID == expectedID)
+            confirmation()
+        }
+    }
+    await confirmation(expectedCount: 1) { confirmation in
+        query.performParallel(&coordinator) { (entityID: Entity.ID, _: Transform) in
+            #expect(entityID == expectedID)
+            confirmation()
+        }
+    }
+    #expect(query.fetchOne(&coordinator)?.0 == expectedID)
+
+    let all = Array(query.fetchAll(&coordinator))
+    #expect(all.count == 1)
+    #expect(all[0].0 == expectedID)
+    #expect(all[0].1 == Transform(position: .zero, rotation: .zero, scale: .zero))
 }
 
 //@Test func entityIDs() {
-//    var coorinator = Coordinator()
+//    var coordinator = Coordinator()
 //
-//    #expect(coorinator.indices.archetype.isEmpty)
-//    #expect(coorinator.indices.freeIDs.isEmpty)
-//    #expect(coorinator.indices.generation.isEmpty)
-//    #expect(coorinator.indices.nextID.rawValue == 0)
+//    #expect(coordinator.indices.archetype.isEmpty)
+//    #expect(coordinator.indices.freeIDs.isEmpty)
+//    #expect(coordinator.indices.generation.isEmpty)
+//    #expect(coordinator.indices.nextID.rawValue == 0)
 //
-//    let id1 = coorinator.spawn()
-//    let id2 = coorinator.spawn()
+//    let id1 = coordinator.spawn()
+//    let id2 = coordinator.spawn()
 //
 //    #expect(id1 != id2)
-//    #expect(coorinator.indices.archetype.isEmpty)
-//    #expect(coorinator.indices.freeIDs.isEmpty)
-//    #expect(coorinator.indices.generation == [1, 1])
-//    #expect(coorinator.indices.nextID.rawValue == 2)
+//    #expect(coordinator.indices.archetype.isEmpty)
+//    #expect(coordinator.indices.freeIDs.isEmpty)
+//    #expect(coordinator.indices.generation == [1, 1])
+//    #expect(coordinator.indices.nextID.rawValue == 2)
 //
-//    coorinator.destroy(id1)
+//    coordinator.destroy(id1)
 //
-//    #expect(coorinator.indices.archetype.isEmpty)
-//    #expect(coorinator.indices.freeIDs == [id1.slot])
-//    #expect(coorinator.indices.generation == [2, 1])
-//    #expect(coorinator.indices.nextID.rawValue == 2)
+//    #expect(coordinator.indices.archetype.isEmpty)
+//    #expect(coordinator.indices.freeIDs == [id1.slot])
+//    #expect(coordinator.indices.generation == [2, 1])
+//    #expect(coordinator.indices.nextID.rawValue == 2)
 //
-//    let id3 = coorinator.spawn()
+//    let id3 = coordinator.spawn()
 //
 //    #expect(id3 == id1)
-//    #expect(coorinator.indices.archetype.isEmpty)
-//    #expect(coorinator.indices.freeIDs == [])
-//    #expect(coorinator.indices.generation == [3, 1])
-//    #expect(coorinator.indices.nextID.rawValue == 2)
+//    #expect(coordinator.indices.archetype.isEmpty)
+//    #expect(coordinator.indices.freeIDs == [])
+//    #expect(coordinator.indices.generation == [3, 1])
+//    #expect(coordinator.indices.nextID.rawValue == 2)
 //}
