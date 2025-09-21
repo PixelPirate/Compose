@@ -56,10 +56,9 @@ extension TypedAccess {
         )
     }
 }
-public struct QueryIter<each T: Component>: Sequence, IteratorProtocol {
-    private var entityIDs: [Entity.ID]
-    private var index: Int = 0
-    private var accessors: (repeat TypedAccess<(each T).InnerType>)
+public struct LazyQuerySequence<each T: Component>: Sequence {
+    private let entityIDs: [Entity.ID]
+    private let accessors: (repeat TypedAccess<(each T).InnerType>)
 
     init(entityIDs: [Entity.ID], accessors: repeat TypedAccess<(each T).InnerType>) {
         self.entityIDs = entityIDs
@@ -68,16 +67,17 @@ public struct QueryIter<each T: Component>: Sequence, IteratorProtocol {
 
     init() {
         self.entityIDs = []
-        self.index = 0
-        self.accessors = (repeat TypedAccess<(each T).InnerType>.empty)
     }
 
-    public mutating func next() -> (Entity.ID, (repeat (each T).InnerType))? {
-        guard index < entityIDs.count else { return nil }
-        let id = entityIDs[index]
-        index += 1
-        let tuple = (repeat (each accessors).access(id).value)
-        return (id, tuple)
+    public func makeIterator() -> AnyIterator<(Entity.ID, repeat (each T).InnerType)> {
+        var index = 0
+        return AnyIterator {
+            guard index < entityIDs.count else { return nil }
+            let id = entityIDs[index]
+            index += 1
+            let tuple = (repeat (each accessors).access(id).value)
+            return (id, tuple)
+        }
     }
 }
 
@@ -178,7 +178,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             return QueryIter()
         }
 
-        return QueryIter(entityIDs: entityIDs, accessors: repeat each accessors)
+        return LazyQuerySequence(entityIDs: entityIDs, accessors: repeat each accessors)
     }
 //    public func fetchAll(_ coordinator: inout Coordinator) -> [Entity.ID: (repeat (each T).InnerType)] {
 //        var result: [Entity.ID: (repeat (each T).InnerType)] = [:]
