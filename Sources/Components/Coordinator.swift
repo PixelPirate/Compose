@@ -5,22 +5,32 @@ public struct Coordinator {
     var indices = IndexRegistry()
     var systemManager = SystemManager()
 
-    private var entitySignatures: [Entity.ID: ComponentSignature] = [:]
+    private var entitySignatures: ContiguousArray<ComponentSignature> = [] // Indexed by SlotIndex
+
+    @usableFromInline
+    var queryCache: [QueryHash: QueryPlan] = [:]
+    @usableFromInline
+    private(set) var worldVersion: UInt64 = 0
 
     public init() {}
 
     @discardableResult
     public mutating func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
+        defer {
+            worldVersion += 1
+        }
         let newEntity = indices.allocateID()
         for component in repeat each components {
             pool.append(component, for: newEntity)
         }
+        // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
+//        pool.ensureSparseSetCount(includes: newEntity)
 
         var signature = ComponentSignature()
         for tag in repeat (each C).componentTag {
             signature.append(tag)
         }
-        entitySignatures[newEntity] = signature // TODO: ComponentSignature(repeat (each C).componentTag)
+        setSpawnedSignature(newEntity, signature: signature)
         return newEntity
     }
 
@@ -28,33 +38,57 @@ public struct Coordinator {
     public mutating func spawn() -> Entity.ID {
         let newEntity = indices.allocateID()
         let signature = ComponentSignature()
-        entitySignatures[newEntity] = signature
+        setSpawnedSignature(newEntity, signature: signature)
+        // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
+//        pool.ensureSparseSetCount(includes: newEntity)
         return newEntity
     }
 
+    mutating private func setSpawnedSignature(_ entityID: Entity.ID, signature: ComponentSignature) {
+        if entitySignatures.endIndex == entityID.slot.rawValue {
+            entitySignatures.append(signature)
+        } else {
+            // This is the only place where new entities get added, so it can't happen that
+            // more than 1 signature is missing.
+            entitySignatures[entityID.slot.rawValue] = signature
+        }
+    }
+
     public mutating func add<C: Component>(_ component: C, to entityID: Entity.ID) {
+        defer {
+            worldVersion += 1
+        }
         pool.append(component, for: entityID)
-        let newSignature = entitySignatures[entityID]!.appending(C.componentTag)
-        entitySignatures[entityID] = newSignature
-        systemManager.updateSignature(newSignature, for: entityID)
+        let newSignature = entitySignatures[entityID.slot.rawValue].appending(C.componentTag)
+        entitySignatures[entityID.slot.rawValue] = newSignature
+//        systemManager.updateSignature(newSignature, for: entityID) // TODO: Do I need that?
     }
 
     public mutating func remove(_ componentTag: ComponentTag, from entityID: Entity.ID) {
+        defer {
+            worldVersion += 1
+        }
         pool.remove(componentTag, entityID)
-        let newSignature = entitySignatures[entityID]!.removing(componentTag)
-        entitySignatures[entityID] = newSignature
-        systemManager.updateSignature(newSignature, for: entityID)
+        let newSignature = entitySignatures[entityID.slot.rawValue].removing(componentTag)
+        entitySignatures[entityID.slot.rawValue] = newSignature
+//        systemManager.updateSignature(newSignature, for: entityID) // TODO: Do I need that?
     }
 
     public mutating func remove<C: Component>(_ componentType: C.Type = C.self, from entityID: Entity.ID) {
+        defer {
+            worldVersion += 1
+        }
         pool.remove(componentType, entityID)
     }
 
     public mutating func destroy(_ entityID: Entity.ID) {
+        defer {
+            worldVersion += 1
+        }
         indices.free(id: entityID)
         pool.remove(entityID)
         systemManager.remove(entityID)
-        entitySignatures.removeValue(forKey: entityID)
+        entitySignatures[entityID.slot.rawValue] = ComponentSignature()
     }
 
     public mutating func add(_ system: some System) {

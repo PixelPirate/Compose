@@ -1,4 +1,85 @@
 import Foundation
+import BitCollections
+
+public struct QueryHash: Hashable {
+    let value: Int
+
+    public init<each T: Component>(_ query: Query<repeat each T>) {
+        var inc = BitSet()
+        for tag in repeat (each T).componentTag {
+            inc.insert(tag.rawValue)
+        }
+
+        var bac = BitSet()
+        for tag in query.backstageComponents {
+            bac.insert(tag.rawValue)
+        }
+
+        var exc = BitSet()
+        for tag in query.excludedComponents {
+            exc.insert(tag.rawValue)
+        }
+
+        var hasher = Hasher()
+        hasher.combine(inc)
+        hasher.combine(bac)
+        hasher.combine(exc)
+        self.value = hasher.finalize()
+    }
+}
+
+@usableFromInline
+struct QueryPlan {
+    @usableFromInline
+    let base: ContiguousArray<SlotIndex>
+    @usableFromInline
+    let others: [ContiguousArray<Array.Index>] // entityToComponents maps
+    @usableFromInline
+    let excluded: [ContiguousArray<Array.Index>]
+    @usableFromInline
+    let version: UInt64
+
+    @usableFromInline
+    init(base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index>], excluded: [ContiguousArray<Array.Index>], version: UInt64) {
+        self.base = base
+        self.others = others
+        self.excluded = excluded
+        self.version = version
+    }
+}
+extension TypedAccess {
+    static var empty: TypedAccess {
+        // a harmless instance that never resolves anything
+        TypedAccess(
+            buffer: UnsafeMutableBufferPointer(start: nil, count: 0),
+            indices: []
+        )
+    }
+}
+public struct QueryIter<each T: Component>: Sequence, IteratorProtocol {
+    private var entityIDs: [Entity.ID]
+    private var index: Int = 0
+    private var accessors: (repeat TypedAccess<(each T).InnerType>)
+
+    init(entityIDs: [Entity.ID], accessors: repeat TypedAccess<(each T).InnerType>) {
+        self.entityIDs = entityIDs
+        self.accessors = (repeat each accessors)
+    }
+
+    init() {
+        self.entityIDs = []
+        self.index = 0
+        self.accessors = (repeat TypedAccess<(each T).InnerType>.empty)
+    }
+
+    public mutating func next() -> (Entity.ID, (repeat (each T).InnerType))? {
+        guard index < entityIDs.count else { return nil }
+        let id = entityIDs[index]
+        index += 1
+        let tuple = (repeat (each accessors).access(id).value)
+        return (id, tuple)
+    }
+}
 
 public struct Query<each T: Component> where repeat each T: ComponentResolving {
     /// These components will be used for selecting the correct archetype, but they will not be included in the query output.
@@ -12,54 +93,111 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @inlinable @inline(__always)
     public func perform(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        let entityIDs = coordinator.pool.entities(
-            repeat (each T).InnerType.self,
-            included: backstageComponents,
-            excluded: excludedComponents
-        )
+        @inline(__always)
+        func getLists() -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Int>], excluded: [ContiguousArray<Int>])? {
+            let hash = QueryHash(self)
+            if
+                let cached = coordinator.queryCache[hash],
+                cached.version == coordinator.worldVersion
+            {
+                return (
+                    cached.base,
+                    cached.others,
+                    cached.excluded
+                )
+            } else {
+                guard let new = coordinator.pool.baseAndOthers(
+                    repeat (each T).InnerType.self,
+                    included: backstageComponents,
+                    excluded: excludedComponents
+                ) else {
+                    return nil
+                }
+                coordinator.queryCache[hash] = QueryPlan(
+                    base: new.base,
+                    others: new.others,
+                    excluded: new.excluded,
+                    version: coordinator.worldVersion
+                )
+                return new
+            }
+        }
+
+        guard let (baseIndices, otherIndexMaps, excludedMaps) = getLists() else { return }
+
         withTypedBuffers(&coordinator.pool) { (
             buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, ContiguousArray<ContiguousArray.Index>)
         ) in
             let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
-            for entityId in entityIDs {
-                handler(repeat (each T).makeResolved(access: each accessors, entityID: entityId))
-            }
+            slotLoop: for slot in baseIndices {
+                let slotRaw = slot.rawValue
+                for map in otherIndexMaps where map.indices.contains(slotRaw) && map[slotRaw] == .notFound {
+                    // Entity does not have all required components, skip.
+                    continue slotLoop
+                }
+                for map in excludedMaps where map.indices.contains(slotRaw) && map[slotRaw] != .notFound {
+                    // Entity has at least one excluded component, skip.
+                    continue slotLoop
+                }
+                let id = Entity.ID(slot: SlotIndex(rawValue: slotRaw))
+                handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
 
-            // This does work, but it only makes sense when the workload is massive. How could I detect that beforehand?
-            // In Bevy, the systems need to opt in: https://docs.rs/bevy/latest/bevy/prelude/struct.Query.html#method.par_iter
-            // https://bevy-cheatbook.github.io/programming/par-iter.html
-//            let cores = ProcessInfo.processInfo.processorCount
-//            let chunkSize = (entityIDs.count + cores - 1) / cores
+//     This does work, but it only makes sense when the workload is massive. How could I detect that beforehand?
+//     In Bevy, the systems need to opt in: https://docs.rs/bevy/latest/bevy/prelude/struct.Query.html#method.par_iter
+//     https://bevy-cheatbook.github.io/programming/par-iter.html
+//                let cores = ProcessInfo.processInfo.processorCount
+//                let chunkSize = (entityIDs.count + cores - 1) / cores
 //
-//            DispatchQueue.concurrentPerform(iterations: cores) { i in
-//                let start = i * chunkSize
-//                let end = min(start + chunkSize, entityIDs.count)
+//                DispatchQueue.concurrentPerform(iterations: cores) { i in
+//                    let start = i * chunkSize
+//                    let end = min(start + chunkSize, entityIDs.count)
 //
-//                for entityId in entityIDs[start..<end] {
-//                    handler(repeat (each T).makeResolved(access: each accessors, entityID: entityId))
+//                    for entityId in entityIDs[start..<end] {
+//                        handler(repeat (each T).makeResolved(access: each accessors, entityID: entityId))
+//                    }
 //                }
-//            }
+            }
         }
     }
 
-    public func fetchAll(_ coordinator: inout Coordinator) -> [Entity.ID: (repeat (each T).InnerType)] {
-        var result: [Entity.ID: (repeat (each T).InnerType)] = [:]
+    public func fetchAll(_ coordinator: inout Coordinator) -> QueryIter<repeat each T> {
         let entityIDs = coordinator.pool.entities(
             repeat (each T).InnerType.self,
             included: backstageComponents,
             excluded: excludedComponents
         )
-        withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, ContiguousArray<ContiguousArray.Index>)
+
+        let accessors = withTypedBuffers(&coordinator.pool) { (
+            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>,
+                             ContiguousArray<ContiguousArray.Index>)
         ) in
-            let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
-            for entityId in entityIDs {
-                result[entityId] = (repeat (each accessors).access(entityId).value)
-            }
+            (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
         }
 
-        return result
+        guard let accessors else {
+            return QueryIter()
+        }
+
+        return QueryIter(entityIDs: entityIDs, accessors: repeat each accessors)
     }
+//    public func fetchAll(_ coordinator: inout Coordinator) -> [Entity.ID: (repeat (each T).InnerType)] {
+//        var result: [Entity.ID: (repeat (each T).InnerType)] = [:]
+//        let entityIDs = coordinator.pool.entities(
+//            repeat (each T).InnerType.self,
+//            included: backstageComponents,
+//            excluded: excludedComponents
+//        )
+//        withTypedBuffers(&coordinator.pool) { (
+//            buffers: repeat (UnsafeMutableBufferPointer<(each T).InnerType>, ContiguousArray<ContiguousArray.Index>)
+//        ) in
+//            let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
+//            for entityId in entityIDs {
+//                result[entityId] = (repeat (each accessors).access(entityId).value)
+//            }
+//        }
+//
+//        return result
+//    }
 
     public func fetchOne(_ coordinator: inout Coordinator) -> (entityID: Entity.ID, components: (repeat (each T).InnerType))? {
         var result: (entityID: Entity.ID, components: (repeat (each T).InnerType))? = nil
@@ -230,8 +368,10 @@ public struct Write<C: Component>: WritableComponent {
 
     public typealias Wrapped = C
 
+    @usableFromInline
     let access: SingleTypedAccess<C>
 
+    @inlinable @inline(__always)
     public subscript<R>(dynamicMember keyPath: WritableKeyPath<C, R>) -> R {
         _read {
             yield access.value[keyPath: keyPath]

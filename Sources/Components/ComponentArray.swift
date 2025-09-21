@@ -8,13 +8,16 @@
 // TODO: Parallelise queries. It should be memory safe since every entity has it's own memory location.
 //       I don't think systems can be parallel though, right?
 
-protocol AnyComponentArrayBox: AnyObject {
+public protocol AnyComponentArrayBox: AnyObject {
     func remove(id: Entity.ID) -> Void
     func append(_: any Component, id: Entity.ID) -> Void
     func get(_: Entity.ID) -> any Component
     func `set`(_: Entity.ID, newValue: any Component) -> Void
     var entityToComponents: ContiguousArray<ContiguousArray.Index> { get }
     var componentsToEntites: ContiguousArray<SlotIndex> { get }
+
+    @inlinable @inline(__always)
+    func ensureEntity(_ entityID: Entity.ID)
 }
 
 final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
@@ -51,10 +54,16 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
             yield base.entities
         }
     }
+
+    @inlinable @inline(__always)
+    func ensureEntity(_ entityID: Entity.ID) {
+        base.ensureEntity(entityID)
+    }
 }
 
 public struct AnyComponentArray {
-    private var base: any AnyComponentArrayBox
+    @usableFromInline
+    internal var base: any AnyComponentArrayBox
 
     public init<C: Component>(_ base: ComponentArray<C>) {
         self.base = ComponentArrayBox(base)
@@ -77,12 +86,14 @@ public struct AnyComponentArray {
         }
     }
 
-    public var entityToComponents: ContiguousArray<ContiguousArray.Index> {
+    @usableFromInline
+    var entityToComponents: ContiguousArray<ContiguousArray.Index> {
         _read {
             yield base.entityToComponents
         }
     }
 
+    @usableFromInline
     var componentsToEntites: ContiguousArray<SlotIndex> {
         _read {
             yield base.componentsToEntites
@@ -99,17 +110,24 @@ public struct AnyComponentArray {
              try body(buffer, indices)
         }
     }
+
+    @inlinable @inline(__always)
+    func ensureEntity(_ entityID: Entity.ID) {
+        base.ensureEntity(entityID)
+    }
 }
 
 extension ContiguousArray.Index {
+    @usableFromInline
     static let notFound: ContiguousArray.Index = -1
 }
 
 public struct ComponentArray<Component: Components.Component>: Collection {
     @usableFromInline
-    internal var components: ContiguousArray<Component> = []
-
+    private(set) var components: ContiguousArray<Component> = []
+    @usableFromInline
     private(set) var slots: ContiguousArray<ContiguousArray.Index> = [] // Indexed by SlotIndex.
+    @usableFromInline
     private(set) var entities: ContiguousArray<SlotIndex> = [] // Indexed by component index.
 
     public init(_ pairs: (Entity.ID, Component)...) {
@@ -135,16 +153,26 @@ public struct ComponentArray<Component: Components.Component>: Collection {
         entityID.slot.rawValue < slots.count && slots[entityID.slot.rawValue] != .notFound
     }
 
+    @inlinable @inline(__always)
+    mutating public func ensureEntity(_ entityID: Entity.ID) {
+        if !slots.indices.contains(entityID.slot.rawValue) {
+            let missingCount = (entityID.slot.rawValue + 1) - slots.count
+            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
+        }
+    }
+
+    @inlinable @inline(__always)
     public mutating func append(_ component: Component, to entityID: Entity.ID) {
         components.append(component)
         entities.append(entityID.slot)
         if !slots.indices.contains(entityID.slot.rawValue) {
             let missingCount = (entityID.slot.rawValue + 1) - slots.count
-            slots.append(contentsOf: Array(repeating: -1, count: missingCount)) // TODO: Optimize.
+            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
         }
         slots[entityID.slot.rawValue] = components.endIndex - 1
     }
 
+    @inlinable @inline(__always)
     public mutating func remove(_ entityID: Entity.ID) {
         guard slots.indices.contains(entityID.slot.rawValue) else { return }
         let componentIndex = slots[entityID.slot.rawValue]
@@ -164,6 +192,7 @@ public struct ComponentArray<Component: Components.Component>: Collection {
         slots[entityID.slot.rawValue] = .notFound
     }
 
+    @inlinable @inline(__always)
     public subscript(_ entityID: Entity.ID) -> Component {
         _read {
             yield components[slots[entityID.slot.rawValue]]
