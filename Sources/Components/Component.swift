@@ -18,6 +18,12 @@ public struct ComponentSignature: Hashable {
     var rawHashValue: BitSet2
 
     @usableFromInline @inline(__always)
+    internal var isEmpty: Bool {
+        _read {
+            yield rawHashValue.bitCount == 0
+        }
+    }
+    @usableFromInline @inline(__always)
     internal init(raw: BitSet2) {
         rawHashValue = raw
     }

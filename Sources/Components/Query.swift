@@ -596,6 +596,21 @@ public struct BitSet2: Hashable {
     @usableFromInline var words: [UInt64]   // or ContiguousArray<UInt64>
 
     @inlinable @inline(__always)
+    public static func == (lhs: BitSet2, rhs: BitSet2) -> Bool {
+        lhs.isEqual(to: rhs)
+    }
+
+    @inlinable @inline(__always)
+    public func hash(into hasher: inout Hasher) {
+//        var canonical = self
+//        canonical._shrinkToFitUsedBits()
+//        hasher.combine(bitCount)
+        // `words` is always updated when inserting/removing, so currently there cannot be the case where
+        // a BitSet has a leading zero word.
+        hasher.combine(words)
+    }
+
+    @inlinable @inline(__always)
     public init() {
         self.words = []
         self.bitCount = 0
@@ -610,7 +625,7 @@ public struct BitSet2: Hashable {
         self.words = Array(repeating: 0, count: n)
     }
 
-    // Ensure capacity for a specific bit index (0-based). Grows storage and updates bitCount.
+    // Ensure capacity for a specific bit index (0-based). Grows storage.
     @usableFromInline @inline(__always)
     internal mutating func ensureCapacity(forBit bit: Int) {
         precondition(bit >= 0, "bit index must be non-negative")
@@ -655,6 +670,8 @@ public struct BitSet2: Hashable {
         let wordIndex = bit >> 6
         let mask: UInt64 = 1 &<< (bit & 63)
         words[wordIndex] |= mask
+        let requiredBits = bit &+ 1
+        if requiredBits > bitCount { bitCount = requiredBits }
         _maskTail()
     }
 
@@ -704,18 +721,34 @@ public struct BitSet2: Hashable {
     }
 
     @inlinable @inline(__always)
+    public func isSuperset(of sup: BitSet2, isDisjoint dis: BitSet2) -> Bool {
+        let maxCount = max(sup.words.count, self.words.count, dis.words.count)
+        var i = 0
+        while i < maxCount {
+            let a = i < sup.words.count ? sup.words[i] : 0
+            let b = i < self.words.count ? self.words[i] : 0
+            guard (a & ~b) == 0 else { return false }
+
+            let d = i < dis.words.count ? dis.words[i] : 0
+            if (b & d) != 0 { return false }
+
+            i &+= 1
+        }
+        return true
+    }
+
+    @inlinable @inline(__always)
     public func isSubset(of sup: BitSet2) -> Bool {
         // Treat missing higher words as zeros on either side.
         let maxCount = max(self.words.count, sup.words.count)
-        var acc: UInt64 = 0
         var i = 0
         while i < maxCount {
             let a = i < self.words.count ? self.words[i] : 0
             let b = i < sup.words.count ? sup.words[i] : 0
-            acc |= (a & ~b)
+            guard (a & ~b) == 0 else { return false }
             i &+= 1
         }
-        return acc == 0
+        return true
     }
 
     @inlinable @inline(__always)
