@@ -659,7 +659,10 @@ public struct BitSet2: Hashable {
         }
     }
 
-    // MARK: - Subset check: A ⊆ B  <=>  (A & ~B) == 0
+    @inlinable @inline(__always)
+    public func isSuperset(of sup: BitSet2) -> Bool {
+        sup.isSubset(of: self)
+    }
 
     @inlinable @inline(__always)
     public func isSubset(of sup: BitSet2) -> Bool {
@@ -712,6 +715,23 @@ public struct BitSet2: Hashable {
                 // Tail is already canonicalized; if you skip canonicalization,
                 // you'd need to mask the last word here to ignore unused bits.
                 return acc == 0
+            }
+        }
+    }
+
+    @inlinable @inline(__always)
+    public func isDisjoint(with other: BitSet2) -> Bool {
+        precondition(self.bitCount == other.bitCount, "bit widths must match")
+
+        return self.words.withUnsafeBufferPointer { a in
+            other.words.withUnsafeBufferPointer { b in
+                let n = a.count
+                var i = 0
+                while i < n {
+                    if (a[i] & b[i]) != 0 { return false }
+                    i &+= 1
+                }
+                return true
             }
         }
     }
