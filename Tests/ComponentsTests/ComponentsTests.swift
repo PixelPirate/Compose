@@ -42,7 +42,8 @@ import Testing
         }
     }
 // Bevy seems to need 6.7ms for this (Archetypes), 12.5ms with sparse sets
-//~0.02 seconds
+//~0.013 seconds (Iteration)
+//~0.014 seconds (Signature)
     print(duration)
 }
 
@@ -122,7 +123,8 @@ import Testing
         }
     }
 
-    //~0.013 seconds
+    //~0.00031 seconds (Iteration)
+    //~0.00030 seconds (Signature)
     print(duration)
 }
 
@@ -155,6 +157,13 @@ import Testing
         }
     }
     print("second run (cached):", setup2)
+
+    // (Iteration)
+    //first run: 0.112772916 seconds
+    //second run (cached): 0.113031667 seconds
+    // (Signature)
+    //first run: 0.113668375 seconds
+    //second run (cached): 0.114894083 seconds
 }
 
 @Test func combined() async throws {
