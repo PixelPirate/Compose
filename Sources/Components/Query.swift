@@ -545,3 +545,137 @@ private struct TupleMetadata {
 }
 
 private let pointerSize = MemoryLayout<UnsafeRawPointer>.size
+
+#if canImport(Darwin)
+import Darwin // for memcmp
+#else
+import Glibc  // Linux
+#endif
+
+public struct BitSet2: Hashable {
+    @inline(__always)
+    public let bitCount: Int
+    @usableFromInline var words: [UInt64]   // or ContiguousArray<UInt64>
+
+    @inlinable @inline(__always)
+    public init(bitCount: Int = 63) {
+        precondition(bitCount >= 0)
+        self.bitCount = bitCount
+        let n = (bitCount + 63) >> 6
+        self.words = Array(repeating: 0, count: n)
+    }
+
+    // Call after any mutating change to keep a canonical tail.
+    @inlinable @inline(__always)
+    mutating func _maskTail() {
+        guard bitCount > 0, let lastIdx = words.indices.last else { return }
+        let bitsInLast = bitCount & 63
+        if bitsInLast != 0 {
+            let mask: UInt64 = bitsInLast == 64 ? ~0 : ((1 &<< bitsInLast) &- 1)
+            words[lastIdx] &= mask
+        }
+    }
+
+    @inlinable @inline(__always)
+    public mutating func insert(_ bit: Int) {
+        precondition(bit >= 0 && bit < bitCount, "bit index out of range")
+        let wordIndex = bit >> 6
+        let mask: UInt64 = 1 &<< (bit & 63)
+        words[wordIndex] |= mask
+        _maskTail()
+    }
+
+    @inlinable @inline(__always)
+    public mutating func insert(_ bits: Int...) {
+        for bit in bits {
+            insert(bit)
+        }
+    }
+
+    @inlinable @inline(__always)
+    public mutating func insert(_ bits: some Sequence<Int>) {
+        for bit in bits {
+            insert(bit)
+        }
+    }
+
+    @inlinable @inline(__always)
+    public mutating func remove(_ bit: Int) {
+        precondition(bit >= 0 && bit < bitCount, "bit index out of range")
+        let wordIndex = bit >> 6
+        let mask: UInt64 = 1 &<< (bit & 63)
+        words[wordIndex] &= ~mask
+        _maskTail()
+    }
+
+    // MARK: - Equality (bytewise via memcmp)
+
+    @inlinable @inline(__always)
+    public func isEqual(to other: BitSet2) -> Bool {
+        guard self.bitCount == other.bitCount else { return false }
+        return self.words.withUnsafeBytes { lhsRaw in
+            other.words.withUnsafeBytes { rhsRaw in
+                guard lhsRaw.count == rhsRaw.count else { return false }
+                if lhsRaw.count == 0 { return true }
+                return memcmp(lhsRaw.baseAddress!, rhsRaw.baseAddress!, lhsRaw.count) == 0
+            }
+        }
+    }
+
+    // MARK: - Subset check: A ⊆ B  <=>  (A & ~B) == 0
+
+    @inlinable @inline(__always)
+    public func isSubset(of sup: BitSet2) -> Bool {
+        precondition(self.bitCount == sup.bitCount, "bit widths must match")
+
+        // Fast scalar path over words (auto-vectorizes on -O).
+        return self.words.withUnsafeBufferPointer { a in
+            sup.words.withUnsafeBufferPointer { b in
+                var acc: UInt64 = 0
+                let n = a.count
+                var i = 0
+
+                // Optional SIMD fast-path (requires alignment)
+//                if n >= 2 {
+//                    let okSIMD = a.withMemoryRebound(to: UInt8.self) { aBytes in
+//                        b.withMemoryRebound(to: UInt8.self) { bBytes -> Bool in
+//                            let aAddr = Int(bitPattern: aBytes.baseAddress!)
+//                            let bAddr = Int(bitPattern: bBytes.baseAddress!)
+//                            let align = MemoryLayout<SIMD2<UInt64>>.alignment
+//                            return aAddr % align == 0 && bAddr % align == 0
+//                        }
+//                    }
+//
+//                    if okSIMD {
+//                        a.withUnsafeBytes { aRaw in
+//                            b.withUnsafeBytes { bRaw in
+//                                let ac = aRaw.bindMemory(to: SIMD2<UInt64>.self)
+//                                let bc = bRaw.bindMemory(to: SIMD2<UInt64>.self)
+//                                let pairs = ac.count
+//                                var j = 0
+//                                while j < pairs {
+//                                    let va = ac[j]
+//                                    let vb = bc[j]
+//                                    let vbad = va & ~vb    // lane-wise
+//                                    acc |= vbad[0] | vbad[1]
+//                                    j &+= 1
+//                                }
+//                                i = pairs * 2
+//                            }
+//                        }
+//                    }
+//                }
+
+                // Remainder / fallback
+                while i < n {
+                    acc |= (a[i] & ~b[i])
+                    i &+= 1
+                }
+
+                // Tail is already canonicalized; if you skip canonicalization,
+                // you'd need to mask the last word here to ignore unused bits.
+                return acc == 0
+            }
+        }
+    }
+}
