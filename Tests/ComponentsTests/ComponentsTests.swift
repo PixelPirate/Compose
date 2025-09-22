@@ -46,6 +46,86 @@ import Testing
     print(duration)
 }
 
+@Test func testManyComponents() {
+    struct MockComponent: Component {
+        nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 0)
+
+        var numberWang: Int = 12
+    }
+
+    struct Component_1: Component {
+        nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 1)
+
+        var numberWang: Int = 12
+    }
+    struct Component_2: Component {
+        nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 2)
+
+        var numberWang: Int = 12
+    }
+    struct Component_3: Component {
+        nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 3)
+
+        var numberWang: Int = 12
+    }
+    struct Component_4: Component {
+        nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 4)
+
+        var numberWang: Int = 12
+    }
+    struct Component_5: Component {
+        nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 5)
+
+        var numberWang: Int = 12
+    }
+
+    var coordinator = Coordinator()
+    let mockComponent = MockComponent()
+
+    for componentNumber in 10..<150 {
+        MockComponent.componentTag = ComponentTag(rawValue: componentNumber)
+        for _ in 0..<2_000 {
+            coordinator.spawn(mockComponent)
+        }
+        for _ in 0..<2_000 {
+            let entity = coordinator.spawn()
+            for otherComponentNumber in 10..<componentNumber {
+                MockComponent.componentTag = ComponentTag(rawValue: otherComponentNumber)
+                coordinator.add(mockComponent, to: entity)
+            }
+        }
+    }
+    for _ in 0..<10_000 {
+        coordinator.spawn(Component_1())
+        coordinator.spawn(Component_2())
+        coordinator.spawn(Component_3())
+        coordinator.spawn(Component_4())
+        coordinator.spawn(Component_5())
+        coordinator.spawn(Component_1(), Component_2())
+        coordinator.spawn(Component_1(), Component_2(), Component_3())
+        coordinator.spawn(Component_1(), Component_2(), Component_3(), Component_4())
+        coordinator.spawn(Component_1(), Component_2(), Component_3(), Component_4(), Component_5())
+    }
+
+    let query = Query {
+        Write<Component_1>.self
+        Component_2.self
+        Component_3.self
+        With<Component_4>.self
+        Without<Component_5>.self
+    }
+
+    let clock = ContinuousClock()
+    let duration = clock.measure {
+        query.perform(&coordinator) { com1, com2, com3 in
+            com1.numberWang = com2.numberWang * com3.numberWang * com2.numberWang
+        }
+    }
+
+    //~0.013 seconds
+    print(duration)
+}
+
 @Test func testRepeat() {
     let clock = ContinuousClock()
     var coordinator = Coordinator()
