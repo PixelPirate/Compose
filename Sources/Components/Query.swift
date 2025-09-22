@@ -6,12 +6,10 @@ public struct QueryHash: Hashable {
 
     public init<each T: Component>(_ query: Query<repeat each T>) {
         var inc = BitSet()
-        for tag in repeat (each T).componentTag {
-            guard tag.rawValue != -1 else {
-                // TODO: This is a special case for WithEntityID
-                continue
+        for type in repeat (each T).self {
+            if type.requiresStorage {
+                inc.insert(type.componentTag.rawValue)
             }
-            inc.insert(tag.rawValue)
         }
 
         var bac = BitSet()
@@ -234,7 +232,10 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             signature = signature.appending(tag)
         }
 
-        repeat signature = signature.appending((each T).componentTag)
+        for tagType in repeat (each T).self {
+            guard tagType.requiresStorage else { continue }
+            signature = signature.appending(tagType.componentTag)
+        }
 
         return signature
     }
@@ -451,6 +452,8 @@ public struct WithEntityID: Component {
     public typealias ResolvedType = Entity.ID
     public typealias ReadOnlyResolvedType = Entity.ID
 
+    public static var requiresStorage: Bool { false }
+
     public init() {}
 
     @inlinable @inline(__always)
@@ -481,8 +484,8 @@ func withTypedBuffers<each C: Component, R>(
     }
 
     func tryGetBuffer<D: Component>(_ type: D.Type) -> (UnsafeMutableBufferPointer<D>, ContiguousArray<ContiguousArray.Index>)? {
-        if D.componentTag.rawValue == -1 {
-            // TODO: This is an exception for WithEntityID
+        if !D.requiresStorage {
+            // TODO: Returning this is quite ugly, can I prevent this case?
             return (UnsafeMutableBufferPointer(start: UnsafeMutablePointer(nil), count: 0), ContiguousArray())
         }
         guard let anyArray = pool.components[D.componentTag] else { return nil }

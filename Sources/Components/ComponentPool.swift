@@ -52,8 +52,7 @@ extension ComponentPool {
 
         for component in repeat each components {
             let tag = component.componentTag
-            if tag.rawValue == -1 {
-                // TODO: This is an exception for WithEntityID.
+            if !component.requiresStorage {
                 continue
             }
             // If any tag is missing or empty, there can be no matches.
@@ -138,8 +137,7 @@ extension ComponentPool {
 
         for component in repeat each components {
             let tag = component.componentTag
-            guard tag.rawValue != -1 else {
-                // TODO: This is a special case for WithEntityID
+            guard component.requiresStorage else {
                 continue
             }
             // If any tag is missing or empty, there can be no matches.

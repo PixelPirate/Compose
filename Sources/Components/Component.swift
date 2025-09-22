@@ -3,6 +3,11 @@ import Atomics
 
 public protocol Component: ComponentResolving {
     static var componentTag: ComponentTag { get }
+    static var requiresStorage: Bool { get }
+}
+
+public extension Component {
+    static var requiresStorage: Bool { true }
 }
 
 public struct ComponentSignature: Hashable {
