@@ -5,7 +5,8 @@ public struct Coordinator {
     var indices = IndexRegistry()
     var systemManager = SystemManager()
 
-    private var entitySignatures: ContiguousArray<ComponentSignature> = [] // Indexed by SlotIndex
+    @usableFromInline
+    internal private(set) var entitySignatures: ContiguousArray<ComponentSignature> = [] // Indexed by SlotIndex
 
     @usableFromInline
     var queryCache: [QueryHash: QueryPlan] = [:]
@@ -13,6 +14,13 @@ public struct Coordinator {
     private(set) var worldVersion: UInt64 = 0
 
     public init() {}
+
+    @inlinable @inline(__always)
+    public subscript(signatureFor slot: SlotIndex) -> ComponentSignature {
+        _read {
+            yield entitySignatures[slot.rawValue]
+        }
+    }
 
     @discardableResult
     public mutating func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
@@ -79,6 +87,8 @@ public struct Coordinator {
             worldVersion += 1
         }
         pool.remove(componentType, entityID)
+        let newSignature = entitySignatures[entityID.slot.rawValue].removing(C.componentTag)
+        entitySignatures[entityID.slot.rawValue] = newSignature
     }
 
     public mutating func destroy(_ entityID: Entity.ID) {

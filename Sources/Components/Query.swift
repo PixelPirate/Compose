@@ -1,31 +1,12 @@
 import Foundation
-import BitCollections
 
 public struct QueryHash: Hashable {
     let value: Int
 
     public init<each T: Component>(_ query: Query<repeat each T>) {
-        var inc = BitSet()
-        for type in repeat (each T).self {
-            if type.requiresStorage {
-                inc.insert(type.componentTag.rawValue)
-            }
-        }
-
-        var bac = BitSet()
-        for tag in query.backstageComponents {
-            bac.insert(tag.rawValue)
-        }
-
-        var exc = BitSet()
-        for tag in query.excludedComponents {
-            exc.insert(tag.rawValue)
-        }
-
         var hasher = Hasher()
-        hasher.combine(inc)
-        hasher.combine(bac)
-        hasher.combine(exc)
+        hasher.combine(query.signature)
+        hasher.combine(query.excludedSignature)
         self.value = hasher.finalize()
     }
 }
@@ -34,18 +15,23 @@ public struct QueryHash: Hashable {
 struct QueryPlan {
     @usableFromInline
     let base: ContiguousArray<SlotIndex>
-    @usableFromInline
-    let others: [ContiguousArray<Array.Index>] // entityToComponents maps
-    @usableFromInline
-    let excluded: [ContiguousArray<Array.Index>]
+//    @usableFromInline
+//    let others: [ContiguousArray<Array.Index>] // entityToComponents maps
+//    @usableFromInline
+//    let excluded: [ContiguousArray<Array.Index>]
     @usableFromInline
     let version: UInt64
 
     @usableFromInline
-    init(base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index>], excluded: [ContiguousArray<Array.Index>], version: UInt64) {
+    init(
+        base: ContiguousArray<SlotIndex>,
+//        others: [ContiguousArray<Array.Index>],
+//        excluded: [ContiguousArray<Array.Index>],
+        version: UInt64
+    ) {
         self.base = base
-        self.others = others
-        self.excluded = excluded
+//        self.others = others
+//        self.excluded = excluded
         self.version = version
     }
 }
@@ -86,12 +72,35 @@ public struct LazyQuerySequence<each T: Component>: Sequence {
 
 public struct Query<each T: Component> where repeat each T: ComponentResolving {
     /// These components will be used for selecting the correct archetype, but they will not be included in the query output.
+    @inline(__always)
     public let backstageComponents: Set<ComponentTag> // Or witnessComponents?
 
+    @inline(__always)
     public let excludedComponents: Set<ComponentTag>
 
+    @inline(__always)
     public let includeEntityID: Bool
 
+    @inline(__always)
+    public let signature: ComponentSignature
+
+    @inline(__always)
+    public let excludedSignature: ComponentSignature
+
+    @usableFromInline
+    init(
+        backstageComponents: Set<ComponentTag>,
+        excludedComponents: Set<ComponentTag>,
+        includeEntityID: Bool
+    ) {
+        self.backstageComponents = backstageComponents
+        self.excludedComponents = excludedComponents
+        self.includeEntityID = includeEntityID
+        self.signature = Self.makeSignature(backstageComponents: backstageComponents)
+        self.excludedSignature = Self.makeExcludedSignature(excludedComponents)
+    }
+
+    @inlinable @inline(__always)
     public func appending<U>(_ type: U.Type = U.self) -> Query<repeat each T, U> {
         Query<repeat each T, U>(
             backstageComponents: backstageComponents,
@@ -101,16 +110,19 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @usableFromInline @inline(__always)
-    internal func getArrays(_ coordinator: inout Coordinator) -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Int>], excluded: [ContiguousArray<Int>])? {
+    internal func getArrays(_ coordinator: inout Coordinator)
+//    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Int>], excluded: [ContiguousArray<Int>])?
+    -> ContiguousArray<SlotIndex>?
+    {
         let hash = QueryHash(self)
         if
             let cached = coordinator.queryCache[hash],
             cached.version == coordinator.worldVersion
         {
             return (
-                cached.base,
-                cached.others,
-                cached.excluded
+                cached.base
+//                cached.others,
+//                cached.excluded
             )
         } else {
             guard let new = coordinator.pool.baseAndOthers(
@@ -121,9 +133,9 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
                 return nil
             }
             coordinator.queryCache[hash] = QueryPlan(
-                base: new.base,
-                others: new.others,
-                excluded: new.excluded,
+                base: new,//.base,
+//                others: new.others,
+//                excluded: new.excluded,
                 version: coordinator.worldVersion
             )
             return new
@@ -132,21 +144,34 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @inlinable @inline(__always)
     public func perform(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        guard let (baseIndices, otherIndexMaps, excludedMaps) = getArrays(&coordinator) else { return }
+        guard let baseSlots = getArrays(&coordinator) else { return }
 
         withTypedBuffers(&coordinator.pool) { (
             accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
-            slotLoop: for slot in baseIndices {
+            // 0.0137s
+            let querySignature = self.signature
+            let excludedSignature = self.excludedSignature
+
+            slotLoop: for slot in baseSlots {
                 let slotRaw = slot.rawValue
-                for map in otherIndexMaps where !map.indices.contains(slotRaw) || map[slotRaw] == .notFound {
-                    // Entity does not have all required components, skip.
+                let signature = coordinator.entitySignatures[slotRaw]
+
+                guard
+                    signature.rawHashValue.isSuperset(of: querySignature.rawHashValue),
+                    signature.rawHashValue.isDisjoint(with: excludedSignature.rawHashValue)
+                else {
                     continue slotLoop
                 }
-                for map in excludedMaps where map.indices.contains(slotRaw) && map[slotRaw] != .notFound {
-                    // Entity has at least one excluded component, skip.
-                    continue slotLoop
-                }
+
+//                for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == .notFound {
+//                    // Entity does not have all required components, skip.
+//                    continue slotLoop
+//                }
+//                for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != .notFound {
+//                    // Entity has at least one excluded component, skip.
+//                    continue slotLoop
+//                }
                 let id = Entity.ID(slot: SlotIndex(rawValue: slotRaw))
                 handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
             }
@@ -217,7 +242,8 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         perform(&coordinator, handler)
     }
 
-    public var signature: ComponentSignature {
+    @inlinable @inline(__always)
+    static func makeSignature(backstageComponents: Set<ComponentTag>) -> ComponentSignature {
         var signature = ComponentSignature()
 
         for tag in backstageComponents {
@@ -231,6 +257,17 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         for tagType in repeat (each T).self {
             guard tagType.requiresStorage else { continue }
             signature = signature.appending(tagType.componentTag)
+        }
+
+        return signature
+    }
+
+    @inlinable @inline(__always)
+    static func makeExcludedSignature(_ excludedComponents: Set<ComponentTag>) -> ComponentSignature {
+        var signature = ComponentSignature()
+
+        for tag in excludedComponents {
+            signature = signature.appending(tag)
         }
 
         return signature
@@ -266,7 +303,7 @@ public struct TypedAccess<C: Component>: @unchecked Sendable {
 public struct SingleTypedAccess<C: Component> {
     @usableFromInline internal var buffer: UnsafeMutablePointer<C>
 
-    @usableFromInline
+    @inlinable @inline(__always)
     init(buffer: UnsafeMutablePointer<C>) {
         self.buffer = buffer
     }
@@ -421,7 +458,7 @@ public struct Write<C: Component>: WritableComponent {
     @usableFromInline
     let access: SingleTypedAccess<C>
 
-    @usableFromInline
+    @inlinable @inline(__always)
     init(access: SingleTypedAccess<C>) {
         self.access = access
     }

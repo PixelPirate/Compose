@@ -1,4 +1,3 @@
-import BitCollections
 import Atomics
 
 public protocol Component: ComponentResolving {
@@ -11,6 +10,7 @@ public extension Component {
 }
 
 public struct ComponentSignature: Hashable {
+    @usableFromInline
     var rawHashValue: BitSet
 
     private init(raw: BitSet) {

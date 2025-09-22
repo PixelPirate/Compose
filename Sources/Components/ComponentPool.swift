@@ -130,10 +130,13 @@ extension ComponentPool {
         _ components: repeat (each C).Type,
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
-    ) -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index>], excluded: [ContiguousArray<Array.Index>])? {
+    )
+//    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index>], excluded: [ContiguousArray<Array.Index>])?
+    -> ContiguousArray<SlotIndex>?
+    {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
-        var excludedArrays: [AnyComponentArray] = []
+//        var excludedArrays: [AnyComponentArray] = []
 
         for component in repeat each components {
             let tag = component.componentTag
@@ -155,27 +158,31 @@ extension ComponentPool {
             arrays.append(array)
         }
 
-        for tag in excluded {
-            // If any tag is missing or empty, there can be no matches.
-            guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                continue
-            }
-            excludedArrays.append(array)
-        }
+//        for tag in excluded {
+//            // If any tag is missing or empty, there can be no matches.
+//            guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
+//                continue
+//            }
+//            excludedArrays.append(array)
+//        }
 
         // Sort by ascending number of entities to minimize membership checks.
-        arrays.sort { lhs, rhs in
-            lhs.componentsToEntites.count < rhs.componentsToEntites.count
-        }
+//        arrays.sort { lhs, rhs in
+//            lhs.componentsToEntites.count < rhs.componentsToEntites.count
+//        }
 
         // Take the smallest set of IDs as the candidate base.
-        let smallest = arrays[0]
+//        let smallest = arrays[0]
 
-        return (
-            smallest.componentsToEntites,
-            arrays.dropFirst().map(\.entityToComponents),
-            excludedArrays.map(\.entityToComponents)
-        )
+        return arrays.min { lhs, rhs in
+            lhs.componentsToEntites.count < rhs.componentsToEntites.count
+        }?.componentsToEntites
+
+//        return (
+//            smallest.componentsToEntites,
+//            arrays.dropFirst().map(\.entityToComponents),
+//            excludedArrays.map(\.entityToComponents)
+//        )
     }
 
     subscript<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) -> C {

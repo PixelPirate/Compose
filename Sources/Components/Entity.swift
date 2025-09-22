@@ -1,5 +1,6 @@
 public struct Entity {
     public struct ID: Hashable, Sendable {
+        @inline(__always)
         public let slot: SlotIndex
         /*
          // TODO: I need this for a proper sparse set.
@@ -8,7 +9,7 @@ public struct Entity {
          let generation: Int
          */
 
-        @usableFromInline
+        @inlinable @inline(__always)
         init(slot: SlotIndex) {
             self.slot = slot
         }
@@ -18,16 +19,20 @@ public struct Entity {
 }
 
 public struct SlotIndex: RawRepresentable, Hashable, Sendable, ExpressibleByIntegerLiteral {
+    @inline(__always)
     public let rawValue: Array.Index
 
+    @inlinable @inline(__always)
     public init(rawValue: Array.Index) {
         self.rawValue = rawValue
     }
 
+    @inlinable @inline(__always)
     public init(integerLiteral value: Int) {
         self.rawValue = value
     }
 
+    @inlinable @inline(__always)
     mutating func advancing() -> SlotIndex {
         SlotIndex(rawValue: rawValue + 1)
     }
