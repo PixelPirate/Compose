@@ -58,6 +58,10 @@ public struct ComponentTag: Hashable, Sendable {
     @inline(__always)
     public let rawValue: Int
 
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
     nonisolated(unsafe) private static var nextTag: UnsafeAtomic<Int> = .create(0)
 
     public static func makeTag() -> Self {
