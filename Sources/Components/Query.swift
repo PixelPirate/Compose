@@ -135,9 +135,8 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         guard let (baseIndices, otherIndexMaps, excludedMaps) = getArrays(&coordinator) else { return }
 
         withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).QueriedComponent>, ContiguousArray<ContiguousArray.Index>)
+            accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
-            let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
             slotLoop: for slot in baseIndices {
                 let slotRaw = slot.rawValue
                 for map in otherIndexMaps where !map.indices.contains(slotRaw) || map[slotRaw] == .notFound {
@@ -159,9 +158,8 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         let entityIDs = coordinator.pool.entities(repeat (each T).QueriedComponent.self, included: backstageComponents, excluded: excludedComponents)
 
         withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).QueriedComponent>, ContiguousArray<ContiguousArray.Index>)
+            accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
-            let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
             let cores = ProcessInfo.processInfo.processorCount
             let chunkSize = (entityIDs.count + cores - 1) / cores
 
@@ -184,10 +182,9 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         )
 
         let accessors = withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).QueriedComponent>,
-                             ContiguousArray<ContiguousArray.Index>)
+            accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
-            (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
+            (repeat each accessors)
         }
 
         guard let accessors else {
@@ -205,9 +202,8 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             excluded: excludedComponents
         )
         withTypedBuffers(&coordinator.pool) { (
-            buffers: repeat (UnsafeMutableBufferPointer<(each T).QueriedComponent>, ContiguousArray<ContiguousArray.Index>)
+            accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
-            let accessors = (repeat TypedAccess(buffer: (each buffers).0, indices: (each buffers).1))
             for entityId in entityIDs {
                 result = (repeat (each T).makeReadOnlyResolved(access: each accessors, entityID: entityId))
                 break
@@ -475,23 +471,22 @@ public struct Without<C: Component>: Component {
 @usableFromInline
 func withTypedBuffers<each C: Component, R>(
     _ pool: inout ComponentPool,
-    _ body: (repeat (UnsafeMutableBufferPointer<each C>, ContiguousArray<ContiguousArray.Index>)) throws -> R
+    _ body: (repeat TypedAccess<each C>) throws -> R
 ) rethrows -> R? {
-    var tuple: (repeat (UnsafeMutableBufferPointer<each C>, ContiguousArray<ContiguousArray.Index>))? = nil
+    var tuple: (repeat TypedAccess<each C>)? = nil
 
-    func buildTuple() -> (repeat (UnsafeMutableBufferPointer<each C>, ContiguousArray<ContiguousArray.Index>))? {
-        return (repeat tryGetBuffer((each C).self)!)
+    func buildTuple() -> (repeat TypedAccess<each C>)? {
+        return (repeat tryMakeAccess((each C).self)!)
     }
 
-    func tryGetBuffer<D: Component>(_ type: D.Type) -> (UnsafeMutableBufferPointer<D>, ContiguousArray<ContiguousArray.Index>)? {
+    func tryMakeAccess<D: Component>(_ type: D.Type) -> TypedAccess<D>? {
         if !D.requiresStorage {
-            // TODO: Returning this is quite ugly, can I prevent this case?
-            return (UnsafeMutableBufferPointer(start: UnsafeMutablePointer(nil), count: 0), ContiguousArray())
+            return TypedAccess<D>.empty
         }
         guard let anyArray = pool.components[D.componentTag] else { return nil }
-        var result: (UnsafeMutableBufferPointer<D>, ContiguousArray<ContiguousArray.Index>)? = nil
+        var result: TypedAccess<D>? = nil
         anyArray.withBuffer(D.self) { buffer, entitiesToIndices in
-            result = (buffer, entitiesToIndices)
+            result = TypedAccess(buffer: buffer, indices: entitiesToIndices)
         }
         return result
     }
