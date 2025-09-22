@@ -487,6 +487,9 @@ func withTypedBuffers<each C: Component, R>(
         var result: TypedAccess<D>? = nil
         anyArray.withBuffer(D.self) { buffer, entitiesToIndices in
             result = TypedAccess(buffer: buffer, indices: entitiesToIndices)
+            // Escaping the buffer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
+            // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12
+            // See: https://forums.swift.org/t/passing-a-parameter-pack-to-a-function-call-fails-to-compile/72243/15
         }
         return result
     }
@@ -494,4 +497,51 @@ func withTypedBuffers<each C: Component, R>(
     guard let built = buildTuple() else { return nil }
     tuple = built
     return try body(repeat each tuple!)
+
+
 }
+
+func entuplePack<each Prefix, Last>(
+    _ tuple: (repeat each Prefix, Last)
+) -> ((repeat each Prefix), Last) {
+    withUnsafeBytes(of: tuple) { ptr in
+        let metadata = TupleMetadata((repeat each Prefix, Last).self)
+        var iterator = (0..<metadata.count).makeIterator()
+        func next<Cast>() -> Cast {
+            let element = metadata[iterator.next()!]
+            return ptr.load(fromByteOffset: element.offset, as: Cast.self)
+        }
+        return (
+            (repeat { _ in next() } ((each Prefix).self)),
+            next()
+        )
+    }
+}
+
+private struct TupleMetadata {
+    let pointer: UnsafeRawPointer
+    init(_ type: Any.Type) {
+        pointer = unsafeBitCast(type, to: UnsafeRawPointer.self)
+    }
+    var count: Int {
+        pointer
+            .advanced(by: pointerSize)
+            .load(as: Int.self)
+    }
+    subscript(position: Int) -> Element {
+        Element(
+            pointer:
+                pointer
+                .advanced(by: pointerSize)
+                .advanced(by: pointerSize)
+                .advanced(by: pointerSize)
+                .advanced(by: position * 2 * pointerSize)
+        )
+    }
+    struct Element {
+        let pointer: UnsafeRawPointer
+        var offset: Int { pointer.load(fromByteOffset: pointerSize, as: Int.self) }
+    }
+}
+
+private let pointerSize = MemoryLayout<UnsafeRawPointer>.size

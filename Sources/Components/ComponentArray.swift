@@ -20,35 +20,43 @@ public protocol AnyComponentArrayBox: AnyObject {
     func ensureEntity(_ entityID: Entity.ID)
 }
 
+@usableFromInline
 final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
+    @usableFromInline
     var base: ComponentArray<C>
 
     init(_ base: ComponentArray<C>) {
         self.base = base
     }
 
+    @inlinable @inline(__always)
     func remove(id: Entity.ID) -> Void {
         base.remove(id)
     }
 
+    @inlinable @inline(__always)
     func append(_ component: any Component, id: Entity.ID) -> Void {
         base.append(component as! C, to: id)
     }
 
+    @inlinable @inline(__always)
     func get(_ id: Entity.ID) -> any Component {
         base[id]
     }
 
+    @inlinable @inline(__always)
     func `set`(_ id: Entity.ID, newValue: any Component) -> Void {
         base[id] = newValue as! C
     }
 
+    @inlinable @inline(__always)
     var entityToComponents: ContiguousArray<ContiguousArray.Index> {
         _read {
             yield base.slots
         }
     }
 
+    @inlinable @inline(__always)
     var componentsToEntites: ContiguousArray<SlotIndex> {
         _read {
             yield base.entities
@@ -58,6 +66,18 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     @inlinable @inline(__always)
     func ensureEntity(_ entityID: Entity.ID) {
         base.ensureEntity(entityID)
+    }
+    
+    @inlinable @inline(__always)
+    subscript(entityID entityID: Entity.ID) -> C {
+        _read { yield base[entityID] }
+        _modify { yield &base[entityID] }
+    }
+
+    @inlinable @inline(__always)
+    subscript(index index: Array.Index) -> C {
+        _read { yield base[index] }
+        _modify { yield &base[index] }
     }
 }
 
@@ -98,6 +118,11 @@ public struct AnyComponentArray {
         _read {
             yield base.componentsToEntites
         }
+    }
+
+    @usableFromInline
+    func typedBox<C: Component>(_ of: C.Type) -> ComponentArrayBox<C> {
+        return base as! ComponentArrayBox<C>
     }
 
     public func withBuffer<C: Component, Result>(
@@ -209,7 +234,14 @@ public struct ComponentArray<Component: Components.Component>: Collection {
         components.index(after: i)
     }
 
+    @inlinable @inline(__always)
     public subscript(position: ContiguousArray.Index) -> Component {
-        components[position]
+        _read {
+            yield components[position]
+        }
+        _modify {
+            yield &components[position]
+        }
     }
 }
+
