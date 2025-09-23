@@ -2,7 +2,11 @@ public struct Coordinator {
     @usableFromInline
     var pool = ComponentPool()
     //var tables = ArchetypePool()
+
+    @usableFromInline
     var indices = IndexRegistry()
+
+    @usableFromInline
     var systemManager = SystemManager()
 
     @usableFromInline
@@ -26,6 +30,11 @@ public struct Coordinator {
         }
     }
 
+    @inlinable @inline(__always)
+    func makeEntityID(for slot: SlotIndex) -> Entity.ID {
+        Entity.ID(slot: slot, generation: indices[generationFor: slot])
+    }
+
     @discardableResult
     public mutating func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
         defer {
@@ -44,6 +53,11 @@ public struct Coordinator {
         }
         setSpawnedSignature(newEntity, signature: signature)
         return newEntity
+    }
+
+    @inlinable @inline(__always)
+    public func isAlive(_ id: Entity.ID) -> Bool {
+        indices[generationFor: id.slot] == id.generation
     }
 
     @discardableResult
@@ -67,6 +81,7 @@ public struct Coordinator {
     }
 
     public mutating func add<C: Component>(_ component: C, to entityID: Entity.ID) {
+        guard isAlive(entityID) else { return }
         defer {
             worldVersion += 1
         }
@@ -77,6 +92,7 @@ public struct Coordinator {
     }
 
     public mutating func remove(_ componentTag: ComponentTag, from entityID: Entity.ID) {
+        guard isAlive(entityID) else { return }
         defer {
             worldVersion += 1
         }
@@ -87,6 +103,7 @@ public struct Coordinator {
     }
 
     public mutating func remove<C: Component>(_ componentType: C.Type = C.self, from entityID: Entity.ID) {
+        guard isAlive(entityID) else { return }
         defer {
             worldVersion += 1
         }
@@ -96,6 +113,7 @@ public struct Coordinator {
     }
 
     public mutating func destroy(_ entityID: Entity.ID) {
+        guard isAlive(entityID) else { return }
         defer {
             worldVersion += 1
         }

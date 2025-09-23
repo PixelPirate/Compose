@@ -2,16 +2,14 @@ public struct Entity {
     public struct ID: Hashable, Sendable {
         @inline(__always)
         public let slot: SlotIndex
-        /*
-         // TODO: I need this for a proper sparse set.
-         //       I need some registry to track the current generation count and free IDs (after destroy).
-         let rowIndex: Array.Index
-         let generation: Int
-         */
+
+        @inline(__always)
+        public let generation: UInt32
 
         @inlinable @inline(__always)
-        init(slot: SlotIndex) {
+        init(slot: SlotIndex, generation: UInt32) {
             self.slot = slot
+            self.generation = generation
         }
     }
     public let id: ID
@@ -38,23 +36,34 @@ public struct SlotIndex: RawRepresentable, Hashable, Sendable, ExpressibleByInte
     }
 }
 
+@usableFromInline
 struct IndexRegistry {
+    @usableFromInline
     struct ArchetypeRow {
         let id: Int
         let row: Array.Index
     }
 
+    @usableFromInline
     enum ArchetypeLocation {
         case free
         case none
         case table(ArchetypeRow)
     }
 
+    @usableFromInline
     private(set) var archetype: [ArchetypeLocation] = [] // Indexed by `SlotIndex`
+
+    @usableFromInline
     private(set) var generation: [UInt32] = [] // Indexed by `SlotIndex`
+
+    @usableFromInline
     private(set) var freeIDs: ContiguousArray<SlotIndex> = []
+
+    @usableFromInline
     private(set) var nextID: SlotIndex = 0
 
+    @inlinable @inline(__always)
     mutating func allocateID() -> Entity.ID {
         let newIndex = freeIDs.isEmpty ? popNextID() : freeIDs.removeFirst()
 
@@ -67,9 +76,10 @@ struct IndexRegistry {
         }
         self[generationFor: newIndex] += 1
 
-        return Entity.ID(slot: newIndex)
+        return Entity.ID(slot: newIndex, generation: generation[newIndex.rawValue])
     }
 
+    @inlinable @inline(__always)
     mutating func free(id: Entity.ID) {
         freeIDs.append(id.slot)
         self[generationFor: id.slot] += 1
@@ -78,12 +88,14 @@ struct IndexRegistry {
         }
     }
 
-    private mutating func popNextID() -> SlotIndex {
+    @inlinable @inline(__always)
+    internal mutating func popNextID() -> SlotIndex {
         let result = nextID
         nextID = nextID.advancing()
         return result
     }
 
+    @inlinable @inline(__always)
     subscript(generationFor index: SlotIndex) -> UInt32 {
         _read {
             yield generation[index.rawValue]
@@ -93,6 +105,7 @@ struct IndexRegistry {
         }
     }
 
+    @usableFromInline @inline(__always)
     subscript(archetypeFor index: SlotIndex) -> ArchetypeLocation {
         _read {
             yield archetype[index.rawValue]

@@ -424,6 +424,26 @@ import Testing
     #expect(all[0].1 == Transform(position: .zero, rotation: .zero, scale: .zero))
 }
 
+@Test
+func testReuseSlot() async throws {
+    var coordinator = Coordinator()
+    let entityA = coordinator.spawn(Gravity(force: .zero))
+    coordinator.destroy(entityA)
+    let entityB = coordinator.spawn(Gravity(force: .zero))
+
+    // Destroyed slot gets recycled with new generation:
+    #expect(entityA.slot == entityB.slot)
+    #expect(entityA.generation != entityB.generation)
+
+    // Using the old ID is ignored:
+    coordinator.remove(Gravity.self, from: entityA)
+    #expect(Query { Gravity.self }.fetchOne(&coordinator) != nil)
+
+    // Using the current ID works:
+    coordinator.remove(Gravity.self, from: entityB)
+    #expect(Query { Gravity.self }.fetchOne(&coordinator) == nil)
+}
+
 //@Test func entityIDs() {
 //    var coordinator = Coordinator()
 //
@@ -440,6 +460,8 @@ import Testing
 //    #expect(coordinator.indices.freeIDs.isEmpty)
 //    #expect(coordinator.indices.generation == [1, 1])
 //    #expect(coordinator.indices.nextID.rawValue == 2)
+//    #expect(id1.generation == 1)
+//    #expect(id2.generation == 1)
 //
 //    coordinator.destroy(id1)
 //
@@ -450,7 +472,9 @@ import Testing
 //
 //    let id3 = coordinator.spawn()
 //
-//    #expect(id3 == id1)
+//    #expect(id3.slot == id1.slot)
+//    #expect(id3.generation != id1.generation)
+//    #expect(id3.generation == 3)
 //    #expect(coordinator.indices.archetype.isEmpty)
 //    #expect(coordinator.indices.freeIDs == [])
 //    #expect(coordinator.indices.generation == [3, 1])

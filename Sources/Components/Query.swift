@@ -200,7 +200,10 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
                     // Entity has at least one excluded component, skip.
                     continue slotLoop
                 }
-                let id = Entity.ID(slot: SlotIndex(rawValue: slotRaw))
+                let id = Entity.ID(
+                    slot: SlotIndex(rawValue: slotRaw),
+                    generation: coordinator.indices[generationFor: slot]
+                )
                 handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
             }
         }
@@ -230,7 +233,10 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
                 else {
                     continue slotLoop
                 }
-                let id = Entity.ID(slot: SlotIndex(rawValue: slotRaw))
+                let id = Entity.ID(
+                    slot: SlotIndex(rawValue: slotRaw),
+                    generation: coordinator.indices[generationFor: slot]
+                )
                 handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
             }
         }
@@ -238,27 +244,30 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @inlinable @inline(__always)
     public func performParallel(_ coordinator: inout Coordinator, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
-        let entityIDs = coordinator.pool.entities(repeat (each T).QueriedComponent.self, included: backstageComponents, excluded: excludedComponents)
+        let slots = coordinator.pool.slots(repeat (each T).QueriedComponent.self, included: backstageComponents, excluded: excludedComponents)
 
         withTypedBuffers(&coordinator.pool) { (
             accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
             let cores = ProcessInfo.processInfo.processorCount
-            let chunkSize = (entityIDs.count + cores - 1) / cores
+            let chunkSize = (slots.count + cores - 1) / cores
 
-            DispatchQueue.concurrentPerform(iterations: min(cores, entityIDs.count)) { i in
+            DispatchQueue.concurrentPerform(iterations: min(cores, slots.count)) { i in
                 let start = i * chunkSize
-                let end = min(start + chunkSize, entityIDs.count)
+                let end = min(start + chunkSize, slots.count)
 
-                for entityId in entityIDs[start..<end] {
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: entityId))
+                for slot in slots[start..<end] {
+                    handler(repeat (each T).makeResolved(
+                        access: each accessors,
+                        entityID: Entity.ID(slot: slot, generation: coordinator.indices[generationFor: slot])
+                    ))
                 }
             }
         }
     }
 
     public func fetchAll(_ coordinator: inout Coordinator) -> LazyQuerySequence<repeat each T> {
-        let entityIDs = coordinator.pool.entities(
+        let slots = coordinator.pool.slots(
             repeat (each T).QueriedComponent.self,
             included: backstageComponents,
             excluded: excludedComponents
@@ -274,12 +283,15 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             return LazyQuerySequence()
         }
 
-        return LazyQuerySequence(entityIDs: entityIDs, accessors: repeat each accessors)
+        return LazyQuerySequence(
+            entityIDs: slots.map { Entity.ID(slot: $0, generation: coordinator.indices[generationFor: $0]) },
+            accessors: repeat each accessors
+        )
     }
 
     public func fetchOne(_ coordinator: inout Coordinator) -> (repeat (each T).ReadOnlyResolvedType)? {
         var result: (repeat (each T).ReadOnlyResolvedType)? = nil
-        let entityIDs = coordinator.pool.entities(
+        let slots = coordinator.pool.slots(
             repeat (each T).QueriedComponent.self,
             included: backstageComponents,
             excluded: excludedComponents
@@ -287,8 +299,13 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         withTypedBuffers(&coordinator.pool) { (
             accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
-            for entityId in entityIDs {
-                result = (repeat (each T).makeReadOnlyResolved(access: each accessors, entityID: entityId))
+            for slot in slots {
+                result = (
+                    repeat (each T).makeReadOnlyResolved(
+                        access: each accessors,
+                        entityID: Entity.ID(slot: slot, generation: coordinator.indices[generationFor: slot])
+                    )
+                )
                 break
             }
         }

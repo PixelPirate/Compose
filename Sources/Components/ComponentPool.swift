@@ -41,11 +41,11 @@ extension ComponentPool {
     }
 
     @usableFromInline
-    func entities<each C: Component>(
+    func slots<each C: Component>(
         _ components: repeat (each C).Type,
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
-    ) -> [Entity.ID] {
+    ) -> [SlotIndex] {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
         var excludedArrays: [AnyComponentArray] = []
@@ -87,7 +87,7 @@ extension ComponentPool {
         let smallest = arrays[0]
         if arrays.count == 1 {
             if excluded.isEmpty {
-                return smallest.componentsToEntites.map { Entity.ID(slot: $0) }
+                return smallest.componentsToEntites.map { $0 }
             } else {
                 return smallest.componentsToEntites.filter { slot in
                     excludedArrays.allSatisfy { componentArray in
@@ -95,7 +95,7 @@ extension ComponentPool {
                     }
                 }
                 .map {
-                    Entity.ID(slot: $0)
+                    $0
                 }
             }
         }
@@ -104,7 +104,7 @@ extension ComponentPool {
         let others = arrays.dropFirst().map { $0.entityToComponents }
 
         // Filter candidate IDs by ensuring presence in all other component maps.
-        var result: [Entity.ID] = []
+        var result: [SlotIndex] = []
         result.reserveCapacity(smallest.componentsToEntites.count)
         for slot in smallest.componentsToEntites {
             var presentInAll = true
@@ -119,7 +119,7 @@ extension ComponentPool {
                 break
             }
             if presentInAll {
-                result.append(Entity.ID(slot: slot))
+                result.append(slot)
             }
         }
         return result
