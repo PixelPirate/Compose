@@ -8,6 +8,104 @@
 // TODO: Parallelise queries. It should be memory safe since every entity has it's own memory location.
 //       I don't think systems can be parallel though, right?
 
+public struct ComponentArray<Component: Components.Component>: Collection {
+    @usableFromInline
+    private(set) var components: ContiguousArray<Component> = []
+    @usableFromInline
+    private(set) var slots: ContiguousArray<ContiguousArray.Index> = [] // Indexed by SlotIndex.
+    @usableFromInline
+    private(set) var entities: ContiguousArray<SlotIndex> = [] // Indexed by component index.
+
+    public init(_ pairs: (Entity.ID, Component)...) {
+        for (id, component) in pairs {
+            append(component, to: id)
+        }
+    }
+
+    public init(_ pairs: [(Entity.ID, Component)]) {
+        for (id, component) in pairs {
+            append(component, to: id)
+        }
+    }
+
+    @inlinable
+    @inline(__always)
+    public mutating func withUnsafeMutableBufferPointer<R>(_ body: (inout UnsafeMutableBufferPointer<Element>) throws -> R) rethrows -> R {
+        try components.withUnsafeMutableBufferPointer(body)
+    }
+
+    /// Returns true if this array contains a component for the given entity.
+    public func containsEntity(_ entityID: Entity.ID) -> Bool {
+        entityID.slot.rawValue < slots.count && slots[entityID.slot.rawValue] != .notFound
+    }
+
+    @inlinable @inline(__always)
+    mutating public func ensureEntity(_ entityID: Entity.ID) {
+        if !slots.indices.contains(entityID.slot.rawValue) {
+            let missingCount = (entityID.slot.rawValue + 1) - slots.count
+            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
+        }
+    }
+
+    @inlinable @inline(__always)
+    public mutating func append(_ component: Component, to entityID: Entity.ID) {
+        components.append(component)
+        entities.append(entityID.slot)
+        if !slots.indices.contains(entityID.slot.rawValue) {
+            let missingCount = (entityID.slot.rawValue + 1) - slots.count
+            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
+        }
+        slots[entityID.slot.rawValue] = components.endIndex - 1
+    }
+
+    @inlinable @inline(__always)
+    public mutating func remove(_ entityID: Entity.ID) {
+        guard slots.indices.contains(entityID.slot.rawValue) else { return }
+        let componentIndex = slots[entityID.slot.rawValue]
+        guard componentIndex != components.endIndex - 1 else {
+            entities.removeLast()
+            slots[entityID.slot.rawValue] = .notFound
+            components.removeLast()
+            return
+        }
+
+        guard let lastComponentSlot = entities.popLast() else {
+            fatalError("Missing entity for last component.")
+        }
+        components[componentIndex] = components.removeLast()
+        entities[componentIndex] = lastComponentSlot
+        slots[lastComponentSlot.rawValue] = componentIndex
+        slots[entityID.slot.rawValue] = .notFound
+    }
+
+    @inlinable @inline(__always)
+    public subscript(_ entityID: Entity.ID) -> Component {
+        _read {
+            yield components[slots[entityID.slot.rawValue]]
+        }
+        _modify {
+            yield &components[slots[entityID.slot.rawValue]]
+        }
+    }
+
+    public var startIndex: ContiguousArray.Index { components.startIndex }
+    public var endIndex: ContiguousArray.Index { components.endIndex }
+
+    public func index(after i: ContiguousArray.Index) -> ContiguousArray.Index {
+        components.index(after: i)
+    }
+
+    @inlinable @inline(__always)
+    public subscript(position: ContiguousArray.Index) -> Component {
+        _read {
+            yield components[position]
+        }
+        _modify {
+            yield &components[position]
+        }
+    }
+}
+
 public protocol AnyComponentArrayBox: AnyObject {
     func remove(id: Entity.ID) -> Void
     func append(_: any Component, id: Entity.ID) -> Void
@@ -146,102 +244,3 @@ extension ContiguousArray.Index {
     @usableFromInline
     static let notFound: ContiguousArray.Index = -1
 }
-
-public struct ComponentArray<Component: Components.Component>: Collection {
-    @usableFromInline
-    private(set) var components: ContiguousArray<Component> = []
-    @usableFromInline
-    private(set) var slots: ContiguousArray<ContiguousArray.Index> = [] // Indexed by SlotIndex.
-    @usableFromInline
-    private(set) var entities: ContiguousArray<SlotIndex> = [] // Indexed by component index.
-
-    public init(_ pairs: (Entity.ID, Component)...) {
-        for (id, component) in pairs {
-            append(component, to: id)
-        }
-    }
-
-    public init(_ pairs: [(Entity.ID, Component)]) {
-        for (id, component) in pairs {
-            append(component, to: id)
-        }
-    }
-
-    @inlinable
-    @inline(__always)
-    public mutating func withUnsafeMutableBufferPointer<R>(_ body: (inout UnsafeMutableBufferPointer<Element>) throws -> R) rethrows -> R {
-        try components.withUnsafeMutableBufferPointer(body)
-    }
-
-    /// Returns true if this array contains a component for the given entity.
-    public func containsEntity(_ entityID: Entity.ID) -> Bool {
-        entityID.slot.rawValue < slots.count && slots[entityID.slot.rawValue] != .notFound
-    }
-
-    @inlinable @inline(__always)
-    mutating public func ensureEntity(_ entityID: Entity.ID) {
-        if !slots.indices.contains(entityID.slot.rawValue) {
-            let missingCount = (entityID.slot.rawValue + 1) - slots.count
-            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
-        }
-    }
-
-    @inlinable @inline(__always)
-    public mutating func append(_ component: Component, to entityID: Entity.ID) {
-        components.append(component)
-        entities.append(entityID.slot)
-        if !slots.indices.contains(entityID.slot.rawValue) {
-            let missingCount = (entityID.slot.rawValue + 1) - slots.count
-            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
-        }
-        slots[entityID.slot.rawValue] = components.endIndex - 1
-    }
-
-    @inlinable @inline(__always)
-    public mutating func remove(_ entityID: Entity.ID) {
-        guard slots.indices.contains(entityID.slot.rawValue) else { return }
-        let componentIndex = slots[entityID.slot.rawValue]
-        guard componentIndex != components.endIndex - 1 else {
-            entities.removeLast()
-            slots[entityID.slot.rawValue] = .notFound
-            components.removeLast()
-            return
-        }
-
-        guard let lastComponentSlot = entities.popLast() else {
-            fatalError("Missing entity for last component.")
-        }
-        components[componentIndex] = components.removeLast()
-        entities[componentIndex] = lastComponentSlot
-        slots[lastComponentSlot.rawValue] = componentIndex
-        slots[entityID.slot.rawValue] = .notFound
-    }
-
-    @inlinable @inline(__always)
-    public subscript(_ entityID: Entity.ID) -> Component {
-        _read {
-            yield components[slots[entityID.slot.rawValue]]
-        }
-        _modify {
-            yield &components[slots[entityID.slot.rawValue]]
-        }
-    }
-
-    public var startIndex: ContiguousArray.Index { components.startIndex }
-    public var endIndex: ContiguousArray.Index { components.endIndex }
-
-    public func index(after i: ContiguousArray.Index) -> ContiguousArray.Index {
-        components.index(after: i)
-    }
-
-    @inlinable @inline(__always)
-    public subscript(position: ContiguousArray.Index) -> Component {
-        _read {
-            yield components[position]
-        }
-        _modify {
-            yield &components[position]
-        }
-    }
-}
-

@@ -1,6 +1,6 @@
 import Atomics
 
-public protocol Component: ComponentResolving {
+public protocol Component: ComponentResolving, Sendable {
     @inlinable @inline(__always)
     static var componentTag: ComponentTag { get }
 
@@ -15,7 +15,7 @@ public extension Component {
 
 public struct ComponentSignature: Hashable {
     @usableFromInline
-    var rawHashValue: BitSet2
+    var rawHashValue: BitSet
 
     @usableFromInline @inline(__always)
     internal var isEmpty: Bool {
@@ -24,13 +24,13 @@ public struct ComponentSignature: Hashable {
         }
     }
     @usableFromInline @inline(__always)
-    internal init(raw: BitSet2) {
+    internal init(raw: BitSet) {
         rawHashValue = raw
     }
 
     @inlinable @inline(__always)
     public init(_ tags: ComponentTag...) {
-        var bits = BitSet2()
+        var bits = BitSet()
         bits.insert(tags.map(\.rawValue))
         rawHashValue = bits
     }

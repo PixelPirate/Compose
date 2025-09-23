@@ -71,7 +71,7 @@ import Testing
         }
     }
     // Bevy seems to need 6.7ms for this (Archetypes), 12.5ms with sparse sets
-    //~0.012 seconds (Iteration)
+    //~0.011 seconds (Iteration)
     //~0.014 seconds (Signature)
     print(duration)
 }

@@ -52,6 +52,7 @@ struct SignatureQueryPlan {
         self.version = version
     }
 }
+
 extension TypedAccess {
     static var empty: TypedAccess {
         // a harmless instance that never resolves anything
@@ -236,7 +237,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @inlinable @inline(__always)
-    public func performParallel(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
+    public func performParallel(_ coordinator: inout Coordinator, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
         let entityIDs = coordinator.pool.entities(repeat (each T).QueriedComponent.self, included: backstageComponents, excluded: excludedComponents)
 
         withTypedBuffers(&coordinator.pool) { (
@@ -331,9 +332,13 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 }
 
+struct UnsafeSendable<T>: @unchecked Sendable {
+    let value: T
+}
+
 public struct TypedAccess<C: Component>: @unchecked Sendable {
-    /*@usableFromInline*/ public var buffer: UnsafeMutableBufferPointer<C>
-    /*@usableFromInline*/ public var indices: ContiguousArray<ContiguousArray.Index>
+    @usableFromInline internal var buffer: UnsafeMutableBufferPointer<C>
+    @usableFromInline internal var indices: ContiguousArray<ContiguousArray.Index>
 
     @usableFromInline
     init(buffer: UnsafeMutableBufferPointer<C>, indices: ContiguousArray<ContiguousArray.Index>) {
@@ -389,7 +394,6 @@ public protocol ComponentResolving {
 }
 
 public extension ComponentResolving where Self: Component, ResolvedType == Self, QueriedComponent == Self, ReadOnlyResolvedType == Self {
-
     @inlinable @inline(__always)
     static func makeResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> Self {
         access[entityID]
@@ -507,13 +511,13 @@ protocol WritableComponent: Component {
 }
 
 @dynamicMemberLookup
-public struct Write<C: Component>: WritableComponent {
+public struct Write<C: Component>: WritableComponent, Sendable {
     public static var componentTag: ComponentTag { C.componentTag }
 
     public typealias Wrapped = C
 
     @usableFromInline
-    let access: SingleTypedAccess<C>
+    nonisolated(unsafe) let access: SingleTypedAccess<C>
 
     @inlinable @inline(__always)
     init(access: SingleTypedAccess<C>) {
@@ -531,13 +535,13 @@ public struct Write<C: Component>: WritableComponent {
     }
 }
 
-public struct With<C: Component>: Component {
+public struct With<C: Component>: Component, Sendable {
     public static var componentTag: ComponentTag { C.componentTag }
 
     public typealias Wrapped = C
 }
 
-public struct WithEntityID: Component {
+public struct WithEntityID: Component, Sendable {
     public static var componentTag: ComponentTag { ComponentTag(rawValue: -1) }
     public typealias ResolvedType = Entity.ID
     public typealias ReadOnlyResolvedType = Entity.ID
@@ -582,6 +586,7 @@ func withTypedBuffers<each C: Component, R>(
         anyArray.withBuffer(D.self) { buffer, entitiesToIndices in
             result = TypedAccess(buffer: buffer, indices: entitiesToIndices)
             // Escaping the buffer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
+            // The solution would be a recursive function which would recusively call `withBuffer` on the head until the pack is empty, and then call `body` with all the buffers.
             // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12
             // See: https://forums.swift.org/t/passing-a-parameter-pack-to-a-function-call-fails-to-compile/72243/15
         }
@@ -591,8 +596,6 @@ func withTypedBuffers<each C: Component, R>(
     guard let built = buildTuple() else { return nil }
     tuple = built
     return try body(repeat each tuple!)
-
-
 }
 
 func entuplePack<each Prefix, Last>(
@@ -640,184 +643,3 @@ private struct TupleMetadata {
 
 private let pointerSize = MemoryLayout<UnsafeRawPointer>.size
 
-#if canImport(Darwin)
-import Darwin // for memcmp
-#else
-import Glibc  // Linux
-#endif
-
-public struct BitSet2: Hashable {
-    // Dynamic bitset that grows as needed. `bitCount` reflects the highest set bit + 1.
-    @usableFromInline @inline(__always)
-    internal var bitCount: Int = 0
-    @usableFromInline var words: [UInt64]   // or ContiguousArray<UInt64>
-
-    @inlinable @inline(__always)
-    public static func == (lhs: BitSet2, rhs: BitSet2) -> Bool {
-        lhs.isEqual(to: rhs)
-    }
-
-    @inlinable @inline(__always)
-    public func hash(into hasher: inout Hasher) {
-//        var canonical = self
-//        canonical._shrinkToFitUsedBits()
-//        hasher.combine(bitCount)
-        // `words` is always updated when inserting/removing, so currently there cannot be the case where
-        // a BitSet has a leading zero word.
-        hasher.combine(words)
-    }
-
-    @inlinable @inline(__always)
-    public init() {
-        self.words = []
-        self.bitCount = 0
-    }
-
-    // Optional capacity initializer: pre-allocates space for the given number of bits.
-    @inlinable @inline(__always)
-    public init(bitCount: Int) {
-        precondition(bitCount >= 0)
-        self.bitCount = 0 // actual used range starts at 0; we only grow when bits are set
-        let n = (bitCount + 63) >> 6
-        self.words = Array(repeating: 0, count: n)
-    }
-
-    // Ensure capacity for a specific bit index (0-based). Grows storage.
-    @usableFromInline @inline(__always)
-    internal mutating func ensureCapacity(forBit bit: Int) {
-        precondition(bit >= 0, "bit index must be non-negative")
-        let requiredBits = bit &+ 1
-        let requiredWords = (requiredBits + 63) >> 6
-        if requiredWords > words.count {
-            words.append(contentsOf: repeatElement(0, count: requiredWords - words.count))
-        }
-        if requiredBits > bitCount { bitCount = requiredBits }
-    }
-
-    // Call after any mutating change to keep a canonical tail (clears bits beyond bitCount in last word).
-    @usableFromInline @inline(__always)
-    internal mutating func _maskTail() {
-        guard bitCount > 0, let lastIdx = words.indices.last else { return }
-        let bitsInLast = bitCount & 63
-        if bitsInLast != 0 {
-            let mask: UInt64 = bitsInLast == 64 ? ~0 : ((1 &<< bitsInLast) &- 1)
-            words[lastIdx] &= mask
-        }
-    }
-
-    // Shrinks trailing zero words and adjusts bitCount to highest set bit + 1.
-    @usableFromInline @inline(__always)
-    internal mutating func _shrinkToFitUsedBits() {
-        // Drop trailing zero words
-        while let last = words.last, last == 0 { words.removeLast() }
-        if let last = words.last {
-            let lastIdx = words.count - 1
-            // Highest set bit position in last word
-            let usedInLast = 64 - last.leadingZeroBitCount
-            bitCount = lastIdx * 64 + usedInLast
-        } else {
-            bitCount = 0
-        }
-        _maskTail()
-    }
-
-    @inlinable @inline(__always)
-    public mutating func insert(_ bit: Int) {
-        ensureCapacity(forBit: bit)
-        let wordIndex = bit >> 6
-        let mask: UInt64 = 1 &<< (bit & 63)
-        words[wordIndex] |= mask
-        let requiredBits = bit &+ 1
-        if requiredBits > bitCount { bitCount = requiredBits }
-        _maskTail()
-    }
-
-    @inlinable @inline(__always)
-    public mutating func insert(_ bits: Int...) {
-        for bit in bits { insert(bit) }
-    }
-
-    @inlinable @inline(__always)
-    public mutating func insert(_ bits: some Sequence<Int>) {
-        for bit in bits { insert(bit) }
-    }
-
-    @inlinable @inline(__always)
-    public mutating func remove(_ bit: Int) {
-        guard bit >= 0 else { return }
-        if bit >= bitCount { return } // nothing to do
-        let wordIndex = bit >> 6
-        if wordIndex < words.count {
-            let mask: UInt64 = 1 &<< (bit & 63)
-            words[wordIndex] &= ~mask
-            if bit == bitCount - 1 {
-                _shrinkToFitUsedBits()
-            }
-        }
-        _maskTail()
-    }
-
-    // MARK: - Equality (bytewise-like semantics across different sizes)
-
-    @inlinable @inline(__always)
-    public func isEqual(to other: BitSet2) -> Bool {
-        let maxCount = max(self.words.count, other.words.count)
-        var i = 0
-        while i < maxCount {
-            let a = i < self.words.count ? self.words[i] : 0
-            let b = i < other.words.count ? other.words[i] : 0
-            if a != b { return false }
-            i &+= 1
-        }
-        return true
-    }
-
-    @inlinable @inline(__always)
-    public func isSuperset(of sup: BitSet2) -> Bool {
-        sup.isSubset(of: self)
-    }
-
-    @inlinable @inline(__always)
-    public func isSuperset(of sup: BitSet2, isDisjoint dis: BitSet2) -> Bool {
-        let maxCount = max(sup.words.count, self.words.count, dis.words.count)
-        var i = 0
-        while i < maxCount {
-            let a = i < sup.words.count ? sup.words[i] : 0
-            let b = i < self.words.count ? self.words[i] : 0
-            guard (a & ~b) == 0 else { return false }
-
-            let d = i < dis.words.count ? dis.words[i] : 0
-            if (b & d) != 0 { return false }
-
-            i &+= 1
-        }
-        return true
-    }
-
-    @inlinable @inline(__always)
-    public func isSubset(of sup: BitSet2) -> Bool {
-        // Treat missing higher words as zeros on either side.
-        let maxCount = max(self.words.count, sup.words.count)
-        var i = 0
-        while i < maxCount {
-            let a = i < self.words.count ? self.words[i] : 0
-            let b = i < sup.words.count ? sup.words[i] : 0
-            guard (a & ~b) == 0 else { return false }
-            i &+= 1
-        }
-        return true
-    }
-
-    @inlinable @inline(__always)
-    public func isDisjoint(with other: BitSet2) -> Bool {
-        let maxCount = max(self.words.count, other.words.count)
-        var i = 0
-        while i < maxCount {
-            let a = i < self.words.count ? self.words[i] : 0
-            let b = i < other.words.count ? other.words[i] : 0
-            if (a & b) != 0 { return false }
-            i &+= 1
-        }
-        return true
-    }
-}
