@@ -9,7 +9,11 @@ public struct Coordinator {
     internal private(set) var entitySignatures: ContiguousArray<ComponentSignature> = [] // Indexed by SlotIndex
 
     @usableFromInline
-    var queryCache: [QueryHash: QueryPlan] = [:]
+    var signatureQueryCache: [QueryHash: SignatureQueryPlan] = [:]
+
+    @usableFromInline
+    var sparseQueryCache: [QueryHash: SparseQueryPlan] = [:]
+
     @usableFromInline
     private(set) var worldVersion: UInt64 = 0
 

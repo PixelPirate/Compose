@@ -41,9 +41,38 @@ import Testing
             transform.position.x += gravity.force.x
         }
     }
-// Bevy seems to need 6.7ms for this (Archetypes), 12.5ms with sparse sets
-//~0.013 seconds (Iteration)
+//~0.012 seconds (Iteration)
 //~0.014 seconds (Signature)
+    print(duration)
+}
+
+@Test func testPerformanceSimple() throws {
+    let query = Query {
+        Write<Transform>.self
+        Gravity.self
+    }
+    let clock = ContinuousClock()
+
+    var coordinator = Coordinator()
+
+    let setup = clock.measure {
+        for _ in 0...1_000_000 {
+            coordinator.spawn(
+                Transform(position: .zero, rotation: .zero, scale: .zero),
+                Gravity(force: Vector3(x: 0, y: 0, z: 0))
+            )
+        }
+    }
+    print("Setup:", setup)
+
+    let duration = clock.measure {
+        query.perform(&coordinator) { transform, gravity in
+            transform.position.x += gravity.force.x
+        }
+    }
+    // Bevy seems to need 6.7ms for this (Archetypes), 12.5ms with sparse sets
+    //~0.012 seconds (Iteration)
+    //~0.014 seconds (Signature)
     print(duration)
 }
 
@@ -123,7 +152,7 @@ import Testing
         }
     }
 
-    //~0.00031 seconds (Iteration)
+    //~0.00026 seconds (Iteration)
     //~0.00030 seconds (Signature)
     print(duration)
 }

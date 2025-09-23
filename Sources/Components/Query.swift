@@ -12,26 +12,43 @@ public struct QueryHash: Hashable {
 }
 
 @usableFromInline
-struct QueryPlan {
+struct SparseQueryPlan {
     @usableFromInline
     let base: ContiguousArray<SlotIndex>
-//    @usableFromInline
-//    let others: [ContiguousArray<Array.Index>] // entityToComponents maps
-//    @usableFromInline
-//    let excluded: [ContiguousArray<Array.Index>]
+    @usableFromInline
+    let others: [ContiguousArray<Array.Index>] // entityToComponents maps
+    @usableFromInline
+    let excluded: [ContiguousArray<Array.Index>]
     @usableFromInline
     let version: UInt64
 
     @usableFromInline
     init(
         base: ContiguousArray<SlotIndex>,
-//        others: [ContiguousArray<Array.Index>],
-//        excluded: [ContiguousArray<Array.Index>],
+        others: [ContiguousArray<Array.Index>],
+        excluded: [ContiguousArray<Array.Index>],
         version: UInt64
     ) {
         self.base = base
-//        self.others = others
-//        self.excluded = excluded
+        self.others = others
+        self.excluded = excluded
+        self.version = version
+    }
+}
+
+@usableFromInline
+struct SignatureQueryPlan {
+    @usableFromInline
+    let base: ContiguousArray<SlotIndex>
+    @usableFromInline
+    let version: UInt64
+
+    @usableFromInline
+    init(
+        base: ContiguousArray<SlotIndex>,
+        version: UInt64
+    ) {
+        self.base = base
         self.version = version
     }
 }
@@ -111,18 +128,17 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @usableFromInline @inline(__always)
     internal func getArrays(_ coordinator: inout Coordinator)
-//    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Int>], excluded: [ContiguousArray<Int>])?
-    -> ContiguousArray<SlotIndex>?
+    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Int>], excluded: [ContiguousArray<Int>])?
     {
         let hash = QueryHash(self)
         if
-            let cached = coordinator.queryCache[hash],
+            let cached = coordinator.sparseQueryCache[hash],
             cached.version == coordinator.worldVersion
         {
             return (
-                cached.base
-//                cached.others,
-//                cached.excluded
+                cached.base,
+                cached.others,
+                cached.excluded
             )
         } else {
             guard let new = coordinator.pool.baseAndOthers(
@@ -132,10 +148,33 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             ) else {
                 return nil
             }
-            coordinator.queryCache[hash] = QueryPlan(
-                base: new,//.base,
-//                others: new.others,
-//                excluded: new.excluded,
+            coordinator.sparseQueryCache[hash] = SparseQueryPlan(
+                base: new.base,
+                others: new.others,
+                excluded: new.excluded,
+                version: coordinator.worldVersion
+            )
+            return new
+        }
+    }
+
+    @usableFromInline @inline(__always)
+    internal func getBaseSparseList(_ coordinator: inout Coordinator) -> ContiguousArray<SlotIndex>? {
+        let hash = QueryHash(self)
+        if
+            let cached = coordinator.signatureQueryCache[hash],
+            cached.version == coordinator.worldVersion
+        {
+            return cached.base
+        } else {
+            guard let new = coordinator.pool.base(
+                repeat (each T).QueriedComponent.self,
+                included: backstageComponents
+            ) else {
+                return nil
+            }
+            coordinator.signatureQueryCache[hash] = SignatureQueryPlan(
+                base: new,
                 version: coordinator.worldVersion
             )
             return new
@@ -144,7 +183,32 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @inlinable @inline(__always)
     public func perform(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        guard let baseSlots = getArrays(&coordinator) else { return }
+        guard let (baseSlots, otherComponents, excludedComponents) = getArrays(&coordinator) else { return }
+
+        withTypedBuffers(&coordinator.pool) { (
+            accessors: repeat TypedAccess<(each T).QueriedComponent>
+        ) in
+            slotLoop: for slot in baseSlots {
+                let slotRaw = slot.rawValue
+
+                for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == .notFound {
+                    // Entity does not have all required components, skip.
+                    continue slotLoop
+                }
+                for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != .notFound {
+                    // Entity has at least one excluded component, skip.
+                    continue slotLoop
+                }
+                let id = Entity.ID(slot: SlotIndex(rawValue: slotRaw))
+                handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+            }
+        }
+    }
+
+    // This is just here as an example, signatures will be important for archetypes and groups
+    @inlinable @inline(__always)
+    public func performWithSignature(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        guard let baseSlots = getBaseSparseList(&coordinator) else { return }
 
         withTypedBuffers(&coordinator.pool) { (
             accessors: repeat TypedAccess<(each T).QueriedComponent>
@@ -158,20 +222,13 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
                 let signature = coordinator.entitySignatures[slotRaw]
 
                 guard
-                    signature.rawHashValue.isSuperset(of: querySignature.rawHashValue),
-                    signature.rawHashValue.isDisjoint(with: excludedSignature.rawHashValue)
+                    signature.rawHashValue.isSuperset(
+                        of: querySignature.rawHashValue,
+                        isDisjoint: excludedSignature.rawHashValue
+                    )
                 else {
                     continue slotLoop
                 }
-
-//                for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == .notFound {
-//                    // Entity does not have all required components, skip.
-//                    continue slotLoop
-//                }
-//                for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != .notFound {
-//                    // Entity has at least one excluded component, skip.
-//                    continue slotLoop
-//                }
                 let id = Entity.ID(slot: SlotIndex(rawValue: slotRaw))
                 handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
             }
