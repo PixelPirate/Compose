@@ -93,12 +93,12 @@ public struct Person: Component {
     }
 }
 
-struct PhysicsSystem: System {
-    let id = SystemID(name: "PhysicsSystem")
-    var entities: Set<Entity.ID> = []
-    let signature = ComponentSignature(Gravity.componentTag, RigidBody.componentTag, Transform.componentTag)
-
-    func update(deltaTime: Float, coordinator: inout Coordinator) {
+//struct PhysicsSystem: System {
+//    let id = SystemID(name: "PhysicsSystem")
+//    var entities: Set<Entity.ID> = []
+//    let signature = ComponentSignature(Gravity.componentTag, RigidBody.componentTag, Transform.componentTag)
+//
+//    func update(deltaTime: Float, coordinator: inout Coordinator) {
 //        for entityID in entities {
 //            let rigidBody = coordinator[RigidBody.self, entityID]
 //            let gravity = coordinator[Gravity.self, entityID]
@@ -109,45 +109,45 @@ struct PhysicsSystem: System {
 //                rigidBody.velocity.x += gravity.force.x * deltaTime
 //            }
 //        }
-    }
-}
+//    }
+//}
 
-func test() {
-    var coordinator = Coordinator()
-    let physicsSystem = PhysicsSystem()
-    coordinator.add(physicsSystem)
-    coordinator.updateSystemSignature(physicsSystem.signature, systemID: physicsSystem.id)
-
-    let entities = (0..<100).map { _ in coordinator.spawn() }
-
-    for entityID in entities {
-        coordinator.add(
-            Gravity(force: Vector3(x: 0, y: 0, z: 0)),
-            to: entityID
-        )
-        coordinator.add(
-            RigidBody(
-                velocity: Vector3(x: 0, y: 0, z: 0),
-                acceleration: Vector3(x: 0, y: 0, z: 0)
-            ),
-            to: entityID
-        )
-        coordinator.add(
-            Transform(
-                position: Vector3(x: 0, y: 0, z: 0),
-                rotation: Vector3(x: 0, y: 0, z: 0),
-                scale: Vector3(x: 0, y: 0, z: 0)
-            ),
-            to: entityID
-        )
-    }
-
-    var deltaTime: Float = 0
-
-    while true {
-        let start = Date()
-        physicsSystem.update(deltaTime: deltaTime, coordinator: &coordinator)
-        let stop = Date()
-        deltaTime = Float(stop.timeIntervalSince(start))
-    }
-}
+//func test() {
+//    var coordinator = Coordinator()
+//    let physicsSystem = PhysicsSystem()
+//    coordinator.add(physicsSystem)
+//    coordinator.updateSystemSignature(physicsSystem.signature, systemID: physicsSystem.id)
+//
+//    let entities = (0..<100).map { _ in coordinator.spawn() }
+//
+//    for entityID in entities {
+//        coordinator.add(
+//            Gravity(force: Vector3(x: 0, y: 0, z: 0)),
+//            to: entityID
+//        )
+//        coordinator.add(
+//            RigidBody(
+//                velocity: Vector3(x: 0, y: 0, z: 0),
+//                acceleration: Vector3(x: 0, y: 0, z: 0)
+//            ),
+//            to: entityID
+//        )
+//        coordinator.add(
+//            Transform(
+//                position: Vector3(x: 0, y: 0, z: 0),
+//                rotation: Vector3(x: 0, y: 0, z: 0),
+//                scale: Vector3(x: 0, y: 0, z: 0)
+//            ),
+//            to: entityID
+//        )
+//    }
+//
+//    var deltaTime: Float = 0
+//
+//    while true {
+//        let start = Date()
+//        physicsSystem.update(deltaTime: deltaTime, coordinator: &coordinator)
+//        let stop = Date()
+//        deltaTime = Float(stop.timeIntervalSince(start))
+//    }
+//}
