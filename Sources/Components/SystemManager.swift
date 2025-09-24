@@ -15,7 +15,7 @@ struct SystemManager {
             fatalError("System already registered.")
         }
         systems[system.id] = system
-        setSignature(system.signature, systemID: system.id)
+//        setSignature(system.signature, systemID: system.id)
     }
 
     mutating func setSignature(_ signature: ComponentSignature, systemID: SystemID) {
@@ -28,7 +28,7 @@ struct SystemManager {
     mutating func remove(_ entityID: Entity.ID) {
         systems = systems.mapValues { system in
             var newSystem = system
-            newSystem.entities.remove(entityID)
+//            newSystem.entities.remove(entityID)
             return newSystem
         }
     }
@@ -45,9 +45,9 @@ struct SystemManager {
             }
             var newSystem = system
             if systemSignature.rawHashValue.isSubset(of: signature.rawHashValue) {
-                newSystem.entities.insert(entityID)
+//                newSystem.entities.insert(entityID)
             } else {
-                newSystem.entities.remove(entityID)
+//                newSystem.entities.remove(entityID)
             }
             return newSystem
         }

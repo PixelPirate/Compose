@@ -9,6 +9,13 @@ public struct QueryHash: Hashable {
         hasher.combine(query.excludedSignature)
         self.value = hasher.finalize()
     }
+
+    public init(include: ComponentSignature, exclude: ComponentSignature) {
+        var hasher = Hasher()
+        hasher.combine(include)
+        hasher.combine(exclude)
+        self.value = hasher.finalize()
+    }
 }
 
 @usableFromInline
@@ -105,6 +112,9 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     @inline(__always)
     public let excludedSignature: ComponentSignature
 
+    @inline(__always)
+    let hash: QueryHash
+
     @usableFromInline
     init(
         backstageComponents: Set<ComponentTag>,
@@ -116,6 +126,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         self.includeEntityID = includeEntityID
         self.signature = Self.makeSignature(backstageComponents: backstageComponents)
         self.excludedSignature = Self.makeExcludedSignature(excludedComponents)
+        self.hash = QueryHash(include: signature, exclude: excludedSignature)
     }
 
     @inlinable @inline(__always)
@@ -131,7 +142,6 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     internal func getArrays(_ coordinator: inout Coordinator)
     -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Int>], excluded: [ContiguousArray<Int>])?
     {
-        let hash = QueryHash(self)
         if
             let cached = coordinator.sparseQueryCache[hash],
             cached.version == coordinator.worldVersion
@@ -161,7 +171,6 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @usableFromInline @inline(__always)
     internal func getBaseSparseList(_ coordinator: inout Coordinator) -> ContiguousArray<SlotIndex>? {
-        let hash = QueryHash(self)
         if
             let cached = coordinator.signatureQueryCache[hash],
             cached.version == coordinator.worldVersion

@@ -1,6 +1,6 @@
 import Atomics
 
-public protocol Component: ComponentResolving, Sendable {
+public protocol Component: ComponentResolving, SendableMetatype {
     @inlinable @inline(__always)
     static var componentTag: ComponentTag { get }
 
@@ -16,6 +16,10 @@ public extension Component {
 public struct ComponentSignature: Hashable {
     @usableFromInline
     var rawHashValue: BitSet
+
+    static func + (lhs: ComponentSignature, rhs: ComponentSignature) -> ComponentSignature {
+        lhs // TODO: Implement
+    }
 
     @usableFromInline @inline(__always)
     internal var isEmpty: Bool {
