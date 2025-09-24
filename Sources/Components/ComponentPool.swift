@@ -52,7 +52,7 @@ extension ComponentPool {
 
         for component in repeat each components {
             let tag = component.componentTag
-            if !component.requiresStorage {
+            guard component.QueriedComponent.self != Never.self else {
                 continue
             }
             // If any tag is missing or empty, there can be no matches.
@@ -139,7 +139,7 @@ extension ComponentPool {
 
         for component in repeat each components {
             let tag = component.componentTag
-            guard component.requiresStorage else {
+            guard component.QueriedComponent.self != Never.self else {
                 continue
             }
             // If any tag is missing or empty, there can be no matches.
@@ -190,7 +190,7 @@ extension ComponentPool {
 
         for component in repeat each components {
             let tag = component.componentTag
-            guard component.requiresStorage else {
+            guard component.QueriedComponent.self != Never.self else {
                 continue
             }
             // If any tag is missing or empty, there can be no matches.

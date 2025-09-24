@@ -5,12 +5,16 @@ public protocol Component: ComponentResolving, SendableMetatype {
     static var componentTag: ComponentTag { get }
 
     @inlinable @inline(__always)
-    static var requiresStorage: Bool { get }
+    static var storage: ComponentStorage { get }
+}
+
+public enum ComponentStorage {
+    case sparse
 }
 
 public extension Component {
     @inlinable @inline(__always)
-    static var requiresStorage: Bool { true }
+    static var storage: ComponentStorage { .sparse }
 }
 
 public struct ComponentSignature: Hashable {

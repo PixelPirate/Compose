@@ -552,3 +552,92 @@ func testReuseSlot() async throws {
 //    #expect(coordinator.indices.generation == [3, 1])
 //    #expect(coordinator.indices.nextID.rawValue == 2)
 //}
+
+@Test func memory() throws {
+    var coordinator = Coordinator()
+
+    for i in 0..<500_000 {
+        coordinator.spawn(
+            Transform(
+                position: Vector3(x: Float(i), y: Float(i), z: Float(i)),
+                rotation: .zero,
+                scale: .zero
+            ),
+            Gravity(force: Vector3(x: Float(-i), y: Float(-i), z: Float(-i)))
+        )
+    }
+
+    let query = Query {
+        Transform.self
+        Gravity.self
+    }
+
+    var index = 0
+    query.perform(&coordinator) { transform, gravity in
+        #expect(transform.position == Vector3(x: Float(index), y: Float(index), z: Float(index)))
+        #expect(gravity.force == Vector3(x: Float(-index), y: Float(-index), z: Float(-index)))
+        index += 1
+    }
+
+//    index = 0
+//    for (transform, gravity) in query.fetchAll(&coordinator) {
+//        #expect(transform.position == Vector3(x: Float(index), y: Float(index), z: Float(index)))
+//        #expect(gravity.force == Vector3(x: Float(-index), y: Float(-index), z: Float(-index)))
+//        index += 1
+//    }
+
+//    index = 0
+//    let stored = Array(query.fetchAll(&coordinator))
+//    for (transform, gravity) in stored {
+//        #expect(transform.position == Vector3(x: Float(index), y: Float(index), z: Float(index)))
+//        #expect(gravity.force == Vector3(x: Float(-index), y: Float(-index), z: Float(-index)))
+//        index += 1
+//    }
+}
+
+@Test func virtualComponent() async throws {
+    var coordinator = Coordinator()
+
+    coordinator.spawn(Transform(position: Vector3(x: 1, y: 1, z: 1), rotation: .zero, scale: Vector3(x: 1, y: 1, z: 1)))
+    let expectedID = coordinator.spawn(Transform(position: Vector3(x: -1, y: -1, z: -1), rotation: .zero, scale: Vector3(x: -1, y: -1, z: -1)))
+
+    let query = Query {
+        WithEntityID.self
+        Downward.self
+    }
+
+    await confirmation(expectedCount: 1) { confirmation in
+        query.perform(&coordinator) { entityID, downward in
+            if downward.isDownward {
+                #expect(entityID == expectedID)
+                confirmation()
+            }
+        }
+    }
+
+    // TODO: This will read into random memory, the access buffer isn't valid anymore here:
+//    #expect(Array(query.fetchAll(&coordinator)).filter { $0.1.isDownward }.map { $0.0 } == [expectedID] )
+}
+
+public struct Downward: Component, Sendable {
+    public static var componentTag: ComponentTag { Transform.componentTag }
+
+    let isDownward: Bool
+
+    public init(isDownward: Bool) {
+        print("is", isDownward)
+        self.isDownward = isDownward
+    }
+
+    @inlinable @inline(__always)
+    public static func makeResolved(access: TypedAccess<Transform>, entityID: Entity.ID) -> Downward {
+        print("called")
+        return Downward(isDownward: access.access(entityID).value.position.y < 0)
+    }
+
+    @inlinable @inline(__always)
+    public static func makeReadOnlyResolved(access: TypedAccess<Transform>, entityID: Entity.ID) -> Downward {
+        print("called readonly", entityID, access.access(entityID).value.position.y)
+        return Downward(isDownward: access.access(entityID).value.position.y < 0)
+    }
+}

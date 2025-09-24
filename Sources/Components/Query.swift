@@ -409,7 +409,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         }
 
         for tagType in repeat (each T).self {
-            guard tagType.requiresStorage else { continue }
+            guard tagType.QueriedComponent != Never.self else { continue }
             signature = signature.appending(tagType.componentTag)
         }
 
@@ -641,8 +641,7 @@ public struct WithEntityID: Component, Sendable {
     public static var componentTag: ComponentTag { ComponentTag(rawValue: -1) }
     public typealias ResolvedType = Entity.ID
     public typealias ReadOnlyResolvedType = Entity.ID
-
-    public static var requiresStorage: Bool { false }
+    public typealias QueriedComponent = Never
 
     public init() {}
 
@@ -661,6 +660,11 @@ public struct Without<C: Component>: Component {
     public static var componentTag: ComponentTag { C.componentTag }
 }
 
+extension Never: Component {
+    public static let componentTag = ComponentTag(rawValue: -2)
+    public typealias QueriedComponent = Never
+}
+
 @discardableResult
 @usableFromInline
 func withTypedBuffers<each C: Component, R>(
@@ -674,9 +678,7 @@ func withTypedBuffers<each C: Component, R>(
     }
 
     func tryMakeAccess<D: Component>(_ type: D.Type) -> TypedAccess<D>? {
-        if !D.requiresStorage {
-            return TypedAccess<D>.empty
-        }
+        guard D.self != Never.self else { return TypedAccess<D>.empty }
         guard let anyArray = pool.components[D.componentTag] else { return nil }
         var result: TypedAccess<D>? = nil
         anyArray.withBuffer(D.self) { buffer, entitiesToIndices in
