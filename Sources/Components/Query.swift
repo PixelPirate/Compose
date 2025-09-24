@@ -696,6 +696,85 @@ func withTypedBuffers<each C: Component, R>(
     return try body(repeat each tuple!)
 }
 
+
+@discardableResult
+@usableFromInline
+func withTypedBuffers<C1: Component, R>(
+    _ pool: inout ComponentPool,
+    _ body: (TypedAccess<C1>) throws -> R
+) rethrows -> R? {
+    guard C1.self != Never.self else {
+        return try body(TypedAccess<C1>.empty)
+    }
+    guard let anyArray = pool.components[C1.componentTag] else {
+        return nil
+    }
+    return try anyArray.withBuffer(C1.self) { buffer, entitiesToIndices in
+        let access = TypedAccess(buffer: buffer, indices: entitiesToIndices)
+        return try body(access)
+    }
+}
+
+@discardableResult
+@usableFromInline
+func withTypedBuffers<C1: Component, C2: Component, R>(
+    _ pool: inout ComponentPool,
+    _ body: (TypedAccess<C1>, TypedAccess<C2>) throws -> R
+) rethrows -> R? {
+    @inline(__always)
+    func withAccess<X: Component>(_ type: X.Type = X.self, continuation: (TypedAccess<X>) throws -> R?) rethrows -> R? {
+        guard X.self != Never.self else {
+            return try continuation(TypedAccess<X>.empty)
+        }
+        guard let anyArray = pool.components[X.componentTag] else {
+            return nil
+        }
+        return try anyArray.withBuffer(X.self) { buffer, entitiesToIndices in
+            let access = TypedAccess(buffer: buffer, indices: entitiesToIndices)
+            return try continuation(access)
+        }
+    }
+
+    return try withAccess(C1.self) { access1 in
+        try withAccess(C2.self) { access2 in
+            try body(access1, access2)
+        }
+    }
+}
+
+@discardableResult
+@usableFromInline
+func withTypedBuffers<C1: Component, C2: Component, C3: Component, R>(
+    _ pool: inout ComponentPool,
+    _ body: (TypedAccess<C1>, TypedAccess<C2>, TypedAccess<C3>) throws -> R
+) rethrows -> R? {
+    @inline(__always)
+    func withAccess<X: Component>(_ type: X.Type = X.self, continuation: (TypedAccess<X>) throws -> R?) rethrows -> R? {
+        guard X.self != Never.self else {
+            return try continuation(TypedAccess<X>.empty)
+        }
+        guard let anyArray = pool.components[X.componentTag] else {
+            return nil
+        }
+        return try anyArray.withBuffer(X.self) { buffer, entitiesToIndices in
+            let access = TypedAccess(buffer: buffer, indices: entitiesToIndices)
+            return try continuation(access)
+        }
+    }
+
+    return try withAccess(C1.self) { access1 in
+        try withAccess(C2.self) { access2 in
+            try withAccess(C3.self) { access3 in
+                try body(access1, access2, access3)
+            }
+        }
+    }
+}
+
+
+
+
+
 func entuplePack<each Prefix, Last>(
     _ tuple: (repeat each Prefix, Last)
 ) -> ((repeat each Prefix), Last) {
