@@ -48,6 +48,13 @@ public struct ComponentSignature: Hashable {
     }
 
     @inlinable @inline(__always)
+    public func appending(_ signature: ComponentSignature) -> Self {
+        var newSignature = rawHashValue
+        // TODO: Implement
+        return ComponentSignature(raw: newSignature)
+    }
+
+    @inlinable @inline(__always)
     public mutating func remove(_ tag: ComponentTag) {
         rawHashValue.remove(tag.rawValue)
     }

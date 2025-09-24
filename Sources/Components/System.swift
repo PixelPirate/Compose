@@ -13,6 +13,70 @@
  }
  */
 
+@usableFromInline
+struct QuerySignature: Hashable {
+    @usableFromInline
+    var included: ComponentSignature
+    @usableFromInline
+    var excluded: ComponentSignature
+}
+
+struct Commands {
+
+}
+
+protocol SysTest {
+    var querySignature: QuerySignature { get }
+
+    func run(coordinator: inout Coordinator, commands: inout Commands)
+}
+
+struct GravitySystem: SysTest {
+    var querySignature: QuerySignature {
+        QuerySignature(
+            included: query.signature,
+            excluded: query.excludedSignature
+        )
+    }
+
+    let query = Query {
+        Write<Transform>.self
+        Gravity.self
+    }
+
+    func run(coordinator: inout Coordinator, commands: inout Commands) {
+        query.perform(&coordinator) { transform, gravity in
+            transform.position.y -= gravity.force.y
+        }
+    }
+}
+
+struct BigSystem: SysTest {
+    nonisolated(unsafe) static let gravityQuery = Query {
+        Write<Transform>.self
+        Gravity.self
+    }
+
+    nonisolated(unsafe) static let floatQuery = Query {
+        Write<RigidBody>.self
+        Person.self
+    }
+
+    let querySignature = QuerySignature(
+        included: gravityQuery.signature.appending(floatQuery.signature),
+        excluded: gravityQuery.excludedSignature.appending(floatQuery.excludedSignature),
+    )
+
+    func run(coordinator: inout Coordinator, commands: inout Commands) {
+        Self.gravityQuery.perform(&coordinator) { transform, gravity in
+            transform.position.y -= gravity.force.y
+        }
+        Self.floatQuery.perform(&coordinator) { rigidBody, person in
+
+        }
+    }
+}
+
 public protocol System {
     var id: SystemID { get }
     var entities: Set<Entity.ID> { get set }
