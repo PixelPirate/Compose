@@ -23,6 +23,7 @@ public struct ComponentSignature: Hashable {
             yield rawHashValue.bitCount == 0
         }
     }
+
     @usableFromInline @inline(__always)
     internal init(raw: BitSet) {
         rawHashValue = raw
@@ -49,9 +50,7 @@ public struct ComponentSignature: Hashable {
 
     @inlinable @inline(__always)
     public func appending(_ signature: ComponentSignature) -> Self {
-        var newSignature = rawHashValue
-        // TODO: Implement
-        return ComponentSignature(raw: newSignature)
+        ComponentSignature(raw: rawHashValue.union(signature.rawHashValue))
     }
 
     @inlinable @inline(__always)

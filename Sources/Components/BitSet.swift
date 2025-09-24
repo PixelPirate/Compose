@@ -15,7 +15,9 @@ public struct BitSet: Hashable {
     /// Reflects the highest set bit + 1.
     @usableFromInline @inline(__always)
     internal var bitCount: Int = 0
-    @usableFromInline var words: ContiguousArray<UInt64>
+
+    @usableFromInline
+    var words: ContiguousArray<UInt64>
 
     @inlinable @inline(__always)
     public static func == (lhs: BitSet, rhs: BitSet) -> Bool {
@@ -42,6 +44,26 @@ public struct BitSet: Hashable {
         self.bitCount = 0 // actual used range starts at 0; we only grow when bits are set
         let n = (bitCount + 63) >> 6
         self.words = ContiguousArray(repeating: 0, count: n)
+    }
+
+    @usableFromInline
+    internal init(words: ContiguousArray<UInt64>, bitCount: Int) {
+        self.words = words
+        self.bitCount = bitCount
+        self._maskTail()
+    }
+
+    @inlinable @inline(__always)
+    public func union(_ other: BitSet) -> BitSet {
+        let maxWords = max(self.words.count, other.words.count)
+        var newWords = ContiguousArray<UInt64>(repeating: 0, count: maxWords)
+        for i in 0..<maxWords {
+            let a = i < self.words.count ? self.words[i] : 0
+            let b = i < other.words.count ? other.words[i] : 0
+            newWords[i] = a | b
+        }
+        let maxBitCount = max(self.bitCount, other.bitCount)
+        return BitSet(words: newWords, bitCount: maxBitCount)
     }
 
     /// Ensure capacity for a specific bit index (0-based). Grows storage.
