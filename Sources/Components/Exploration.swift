@@ -72,7 +72,7 @@ public struct RigidBody: Component, Equatable {
     }
 }
 
-public struct Transform: Equatable, Component {
+public struct Transform: Equatable, Component, Sendable {
     public static let componentTag = ComponentTag.makeTag()
 
     public var position: Vector3

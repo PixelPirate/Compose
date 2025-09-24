@@ -7,49 +7,32 @@
 
 @usableFromInline
 struct SystemManager {
-    private var systems: [SystemID: any System] = [:]
-    private var signatures: [SystemID: ComponentSignature] = [:]
+    @usableFromInline
+    internal var systems: [SystemID: any System] = [:]
 
+    @usableFromInline
+    internal var metadata: [SystemID: SystemMetadata] = [:]
+
+    @inlinable @inline(__always)
     mutating func add(_ system: some System) {
         guard !systems.keys.contains(system.id) else {
             fatalError("System already registered.")
         }
         systems[system.id] = system
-//        setSignature(system.signature, systemID: system.id)
+        metadata[system.id] = system.metadata
     }
 
-    mutating func setSignature(_ signature: ComponentSignature, systemID: SystemID) {
+    @inlinable @inline(__always)
+    mutating func setSignature(_ metadata: SystemMetadata, systemID: SystemID) {
         guard systems.keys.contains(systemID) else {
             fatalError("System not registered.")
         }
-        signatures[systemID] = signature
+        self.metadata[systemID] = metadata
     }
 
-    mutating func remove(_ entityID: Entity.ID) {
-        systems = systems.mapValues { system in
-            var newSystem = system
-//            newSystem.entities.remove(entityID)
-            return newSystem
-        }
-    }
-
+    @inlinable @inline(__always)
     mutating func remove(_ systemID: SystemID) {
         systems.removeValue(forKey: systemID)
-        signatures.removeValue(forKey: systemID)
-    }
-
-    mutating func updateSignature(_ signature: ComponentSignature, for entityID: Entity.ID) {
-        systems = systems.mapValues { system in
-            guard let systemSignature = signatures[system.id] else {
-                return system
-            }
-            var newSystem = system
-            if systemSignature.rawHashValue.isSubset(of: signature.rawHashValue) {
-//                newSystem.entities.insert(entityID)
-            } else {
-//                newSystem.entities.remove(entityID)
-            }
-            return newSystem
-        }
+        metadata.removeValue(forKey: systemID)
     }
 }

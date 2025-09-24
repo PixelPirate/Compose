@@ -21,10 +21,6 @@ struct QuerySignature: Hashable {
     var excluded: ComponentSignature
 }
 
-struct Commands {
-
-}
-
 protocol SysTest {
     var querySignature: QuerySignature { get }
 
@@ -127,8 +123,8 @@ extension System {
         var exclude = ComponentSignature()
 
         for q in queries {
-            include = include + q.signature
-            exclude = exclude + q.excludedSignature
+            include = include.appending(q.signature)
+            exclude = exclude.appending(q.excludedSignature)
         }
 
         return SystemMetadata(
@@ -140,27 +136,43 @@ extension System {
 
 public struct Commands: ~Copyable {
     public struct Command {
+        @usableFromInline
         let action: (inout Coordinator) -> Void
 
+        @inlinable @inline(__always)
+        public init(action: @escaping (inout Coordinator) -> Void) {
+            self.action = action
+        }
+
+        @usableFromInline
         func callAsFunction(_ coordinator: inout Coordinator) {
             action(&coordinator)
         }
     }
 
-    private var queue: [Command] = []
+    @usableFromInline
+    internal var queue: [Command] = []
 
+    @inlinable @inline(__always)
+    public init(queue: [Command]) {
+        self.queue = queue
+    }
+
+    @inlinable @inline(__always)
     public mutating func add<C: Component>(component: C, to entityID: Entity.ID) {
         queue.append(Command(action: { coordinator in
             coordinator.add(component, to: entityID)
         }))
     }
 
+    @inlinable @inline(__always)
     public mutating func remove<C: Component>(component: C.Type, from entityID: Entity.ID) {
         queue.append(Command(action: { coordinator in
             coordinator.remove(C.componentTag, from: entityID)
         }))
     }
 
+    @inlinable @inline(__always)
     public mutating func spawn<each C: Component>(component: repeat each C, then: @escaping (inout Coordinator, Entity.ID) -> Void) {
         queue.append(Command(action: { coordinator in
             let entityID = coordinator.spawn(repeat each component)
@@ -168,6 +180,7 @@ public struct Commands: ~Copyable {
         }))
     }
 
+    @inlinable @inline(__always)
     public mutating func spawn(then: @escaping (inout Coordinator, Entity.ID) -> Void) {
         queue.append(Command(action: { coordinator in
             let entityID = coordinator.spawn()
@@ -175,18 +188,21 @@ public struct Commands: ~Copyable {
         }))
     }
 
+    @inlinable @inline(__always)
     public mutating func destroy(_ entity: Entity.ID) {
         queue.append(Command(action: { coordinator in
             coordinator.destroy(entity)
         }))
     }
 
+    @inlinable @inline(__always)
     public mutating func run(_ action: @escaping (inout Coordinator) -> Void) {
         queue.append(Command(action: { coordinator in
             action(&coordinator)
         }))
     }
 
+    @inlinable @inline(__always)
     mutating func integrate(into coordinator: inout Coordinator) {
         while let command = queue.popLast() {
             command(&coordinator)

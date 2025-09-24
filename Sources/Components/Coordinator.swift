@@ -88,7 +88,6 @@ public struct Coordinator {
         pool.append(component, for: entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].appending(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
-//        systemManager.updateSignature(newSignature, for: entityID) // TODO: Do I need that?
     }
 
     public mutating func remove(_ componentTag: ComponentTag, from entityID: Entity.ID) {
@@ -99,7 +98,6 @@ public struct Coordinator {
         pool.remove(componentTag, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
-//        systemManager.updateSignature(newSignature, for: entityID) // TODO: Do I need that?
     }
 
     public mutating func remove<C: Component>(_ componentType: C.Type = C.self, from entityID: Entity.ID) {
@@ -119,7 +117,6 @@ public struct Coordinator {
         }
         indices.free(id: entityID)
         pool.remove(entityID)
-        systemManager.remove(entityID)
         entitySignatures[entityID.slot.rawValue] = ComponentSignature()
     }
 
@@ -129,10 +126,6 @@ public struct Coordinator {
 
     public mutating func remove(_ systemID: SystemID) {
         systemManager.remove(systemID)
-    }
-
-    public mutating func updateSystemSignature(_ signature: ComponentSignature, systemID: SystemID) {
-        systemManager.setSignature(signature, systemID: systemID)
     }
 
     public func run() {

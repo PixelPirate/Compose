@@ -347,6 +347,72 @@ import Testing
     #expect(query.fetchOne(&coordinator) == Transform(position: .zero, rotation: .zero, scale: .zero))
 }
 
+@Test func iterAll() throws {
+    var coordinator = Coordinator()
+
+    for _ in 0..<1_000 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero),
+            Gravity(force: Vector3(x: 1, y: 1, z: 1))
+        )
+    }
+
+    let transforms = Query {
+        Write<Transform>.self
+    }
+    .iterAll(&coordinator)
+
+    func elementTypeIsWriteTransform<S>(_: S) where S: Sequence, S.Element == Write<Transform> {}
+    elementTypeIsWriteTransform(transforms)
+
+    #expect(Array(transforms).count == 1_000)
+
+    let multiComponents: LazyWritableQuerySequence<Write<Transform>, Gravity> = Query {
+        Write<Transform>.self
+        Gravity.self
+    }
+    .iterAll(&coordinator)
+
+    func elementTypeIsWriteTransformGravity<S>(_: S) where S: Sequence, S.Element == (Write<Transform>, Gravity) {}
+    elementTypeIsWriteTransformGravity(multiComponents)
+
+    #expect(Array(multiComponents).count == 1_000)
+}
+
+@Test func iterPerformance() throws {
+    var coordinator = Coordinator()
+
+    for _ in 0..<1_000_000 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero),
+            Gravity(force: Vector3(x: 1, y: 1, z: 1))
+        )
+    }
+
+    let query = Query {
+        Write<Transform>.self
+        Gravity.self
+    }
+
+    let clock = ContinuousClock()
+
+    let iterDuration = clock.measure {
+        let transforms = query.iterAll(&coordinator)
+
+        for (transform, gravity) in transforms {
+            transform.position.x += gravity.force.x
+        }
+    }
+
+    let performDuration = clock.measure {
+        query.perform(&coordinator) { transform, gravity in
+            transform.position.x += gravity.force.x
+        }
+    }
+
+    print("Iter:", iterDuration, "Perform:", performDuration)
+}
+
 @Test func fetchAll() throws {
     var coordinator = Coordinator()
 
@@ -362,6 +428,9 @@ import Testing
     }
     .fetchAll(&coordinator)
 
+    func elementTypeIsTransform<S>(_: S) where S: Sequence, S.Element == Transform {}
+    elementTypeIsTransform(transforms)
+
     #expect(Array(transforms).count == 1_000)
 
     let multiComponents: LazyQuerySequence<Write<Transform>, Gravity> = Query {
@@ -369,6 +438,9 @@ import Testing
         Gravity.self
     }
     .fetchAll(&coordinator)
+
+    func elementTypeIsTransformGravity<S>(_: S) where S: Sequence, S.Element == (Transform, Gravity) {}
+    elementTypeIsTransformGravity(multiComponents)
 
     #expect(Array(multiComponents).count == 1_000)
 }
