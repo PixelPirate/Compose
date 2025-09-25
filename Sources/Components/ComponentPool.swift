@@ -15,23 +15,29 @@ public struct ComponentPool {
 }
 
 extension ComponentPool {
+    @usableFromInline
     mutating func ensureSparseSetCount(includes entityID: Entity.ID) {
         for component in components.values {
             component.ensureEntity(entityID)
         }
     }
+
+    @usableFromInline
     mutating func append<C: Component>(_ component: C, for entityID: Entity.ID) {
         components[C.componentTag, default: AnyComponentArray(ComponentArray<C>())].append(component, id: entityID)
     }
 
+    @usableFromInline
     mutating func remove<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) {
         remove(C.componentTag, entityID)
     }
 
+    @usableFromInline
     mutating func remove(_ componentTag: ComponentTag, _ entityID: Entity.ID) {
         components[componentTag]?.remove(entityID)
     }
 
+    @usableFromInline
     mutating func remove(_ enitityID: Entity.ID) {
         components = components.mapValues {
             var array = $0

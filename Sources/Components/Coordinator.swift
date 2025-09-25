@@ -21,6 +21,10 @@ public struct Coordinator {
     @usableFromInline
     private(set) var worldVersion: UInt64 = 0
 
+    @usableFromInline
+    private(set) var resources: [ObjectIdentifier: Any] = [:]
+
+    @inlinable @inline(__always)
     public init() {}
 
     @inlinable @inline(__always)
@@ -60,6 +64,7 @@ public struct Coordinator {
         indices[generationFor: id.slot] == id.generation
     }
 
+    @inlinable @inline(__always)
     @discardableResult
     public mutating func spawn() -> Entity.ID {
         let newEntity = indices.allocateID()
@@ -70,7 +75,8 @@ public struct Coordinator {
         return newEntity
     }
 
-    mutating private func setSpawnedSignature(_ entityID: Entity.ID, signature: ComponentSignature) {
+    @usableFromInline
+    mutating internal func setSpawnedSignature(_ entityID: Entity.ID, signature: ComponentSignature) {
         if entitySignatures.endIndex == entityID.slot.rawValue {
             entitySignatures.append(signature)
         } else {
@@ -80,6 +86,7 @@ public struct Coordinator {
         }
     }
 
+    @inlinable @inline(__always)
     public mutating func add<C: Component>(_ component: C, to entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
@@ -90,6 +97,7 @@ public struct Coordinator {
         entitySignatures[entityID.slot.rawValue] = newSignature
     }
 
+    @inlinable @inline(__always)
     public mutating func remove(_ componentTag: ComponentTag, from entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
@@ -100,6 +108,7 @@ public struct Coordinator {
         entitySignatures[entityID.slot.rawValue] = newSignature
     }
 
+    @inlinable @inline(__always)
     public mutating func remove<C: Component>(_ componentType: C.Type = C.self, from entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
@@ -110,6 +119,7 @@ public struct Coordinator {
         entitySignatures[entityID.slot.rawValue] = newSignature
     }
 
+    @inlinable @inline(__always)
     public mutating func destroy(_ entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
@@ -120,14 +130,47 @@ public struct Coordinator {
         entitySignatures[entityID.slot.rawValue] = ComponentSignature()
     }
 
+    @inlinable @inline(__always)
     public mutating func add(_ system: some System) {
         systemManager.add(system)
     }
 
+    @inlinable @inline(__always)
     public mutating func remove(_ systemID: SystemID) {
         systemManager.remove(systemID)
     }
 
+    @inlinable @inline(__always)
+    public mutating func addRessource<R>(_ ressource: R) {
+        resources[ObjectIdentifier(R.self)] = ressource
+    }
+
+    @inlinable @inline(__always)
+    public func resource<R>(_ type: R.Type = R.self) -> R {
+        resources[ObjectIdentifier(R.self)] as! R
+    }
+
+    @inlinable @inline(__always)
+    public mutating func addSchedule(_ schedule: Schedule) {
+        systemManager.addSchedule(schedule)
+    }
+
+    @inlinable @inline(__always)
+    public mutating func addSystem<S: ScheduleLabel>(_ s: S.Type = S.self, system: some System) {
+        systemManager.addSystem(S.self, system: system)
+    }
+
+    @inlinable @inline(__always)
+    public mutating func runSchedule<S: ScheduleLabel>(_ scheduleLabel: S.Type = S.self) {
+        systemManager.schedules[S.key]?.run(&self)
+    }
+
+    @inlinable @inline(__always)
+    public mutating func runSchedule(_ scheduleLabelKey: ScheduleLabelKey) {
+        systemManager.schedules[scheduleLabelKey]?.run(&self)
+    }
+
+    @inlinable @inline(__always)
     public func run() {
         // system, schedule?
     }

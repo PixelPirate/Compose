@@ -13,6 +13,9 @@ struct SystemManager {
     @usableFromInline
     internal var metadata: [SystemID: SystemMetadata] = [:]
 
+    @usableFromInline
+    private(set) var schedules: [ScheduleLabelKey: Schedule] = [:]
+
     @inlinable @inline(__always)
     mutating func add(_ system: some System) {
         guard !systems.keys.contains(system.id) else {
@@ -34,6 +37,16 @@ struct SystemManager {
     mutating func remove(_ systemID: SystemID) {
         systems.removeValue(forKey: systemID)
         metadata.removeValue(forKey: systemID)
+    }
+
+    @inlinable @inline(__always)
+    public mutating func addSchedule(_ schedule: Schedule) {
+        schedules[schedule.label] = schedule
+    }
+
+    @inlinable @inline(__always)
+    public mutating func addSystem<S: ScheduleLabel>(_ s: S.Type = S.self, system: some System) {
+        schedules[S.key]?.addSystem(system)
     }
 }
 
@@ -132,8 +145,30 @@ func setupTest() {
     coordinator.addRessource(
         MainScheduleOrder(
             order: [
-                Update.key
-           ]
+                First.key,
+                PreUpdate.key,
+                RunFixedMainLoop.key,
+                Update.key,
+                SpawnScene.key,
+                PostUpdate.key,
+                Last.key
+            ],
+            startup: [
+                PreStartup.key,
+                Startup.key,
+                PostStartup.key
+            ]
+        )
+    )
+    coordinator.addRessource(
+        FixedMainScheduleOrder(
+            order: [
+                FixedFirst.key,
+                FixedPreUpdate.key,
+                FixedUpdate.key,
+                FixedPostUpdate.key,
+                FixedLast.key
+            ]
         )
     )
 
@@ -143,46 +178,11 @@ func setupTest() {
 
 struct MainScheduleOrder {
     let order: [ScheduleLabelKey]
+    let startup: [ScheduleLabelKey]
 }
 
-extension Coordinator {
-    @usableFromInline
-    var schedules: [ScheduleLabelKey: [Schedule]] {
-        [:]
-    }
-
-    @usableFromInline
-    var resources: [ObjectIdentifier: Any] {
-        [:]
-    }
-
-    func addRessource<R>(_ ressource: R) {
-    }
-    func resource<R>(_ type: R.Type = R.self) -> R {
-        resources[ObjectIdentifier(R.self)] as! R
-    }
-
-    func addSchedule(_ s: Schedule) {
-    }
-
-    func addSystem<S: ScheduleLabel, Sys: System>(_ s: S.Type = S.self, system: Sys) {
-    }
-
-    @inlinable @inline(__always)
-    public mutating func runSchedule<S: ScheduleLabel>(_ scheduleLabel: S.Type = S.self) {
-        guard let schedules = schedules[S.key] else { return }
-        for schedule in schedules {
-            schedule.run(&self)
-        }
-    }
-
-    @inlinable @inline(__always)
-    public mutating func runSchedule(_ scheduleLabelKey: ScheduleLabelKey) {
-        guard let schedules = schedules[scheduleLabelKey] else { return }
-        for schedule in schedules {
-            schedule.run(&self)
-        }
-    }
+struct FixedMainScheduleOrder {
+    let order: [ScheduleLabelKey]
 }
 
 struct MainSystem: System {
@@ -229,43 +229,23 @@ extension ScheduleLabel {
     }
 }
 
-public struct Main: ScheduleLabel {
-    private nonisolated(unsafe) static var marker = 0
+public struct Main: ScheduleLabel {}
 
-    @usableFromInline
-    internal var value: Int {
-        UnsafePointer(&Self.marker).hashValue
-    }
-
-    @inlinable @inline(__always)
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(value)
-    }
-
-    @inlinable @inline(__always)
-    public static func == (lhs: Main, rhs: Main) -> Bool {
-        lhs.value == rhs.value
-    }
-}
-
-public struct Update: ScheduleLabel {
-    private nonisolated(unsafe) static var marker = 0
-
-    @usableFromInline
-    internal var value: Int {
-        UnsafePointer(&Self.marker).hashValue
-    }
-
-    @inlinable @inline(__always)
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(value)
-    }
-
-    @inlinable @inline(__always)
-    public static func == (lhs: Update, rhs: Update) -> Bool {
-        lhs.value == rhs.value
-    }
-}
+public struct First: ScheduleLabel {}
+public struct PreUpdate: ScheduleLabel {}
+public struct RunFixedMainLoop: ScheduleLabel {}
+public struct Update: ScheduleLabel {}
+public struct SpawnScene: ScheduleLabel {}
+public struct PostUpdate: ScheduleLabel {}
+public struct Last: ScheduleLabel {}
+public struct PreStartup: ScheduleLabel {}
+public struct Startup: ScheduleLabel {}
+public struct PostStartup: ScheduleLabel {}
+public struct FixedFirst: ScheduleLabel {}
+public struct FixedPreUpdate: ScheduleLabel {}
+public struct FixedUpdate: ScheduleLabel {}
+public struct FixedPostUpdate: ScheduleLabel {}
+public struct FixedLast: ScheduleLabel {}
 
 public protocol Executor {
     func run(systems: ArraySlice<any System>, coordinator: inout Coordinator, commands: inout Commands)
@@ -282,7 +262,7 @@ public struct SingleThreadedExecutor: Executor {
 public struct Schedule {
     public let label: ScheduleLabelKey
     private let executor: any Executor
-    private let systems: [any System]
+    private var systems: [any System]
 
     public init<L: ScheduleLabel>(label: L.Type, systems: [any System] = [], executor: any Executor) {
         self.label = label.key
@@ -294,5 +274,9 @@ public struct Schedule {
         var commands = Commands()
         executor.run(systems: systems[...], coordinator: &coordinator, commands: &commands)
         commands.integrate(into: &coordinator)
+    }
+
+    public mutating func addSystem(_ system: some System) {
+        systems.append(system)
     }
 }
