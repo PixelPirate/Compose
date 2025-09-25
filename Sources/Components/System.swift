@@ -154,7 +154,7 @@ public struct Commands: ~Copyable {
     internal var queue: [Command] = []
 
     @inlinable @inline(__always)
-    public init(queue: [Command]) {
+    public init(queue: [Command] = []) {
         self.queue = queue
     }
 
