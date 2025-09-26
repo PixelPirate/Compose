@@ -46,7 +46,7 @@ struct SystemManager {
 
     @inlinable @inline(__always)
     public mutating func addSystem<S: ScheduleLabel>(_ s: S.Type = S.self, system: some System) {
-        schedules[S.key]?.addSystem(system)
+        schedules[S.key, default: Schedule(label: S.self)].addSystem(system)
     }
 }
 
@@ -142,50 +142,62 @@ struct SystemManager {
 
 func setupTest() {
     var coordinator = Coordinator()
-    coordinator.addRessource(
-        MainScheduleOrder(
-            order: [
-                First.key,
-                PreUpdate.key,
-                RunFixedMainLoop.key,
-                Update.key,
-                SpawnScene.key,
-                PostUpdate.key,
-                Last.key
-            ],
-            startup: [
-                PreStartup.key,
-                Startup.key,
-                PostStartup.key
-            ]
-        )
-    )
-    coordinator.addRessource(
-        FixedMainScheduleOrder(
-            order: [
-                FixedFirst.key,
-                FixedPreUpdate.key,
-                FixedUpdate.key,
-                FixedPostUpdate.key,
-                FixedLast.key
-            ]
-        )
-    )
+    MainSystem.install(into: &coordinator)
+}
 
-    coordinator.addSchedule(Schedule(label: Main.self, executor: SingleThreadedExecutor()))
-    coordinator.addSystem(Main.self, system: MainSystem())
+extension MainSystem {
+    static func install(into coordinator: inout Coordinator) {
+        coordinator.addRessource(
+            MainScheduleOrder(
+                labels: [
+                    First.key,
+                    PreUpdate.key,
+                    RunFixedMainLoop.key,
+                    Update.key,
+                    SpawnScene.key,
+                    PostUpdate.key,
+                    Last.key
+                ],
+                startup: [
+                    PreStartup.key,
+                    Startup.key,
+                    PostStartup.key
+                ]
+            )
+        )
+        coordinator.addRessource(
+            FixedMainScheduleOrder(
+                labels: [
+                    FixedFirst.key,
+                    FixedPreUpdate.key,
+                    FixedUpdate.key,
+                    FixedPostUpdate.key,
+                    FixedLast.key
+                ]
+            )
+        )
+
+        coordinator.addSchedule(Schedule(label: Main.self, executor: SingleThreadedExecutor()))
+        coordinator.addSystem(Main.self, system: MainSystem())
+        coordinator.addSystem(FixedMain.self, system: FixedMainSystem())
+        coordinator.addSystem(RunFixedMainLoop.self, system: RunFixedMainLoopSystem())
+
+        TimeSystem.install(into: &coordinator)
+    }
 }
 
 struct MainScheduleOrder {
-    let order: [ScheduleLabelKey]
+    let labels: [ScheduleLabelKey]
     let startup: [ScheduleLabelKey]
 }
 
 struct FixedMainScheduleOrder {
-    let order: [ScheduleLabelKey]
+    let labels: [ScheduleLabelKey]
 }
-
+import Atomics
 struct MainSystem: System {
+    private static let first = ManagedAtomic<Bool>(true)
+
     var metadata: SystemMetadata {
         Self.metadata(from: [])
     }
@@ -193,12 +205,132 @@ struct MainSystem: System {
     let id = SystemID(name: "Main")
 
     func run(coordinator: inout Coordinator, commands: inout Commands) {
-        let order = coordinator.resource(MainScheduleOrder.self).order
+        if Self.first.exchange(false, ordering: .relaxed) {
+            let order = coordinator.resource(MainScheduleOrder.self).startup
+            for order in order {
+                coordinator.runSchedule(order)
+            }
+        }
+        let order = coordinator.resource(MainScheduleOrder.self).labels
         for order in order {
             coordinator.runSchedule(order)
         }
     }
 }
+
+struct FixedMainSystem: System {
+    var metadata: SystemMetadata {
+        Self.metadata(from: [])
+    }
+
+    let id = SystemID(name: "FixedMain")
+
+    func run(coordinator: inout Coordinator, commands: inout Commands) {
+        let order = coordinator.resource(FixedMainScheduleOrder.self).labels
+        for order in order {
+            coordinator.runSchedule(order)
+        }
+    }
+}
+
+struct TimeSystem: System {
+    var metadata: SystemMetadata {
+        Self.metadata(from: [])
+    }
+
+    let id = SystemID(name: "Time")
+
+    static func install(into coordinator: inout Coordinator) {
+        coordinator.addRessource(WorldClock())
+        coordinator.addRessource(FixedClock())
+        coordinator.addSystem(Last.self, system: TimeSystem())
+    }
+
+    func run(coordinator: inout Coordinator, commands: inout Commands) {
+        let clock = coordinator[resource: WorldClock.self]
+        coordinator[resource: WorldClock.self] = clock.advancing(by: CFAbsoluteTime() - clock.elapsed)
+    }
+}
+
+struct RunFixedMainLoopSystem: System {
+    var metadata: SystemMetadata {
+        Self.metadata(from: [])
+    }
+
+    let id = SystemID(name: "RunFixedMainLoop")
+
+    func run(coordinator: inout Coordinator, commands: inout Commands) {
+        let delta = coordinator[resource: WorldClock.self].delta
+        coordinator[resource: FixedClock.self].accumulate(delta)
+
+        while coordinator[resource: FixedClock.self].expend() {
+            coordinator.runSchedule(FixedMain.self)
+        }
+    }
+}
+
+import Foundation
+
+struct WorldClock {
+    let delta: TimeInterval
+    let elapsed: TimeInterval
+
+    var isPaused = false
+
+    var speed: Double = 1
+
+    var maximumDelta: TimeInterval = 0.25
+
+    init(delta: TimeInterval = 0, elapsed: TimeInterval = 0, isPaused: Bool = false, speed: Double = 1, maximumDelta: TimeInterval = 0.25) {
+        self.delta = delta
+        self.elapsed = elapsed
+        self.isPaused = isPaused
+        self.speed = speed
+        self.maximumDelta = maximumDelta
+    }
+
+    func advancing(by wallDelta: TimeInterval) -> WorldClock {
+        guard !isPaused else {
+            return self
+        }
+
+        let newWorldDelta = max(wallDelta, maximumDelta) * speed
+        return WorldClock(
+            delta: newWorldDelta,
+            elapsed: elapsed + newWorldDelta,
+            speed: speed
+        )
+    }
+}
+
+struct FixedClock {
+    var timestep: Double = 1/64 //15625 micros
+    @usableFromInline
+    var delta: TimeInterval { timestep }
+    private(set) var elapsed: TimeInterval
+    let speed: Double = 1
+    private var accumulated: TimeInterval = 0
+
+    init(timestep: Double = 1/64, elapsed: TimeInterval = 0, accumulated: TimeInterval = 0) {
+        self.timestep = timestep
+        self.elapsed = elapsed
+        self.accumulated = accumulated
+    }
+
+    mutating func expend() -> Bool { // TODO: Do I need a maximum here?
+        guard accumulated >= timestep else {
+            return false
+        }
+        accumulated -= accumulated - timestep
+        elapsed += timestep
+        return true
+    }
+
+    mutating func accumulate(_ delta: TimeInterval) {
+        accumulated += delta
+    }
+}
+
 
 public protocol ScheduleLabel: Hashable, SendableMetatype, Sendable {
     static var key: ScheduleLabelKey { get }
@@ -230,6 +362,7 @@ extension ScheduleLabel {
 }
 
 public struct Main: ScheduleLabel {}
+public struct FixedMain: ScheduleLabel {}
 
 public struct First: ScheduleLabel {}
 public struct PreUpdate: ScheduleLabel {}
@@ -252,6 +385,8 @@ public protocol Executor {
 }
 
 public struct SingleThreadedExecutor: Executor {
+    public init() {
+    }
     public func run(systems: ArraySlice<any System>, coordinator: inout Coordinator, commands: inout Commands) {
         for system in systems {
             system.run(coordinator: &coordinator, commands: &commands)
@@ -264,7 +399,7 @@ public struct Schedule {
     private let executor: any Executor
     private var systems: [any System]
 
-    public init<L: ScheduleLabel>(label: L.Type, systems: [any System] = [], executor: any Executor) {
+    public init<L: ScheduleLabel>(label: L.Type, systems: [any System] = [], executor: any Executor = SingleThreadedExecutor()) {
         self.label = label.key
         self.executor = executor
         self.systems = systems

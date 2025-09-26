@@ -150,6 +150,15 @@ public struct Coordinator {
         resources[ObjectIdentifier(R.self)] as! R
     }
 
+    subscript<R>(resource resourceType: R.Type = R.self) -> R {
+        _read {
+            yield resources[ObjectIdentifier(R.self)] as! R
+        }
+        set {
+            resources[ObjectIdentifier(R.self)] = newValue
+        }
+    }
+
     @inlinable @inline(__always)
     public mutating func addSchedule(_ schedule: Schedule) {
         systemManager.addSchedule(schedule)
