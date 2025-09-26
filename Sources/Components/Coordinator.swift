@@ -39,6 +39,7 @@ public struct Coordinator {
         Entity.ID(slot: slot, generation: indices[generationFor: slot])
     }
 
+    @inlinable @inline(__always)
     @discardableResult
     public mutating func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
         defer {

@@ -115,12 +115,12 @@ extension ComponentPool {
         for slot in smallest.componentsToEntites {
             var presentInAll = true
             for sparseList in others {
-                if sparseList[slot.rawValue] == .notFound {
+                if sparseList[slot.rawValue] == nil {
                     presentInAll = false
                     break
                 }
             }
-            for excluded in excludedArrays where excluded.entityToComponents[slot.rawValue] != .notFound {
+            for excluded in excludedArrays where excluded.entityToComponents[slot.rawValue] != nil {
                 presentInAll = false
                 break
             }
@@ -137,7 +137,7 @@ extension ComponentPool {
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
     )
-    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index>], excluded: [ContiguousArray<Array.Index>])?
+    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index?>], excluded: [ContiguousArray<Array.Index?>])?
     {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []

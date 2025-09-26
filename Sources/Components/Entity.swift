@@ -16,7 +16,7 @@ public struct Entity {
     public var signature = ComponentSignature()
 }
 
-public struct SlotIndex: RawRepresentable, Hashable, Sendable, ExpressibleByIntegerLiteral {
+public struct SlotIndex: RawRepresentable, Hashable, Comparable, Sendable, ExpressibleByIntegerLiteral {
     @inline(__always)
     public let rawValue: Array.Index
 
@@ -33,6 +33,11 @@ public struct SlotIndex: RawRepresentable, Hashable, Sendable, ExpressibleByInte
     @inlinable @inline(__always)
     mutating func advancing() -> SlotIndex {
         SlotIndex(rawValue: rawValue + 1)
+    }
+
+    @inlinable @inline(__always)
+    public static func < (lhs: SlotIndex, rhs: SlotIndex) -> Bool {
+        lhs.rawValue < rhs.rawValue
     }
 }
 

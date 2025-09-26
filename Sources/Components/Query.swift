@@ -23,17 +23,17 @@ struct SparseQueryPlan {
     @usableFromInline
     let base: ContiguousArray<SlotIndex>
     @usableFromInline
-    let others: [ContiguousArray<Array.Index>] // entityToComponents maps
+    let others: [ContiguousArray<Array.Index?>] // entityToComponents maps
     @usableFromInline
-    let excluded: [ContiguousArray<Array.Index>]
+    let excluded: [ContiguousArray<Array.Index?>]
     @usableFromInline
     let version: UInt64
 
     @usableFromInline
     init(
         base: ContiguousArray<SlotIndex>,
-        others: [ContiguousArray<Array.Index>],
-        excluded: [ContiguousArray<Array.Index>],
+        others: [ContiguousArray<Array.Index?>],
+        excluded: [ContiguousArray<Array.Index?>],
         version: UInt64
     ) {
         self.base = base
@@ -178,7 +178,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @usableFromInline @inline(__always)
     internal func getArrays(_ coordinator: inout Coordinator)
-    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Int>], excluded: [ContiguousArray<Int>])?
+    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index?>], excluded: [ContiguousArray<Array.Index?>])?
     {
         if
             let cached = coordinator.sparseQueryCache[hash],
@@ -241,11 +241,11 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
                 slotLoop: for slot in baseSlots {
                     let slotRaw = slot.rawValue
 
-                    for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == .notFound {
+                    for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
                         // Entity does not have all required components, skip.
                         continue slotLoop
                     }
-                    for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != .notFound {
+                    for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
                         // Entity has at least one excluded component, skip.
                         continue slotLoop
                     }
@@ -434,10 +434,10 @@ struct UnsafeSendable<T>: @unchecked Sendable {
 
 public struct TypedAccess<C: Component>: @unchecked Sendable {
     @usableFromInline internal var buffer: UnsafeMutableBufferPointer<C>
-    @usableFromInline internal var indices: ContiguousArray<ContiguousArray.Index>
+    @usableFromInline internal var indices: ContiguousArray<ContiguousArray.Index?>
 
     @usableFromInline
-    init(buffer: UnsafeMutableBufferPointer<C>, indices: ContiguousArray<ContiguousArray.Index>) {
+    init(buffer: UnsafeMutableBufferPointer<C>, indices: ContiguousArray<ContiguousArray.Index?>) {
         self.buffer = buffer
         self.indices = indices
     }
@@ -445,16 +445,16 @@ public struct TypedAccess<C: Component>: @unchecked Sendable {
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C {
         _read {
-            yield buffer[indices[id.slot.rawValue]]
+            yield buffer[indices[id.slot.rawValue].unsafelyUnwrapped]
         }
         nonmutating _modify {
-            yield &buffer[indices[id.slot.rawValue]]
+            yield &buffer[indices[id.slot.rawValue].unsafelyUnwrapped]
         }
     }
 
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C> {
-        SingleTypedAccess(buffer: buffer.baseAddress!.advanced(by: indices[id.slot.rawValue]))
+        SingleTypedAccess(buffer: buffer.baseAddress.unsafelyUnwrapped.advanced(by: indices[id.slot.rawValue].unsafelyUnwrapped))
     }
 }
 

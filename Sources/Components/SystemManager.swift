@@ -140,6 +140,8 @@ struct SystemManager {
 //    }
 //}
 
+// TODO: Make a sample app using a SwiftUI.Canvas with some cubes bumping into each other.
+
 func setupTest() {
     var coordinator = Coordinator()
     MainSystem.install(into: &coordinator)
