@@ -24,7 +24,11 @@ extension ComponentPool {
 
     @usableFromInline
     mutating func append<C: Component>(_ component: C, for entityID: Entity.ID) {
-        components[C.componentTag, default: AnyComponentArray(ComponentArray<C>())].append(component, id: entityID)
+        let array = components[C.componentTag] ?? AnyComponentArray(ComponentArray<C>())
+        array.append(component, id: entityID)
+        components[C.componentTag] = array
+        // TODO: Fix this
+//        components[C.componentTag, default: AnyComponentArray(ComponentArray<C>())].append(component, id: entityID)
     }
 
     @usableFromInline
@@ -38,11 +42,9 @@ extension ComponentPool {
     }
 
     @usableFromInline
-    mutating func remove(_ enitityID: Entity.ID) {
-        components = components.mapValues {
-            var array = $0
-            array.remove(enitityID)
-            return array
+    mutating func remove(_ entityID: Entity.ID) {
+        for component in components.values {
+            component.remove(entityID)
         }
     }
 
@@ -84,7 +86,7 @@ extension ComponentPool {
             excludedArrays.append(array)
         }
 
-        // Sort by ascending number of entities to minimize membership checks.
+        // Sort by ascending number of entities to minimise membership checks.
         arrays.sort { lhs, rhs in
             lhs.componentsToEntites.count < rhs.componentsToEntites.count
         }

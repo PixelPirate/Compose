@@ -24,8 +24,9 @@ public struct Coordinator {
     @usableFromInline
     private(set) var resources: [ObjectIdentifier: Any] = [:]
 
-    @inlinable @inline(__always)
-    public init() {}
+    public init() {
+        MainSystem.install(into: &self)
+    }
 
     @inlinable @inline(__always)
     public subscript(signatureFor slot: SlotIndex) -> ComponentSignature {
@@ -151,7 +152,8 @@ public struct Coordinator {
         resources[ObjectIdentifier(R.self)] as! R
     }
 
-    subscript<R>(resource resourceType: R.Type = R.self) -> R {
+    @inlinable @inline(__always)
+    public subscript<R>(resource resourceType: R.Type = R.self) -> R {
         _read {
             yield resources[ObjectIdentifier(R.self)] as! R
         }

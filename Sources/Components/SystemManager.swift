@@ -142,12 +142,8 @@ struct SystemManager {
 
 // TODO: Make a sample app using a SwiftUI.Canvas with some cubes bumping into each other.
 
-func setupTest() {
-    var coordinator = Coordinator()
-    MainSystem.install(into: &coordinator)
-}
-
 extension MainSystem {
+    @usableFromInline
     static func install(into coordinator: inout Coordinator) {
         coordinator.addRessource(
             MainScheduleOrder(
@@ -197,6 +193,7 @@ struct FixedMainScheduleOrder {
     let labels: [ScheduleLabelKey]
 }
 import Atomics
+
 struct MainSystem: System {
     private static let first = ManagedAtomic<Bool>(true)
 
@@ -265,9 +262,10 @@ struct RunFixedMainLoopSystem: System {
         let delta = coordinator[resource: WorldClock.self].delta
         coordinator[resource: FixedClock.self].accumulate(delta)
 
-        while coordinator[resource: FixedClock.self].expend() {
-            coordinator.runSchedule(FixedMain.self)
-        }
+        // TODO: Fix this. Endless loop.
+//        while coordinator[resource: FixedClock.self].expend() {
+//            coordinator.runSchedule(FixedMain.self)
+//        }
     }
 }
 

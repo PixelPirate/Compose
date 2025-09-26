@@ -118,7 +118,7 @@ extension Query {
 }
 
 extension System {
-    static func metadata(from queries: [QueryMetadata]) -> SystemMetadata {
+    public static func metadata(from queries: [QueryMetadata]) -> SystemMetadata {
         var include = ComponentSignature()
         var exclude = ComponentSignature()
 

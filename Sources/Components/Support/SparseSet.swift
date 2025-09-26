@@ -17,6 +17,11 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     public var endIndex: ContiguousArray.Index { components.endIndex }
 
     @inlinable @inline(__always)
+    public var indices: Range<Int> {
+        0..<components.count
+    }
+
+    @inlinable @inline(__always)
     public init(_ pairs: (SlotIndex, Component)...) {
         for (id, component) in pairs {
             append(component, to: id)

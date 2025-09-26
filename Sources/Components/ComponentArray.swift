@@ -25,11 +25,22 @@ extension SlotIndex: SparseSetIndex {
 }
 
 public protocol AnyComponentArrayBox: AnyObject {
+    @inlinable @inline(__always)
     func remove(id: Entity.ID) -> Void
+
+    @inlinable @inline(__always)
     func append<C: Component>(_: C, id: Entity.ID) -> Void
+
+    @inlinable @inline(__always)
     func get(_: Entity.ID) -> any Component
+
+    @inlinable @inline(__always)
     func `set`(_: Entity.ID, newValue: any Component) -> Void
+
+    @inlinable @inline(__always)
     var entityToComponents: ContiguousArray<ContiguousArray.Index?> { get }
+
+    @inlinable @inline(__always)
     var componentsToEntites: ContiguousArray<SlotIndex> { get }
 
     @inlinable @inline(__always)
@@ -52,7 +63,7 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     }
 
     @inlinable @inline(__always)
-    func append<C1: Component>(_ component: C1, id: Entity.ID) -> Void {
+    func append<C1: Component>(_ component: C1, id: Entity.ID) {
         base.append(unsafeBitCast(component, to: C.self), to: id.slot)
     }
 
@@ -100,7 +111,7 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
 
 public struct AnyComponentArray {
     @usableFromInline
-    internal var base: any AnyComponentArrayBox
+    internal let base: any AnyComponentArrayBox
 
     @inlinable @inline(__always)
     public init<C: Component>(_ base: SparseSet<C, SlotIndex>) {
@@ -108,12 +119,12 @@ public struct AnyComponentArray {
     }
 
     @inlinable @inline(__always)
-    public mutating func remove(_ entityID: Entity.ID) {
+    public func remove(_ entityID: Entity.ID) {
         base.remove(id: entityID)
     }
 
     @inlinable @inline(__always)
-    public mutating func append<C: Component>(_ component: C, id: Entity.ID) -> Void {
+    public func append<C: Component>(_ component: C, id: Entity.ID) {
         base.append(component, id: id)
     }
 
@@ -122,7 +133,7 @@ public struct AnyComponentArray {
         _read {
             yield base.get(entityID)
         }
-        mutating set {
+        set {
             base.set(entityID, newValue: newValue)
         }
     }
@@ -143,7 +154,7 @@ public struct AnyComponentArray {
 
     @usableFromInline
     func typedBox<C: Component>(_ of: C.Type) -> ComponentArrayBox<C> {
-        return base as! ComponentArrayBox<C>
+        base as! ComponentArrayBox<C>
     }
 
     public func withBuffer<C: Component, Result>(
@@ -162,8 +173,3 @@ public struct AnyComponentArray {
         base.ensureEntity(entityID)
     }
 }
-
-//extension ContiguousArray.Index {
-//    @usableFromInline
-//    static let notFound: ContiguousArray.Index = -1
-//}
