@@ -133,6 +133,25 @@ public struct LazyWritableQuerySequence<each T: Component>: Sequence {
     }
 }
 
+/// Contains all queried components for one entity in a combination query.
+/// - Note: This type only exists as a fix for the compiler, since just returning every component or two tuples crashes the build.
+@dynamicMemberLookup
+public struct CombinationPack<each T>: ~Copyable {
+    @inline(__always)
+    public let values: (repeat each T)
+
+    @inlinable @inline(__always)
+    public init(_ values: (repeat each T)) {
+        self.values = values
+    }
+
+    public subscript<R>(dynamicMember keyPath: KeyPath<(repeat each T), R>) -> R {
+        _read {
+            yield values[keyPath: keyPath]
+        }
+    }
+}
+
 public struct Query<each T: Component> where repeat each T: ComponentResolving {
     /// These components will be used for selecting the correct archetype, but they will not be included in the query output.
     @inline(__always)
@@ -226,6 +245,61 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
                 version: coordinator.worldVersion
             )
             return new
+        }
+    }
+
+    // TODO: EnTT groups can just use Array.partition(by:)?
+
+    @inlinable @inline(__always)
+    public func performCombinations(
+        _ coordinator: inout Coordinator,
+        _ handler: (consuming CombinationPack<repeat (each T).ResolvedType>, consuming CombinationPack<repeat (each T).ResolvedType>) -> Void
+    ) {
+        guard let (baseSlots, otherComponents, excludedComponents) = getArrays(&coordinator) else { return }
+
+        withUnsafeMutablePointer(to: &coordinator) {
+            nonisolated(unsafe) let coordinator = $0
+            withTypedBuffers(&coordinator.pointee.pool) { (accessors: repeat TypedAccess<(each T).QueriedComponent>) in
+                slotALoop: for slotAIndex in baseSlots.startIndex..<baseSlots.endIndex {
+                    let slotA = baseSlots[slotAIndex]
+                    let slotRaw = slotA.rawValue
+
+                    for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
+                        // Entity does not have all required components, skip.
+                        continue slotALoop
+                    }
+                    for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
+                        // Entity has at least one excluded component, skip.
+                        continue slotALoop
+                    }
+                    let idA = Entity.ID(
+                        slot: SlotIndex(rawValue: slotRaw),
+                        generation: coordinator.pointee.indices[generationFor: slotA]
+                    )
+
+                    slotBLoop: for slotBIndex in (slotAIndex + 1)..<baseSlots.endIndex {
+                        let slotB = baseSlots[slotBIndex]
+                        let slotRaw = slotB.rawValue
+
+                        for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
+                            // Entity does not have all required components, skip.
+                            continue slotBLoop
+                        }
+                        for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
+                            // Entity has at least one excluded component, skip.
+                            continue slotBLoop
+                        }
+                        let idB = Entity.ID(
+                            slot: SlotIndex(rawValue: slotRaw),
+                            generation: coordinator.pointee.indices[generationFor: slotB]
+                        )
+                        handler(
+                            CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: idA))),
+                            CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: idB)))
+                        )
+                    }
+                }
+            }
         }
     }
 

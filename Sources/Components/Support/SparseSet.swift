@@ -36,6 +36,20 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     }
 
     @inlinable @inline(__always)
+    public init(_ pairs: (Array.Index, Component)...) where SlotIndex == Array.Index {
+        for (id, component) in pairs {
+            append(component, to: id)
+        }
+    }
+
+    @inlinable @inline(__always)
+    public init(_ pairs: [(Array.Index, Component)]) where SlotIndex == Array.Index {
+        for (id, component) in pairs {
+            append(component, to: id)
+        }
+    }
+
+    @inlinable @inline(__always)
     public mutating func withUnsafeMutableBufferPointer<R>(
         _ body: (inout UnsafeMutableBufferPointer<Component>) throws -> R
     ) rethrows -> R {
@@ -126,6 +140,18 @@ public protocol SparseSetIndex: Hashable, Comparable {
 
     @inlinable @inline(__always)
     init(index: Array.Index)
+}
+
+extension Array.Index: SparseSetIndex {
+    @inlinable @inline(__always)
+    public var index: Array.Index {
+        self
+    }
+
+    @inlinable @inline(__always)
+    public init(index: Array.Index) {
+        self = index
+    }
 }
 
 public struct SparseArray<Value, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {

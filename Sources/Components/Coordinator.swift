@@ -143,8 +143,8 @@ public struct Coordinator {
     }
 
     @inlinable @inline(__always)
-    public mutating func addRessource<R>(_ ressource: R) {
-        resources[ObjectIdentifier(R.self)] = ressource
+    public mutating func addRessource<R>(_ resource: R) {
+        resources[ObjectIdentifier(R.self)] = resource
     }
 
     @inlinable @inline(__always)
@@ -183,7 +183,7 @@ public struct Coordinator {
     }
 
     @inlinable @inline(__always)
-    public func run() {
-        // system, schedule?
+    public mutating func run() {
+        runSchedule(Main.self)
     }
 }
