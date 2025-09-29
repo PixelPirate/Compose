@@ -415,3 +415,86 @@ public struct Schedule {
         systems.append(system)
     }
 }
+
+struct ScheduledStage {
+    let systems: [System]
+}
+
+final class Stagehand {
+    private let systems: [System]
+
+    init(systems: [System]) {
+        self.systems = systems
+    }
+
+    /// Greedy packing into conflict-free parallel stages
+    func buildStages() -> [ScheduledStage] {
+        var remaining = systems
+        var stages: [ScheduledStage] = []
+
+        // TODO: Also check component access.
+        while !remaining.isEmpty {
+            var stage: [System] = []
+            var stageReaders = Set<ResourceKey>()
+            var stageWriters = Set<ResourceKey>()
+
+            // Try to pack as many systems as possible into this stage
+            var i = 0
+            while i < remaining.count {
+                let system = remaining[i]
+                let accesses = system.metadata.resourceAccess
+                var systemReaders = Set<ResourceKey>()
+                var systemWriters = Set<ResourceKey>()
+
+                for (key, access) in accesses {
+                    switch access {
+                    case .read:  systemReaders.insert(key)
+                    case .write: systemWriters.insert(key)
+                    }
+                }
+
+                // Conflict rules:
+                // - A writer conflicts with any existing reader/writer of same resource
+                // - A reader conflicts with existing writer of same resource
+                let writeConflict = !systemWriters.isDisjoint(with: stageReaders.union(stageWriters))
+                let readConflict  = !systemReaders.isDisjoint(with: stageWriters)
+
+                if writeConflict || readConflict {
+                    i += 1
+                    continue
+                } else {
+                    stage.append(system)
+                    stageReaders.formUnion(systemReaders)
+                    stageWriters.formUnion(systemWriters)
+                    remaining.remove(at: i)
+                }
+            }
+
+            // Fallback: if nothing fit (shouldn’t happen), force schedule first remaining
+            if stage.isEmpty, let first = remaining.first {
+                stage = [first]
+                remaining.removeFirst()
+            }
+
+            stages.append(ScheduledStage(systems: stage))
+        }
+
+        return stages
+    }
+
+    /// Run all stages in order; systems inside a stage in parallel
+//    func runAll(on world: World) async {
+//        let stages = buildStages()
+//        for (idx, stage) in stages.enumerated() {
+//            // print("Running stage \(idx): \(stage.systems.map{$0.name})")
+//            await withTaskGroup(of: Void.self) { group in
+//                for sys in stage.systems {
+//                    group.addTask {
+//                        await sys.run(on: world)
+//                    }
+//                }
+//                await group.waitForAll()
+//            }
+//        }
+//    }
+}

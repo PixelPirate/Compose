@@ -1,3 +1,18 @@
+public struct ResourceKey: Hashable {
+    @usableFromInline
+    let type: ObjectIdentifier
+
+    @inlinable @inline(__always)
+    public init<T>(_ type: T.Type) {
+        self.type = ObjectIdentifier(type)
+    }
+
+    @inlinable @inline(__always)
+    public init(_ identifier: ObjectIdentifier) {
+        self.type = identifier
+    }
+}
+
 public struct Coordinator {
     @usableFromInline
     var pool = ComponentPool()
@@ -22,7 +37,7 @@ public struct Coordinator {
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline
-    private(set) var resources: [ObjectIdentifier: Any] = [:]
+    private(set) var resources: [ResourceKey: Any] = [:]
 
     public init() {
         MainSystem.install(into: &self)
@@ -144,21 +159,21 @@ public struct Coordinator {
 
     @inlinable @inline(__always)
     public mutating func addRessource<R>(_ resource: R) {
-        resources[ObjectIdentifier(R.self)] = resource
+        resources[ResourceKey(R.self)] = resource
     }
 
     @inlinable @inline(__always)
     public func resource<R>(_ type: R.Type = R.self) -> R {
-        resources[ObjectIdentifier(R.self)] as! R
+        resources[ResourceKey(R.self)] as! R
     }
 
     @inlinable @inline(__always)
     public subscript<R>(resource resourceType: R.Type = R.self) -> R {
         _read {
-            yield resources[ObjectIdentifier(R.self)] as! R
+            yield resources[ResourceKey(R.self)] as! R
         }
         set {
-            resources[ObjectIdentifier(R.self)] = newValue
+            resources[ResourceKey(R.self)] = newValue
         }
     }
 

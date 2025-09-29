@@ -21,10 +21,6 @@ public struct ComponentSignature: Hashable {
     @usableFromInline
     var rawHashValue: BitSet
 
-    static func + (lhs: ComponentSignature, rhs: ComponentSignature) -> ComponentSignature {
-        lhs // TODO: Implement
-    }
-
     @usableFromInline @inline(__always)
     internal var isEmpty: Bool {
         _read {
@@ -71,6 +67,11 @@ public struct ComponentSignature: Hashable {
         var newSignature = rawHashValue
         newSignature.remove(tag.rawValue)
         return ComponentSignature(raw: newSignature)
+    }
+
+    @inlinable @inline(__always)
+    public static func + (lhs: ComponentSignature, rhs: ComponentSignature) -> ComponentSignature {
+        lhs.appending(rhs)
     }
 }
 
