@@ -522,6 +522,16 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @inlinable @inline(__always)
+    public func callAsFunction(combinations context: QueryContext, _ handler: (consuming CombinationPack<repeat (each T).ResolvedType>, consuming CombinationPack<repeat (each T).ResolvedType>) -> Void) {
+        performCombinations(context, handler)
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(combinations coordinator: Coordinator, _ handler: (consuming CombinationPack<repeat (each T).ResolvedType>, consuming CombinationPack<repeat (each T).ResolvedType>) -> Void) {
+        performCombinations(QueryContext(coordinator: coordinator), handler)
+    }
+
+    @inlinable @inline(__always)
     public func callAsFunction(fetchOne context: QueryContext) -> (repeat (each T).ReadOnlyResolvedType)? {
         fetchOne(context)
     }
