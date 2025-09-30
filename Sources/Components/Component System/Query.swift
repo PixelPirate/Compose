@@ -245,7 +245,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             )
         } else {
             guard let new = coordinator.pool.baseAndOthers(
-                repeat (each T).QueriedComponent.self,
+                repeat (each T).self,
                 included: backstageComponents,
                 excluded: excludedComponents
             ) else {
@@ -406,14 +406,16 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
             let cores = ProcessInfo.processInfo.processorCount
-            let chunkSize = (slots.count + cores - 1) / cores
+            let chunkSize = max(1, (slots.count + cores - 1) / cores) // ceil division
+            let chunks = (slots.count + chunkSize - 1) / chunkSize     // ceil number of chunks
 
             withUnsafePointer(to: &context.coordinator.indices) {
                 nonisolated(unsafe) let indices: UnsafePointer<IndexRegistry> = $0
-                DispatchQueue.concurrentPerform(iterations: min(cores, slots.count)) { i in
+                DispatchQueue.concurrentPerform(iterations: chunks) { i in
                     let start = i * chunkSize
                     let end = min(start + chunkSize, slots.count)
-                    
+                    if start >= end { return } // guard against empty/invalid slice
+
                     for slot in slots[start..<end] {
                         handler(repeat (each T).makeResolved(
                             access: each accessors,
@@ -454,7 +456,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     public func fetchAll(_ context: some QueryContextConvertible) -> LazyQuerySequence<repeat each T> {
         let context = context.queryContext
         let slots = context.coordinator.pool.slots(
-            repeat (each T).QueriedComponent.self,
+            repeat (each T).self,
             included: backstageComponents,
             excluded: excludedComponents
         )
@@ -854,29 +856,26 @@ func withTypedBuffers<each C: Component, R>(
     _ pool: inout ComponentPool,
     _ body: (repeat TypedAccess<each C>) throws -> R
 ) rethrows -> R? {
-    var tuple: (repeat TypedAccess<each C>)? = nil
-
-    func buildTuple() -> (repeat TypedAccess<each C>)? {
-        return (repeat tryMakeAccess((each C).self)!)
+    func buildTuple() -> (repeat TypedAccess<each C>) {
+        return (repeat tryMakeAccess((each C).self))
     }
 
-    func tryMakeAccess<D: Component>(_ type: D.Type) -> TypedAccess<D>? {
+    func tryMakeAccess<D: Component>(_ type: D.Type) -> TypedAccess<D> {
         guard D.self != Never.self else { return TypedAccess<D>.empty }
-        guard let anyArray = pool.components[D.componentTag] else { return nil }
+        guard let anyArray = pool.components[D.componentTag] else { fatalError("Unknown component.") }
         var result: TypedAccess<D>? = nil
         anyArray.withBuffer(D.self) { buffer, entitiesToIndices in
             result = TypedAccess(buffer: buffer, indices: entitiesToIndices)
             // Escaping the buffer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
-            // The solution would be a recursive function which would recusively call `withBuffer` on the head until the pack is empty, and then call `body` with all the buffers.
+            // The solution would be a recursive function which would recursively call `withBuffer` on the head until the pack is empty, and then call `body` with all the buffers.
             // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12
             // See: https://forums.swift.org/t/passing-a-parameter-pack-to-a-function-call-fails-to-compile/72243/15
         }
-        return result
+        return result.unsafelyUnwrapped
     }
 
-    guard let built = buildTuple() else { return nil }
-    tuple = built
-    return try body(repeat each tuple!)
+    let built = buildTuple()
+    return try body(repeat each built)
 }
 
 
