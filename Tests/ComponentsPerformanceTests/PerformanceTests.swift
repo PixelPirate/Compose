@@ -234,6 +234,234 @@ extension Tag {
         print("Iter:", iterDuration, "Perform:", performDuration)
     }
 
+
+    @Test func ecsBenchmark() {
+        let clock = ContinuousClock()
+
+        func seconds(_ d: Duration) -> Double {
+            let c = d.components
+            return Double(c.seconds) + Double(c.attoseconds) / 1e18
+        }
+
+        func measure(_ name: String, _ block: () -> Void) -> Duration {
+            let d = clock.measure(block)
+            print(name + ":", d)
+            return d
+        }
+
+        func measureCount(_ name: String, count: Int, _ block: () -> Void) -> Duration {
+            let d = clock.measure(block)
+            let s = seconds(d)
+            if s > 0 {
+                let rate = Double(count) / s
+                print("\(name): \(d) (\(Int(rate)) ops/s)")
+            } else {
+                print("\(name): \(d) (inf ops/s)")
+            }
+            return d
+        }
+
+        struct Health: Component, Equatable, Sendable { static let componentTag = ComponentTag.makeTag(); var hp: Int }
+        struct Mana: Component, Equatable, Sendable { static let componentTag = ComponentTag.makeTag(); var mp: Int }
+        struct AI: Component, Sendable { static let componentTag = ComponentTag.makeTag(); var state: Int }
+        struct Renderable: Component, Sendable { static let componentTag = ComponentTag.makeTag(); var meshID: Int }
+        struct TagA: Component, Sendable { static let componentTag = ComponentTag.makeTag(); init() {} }
+        struct TagB: Component, Sendable { static let componentTag = ComponentTag.makeTag(); init() {} }
+
+        let N = 300_000
+        let coordinator = Coordinator()
+
+        // Spawn distributions: empty, 1C, 2C, 3C, 4C, mixed
+        _ = measureCount("Spawn-Mixed", count: N) {
+            for i in 0..<N {
+                switch i & 7 {
+                case 0:
+                    _ = coordinator.spawn()
+                case 1:
+                    _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+                case 2:
+                    _ = coordinator.spawn(Gravity(force: Vector3(x: 1, y: 2, z: 3)))
+                case 3:
+                    _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: Vector3(x: 1, y: 2, z: 3)))
+                case 4:
+                    _ = coordinator.spawn(Health(hp: 100))
+                case 5:
+                    _ = coordinator.spawn(Mana(mp: 50), Renderable(meshID: 42))
+                case 6:
+                    _ = coordinator.spawn(AI(state: 0), TagA())
+                default:
+                    _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Health(hp: 1), Mana(mp: 1))
+                }
+            }
+        }
+
+        // Baseline iteration: Write<Transform> + Gravity
+        let qMove = Query { Write<Transform>.self; Gravity.self }
+        _ = measure("Query-Perform Move") {
+            qMove(coordinator) { t, g in
+                t.position.x += g.force.x
+            }
+        }
+
+        // Signature-based iteration path
+        _ = measure("Query-PerformWithSignature Move") {
+            qMove.performWithSignature(coordinator) { t, g in
+                t.position.x += g.force.x
+            }
+        }
+
+        // FetchAll vs IterAll vs Perform
+        _ = measure("Query-FetchAll Move") {
+            let all = Array(qMove.fetchAll(coordinator))
+            #expect(!all.isEmpty)
+        }
+
+        _ = measure("Query-IterAll Move") {
+            let seq = qMove.iterAll(coordinator)
+            for (t, g) in seq { t.position.x += g.force.x }
+        }
+
+        // With/Without filters
+        let qFiltered = Query { Write<Transform>.self; With<Gravity>.self; Without<RigidBody>.self }
+        _ = measure("Query-Filters With/Without") {
+            qFiltered(coordinator) { t in t.position.y += 1 }
+        }
+
+        // Include Entity ID
+        let qWithID = Query { WithEntityID.self; Transform.self }
+        _ = measure("Query-WithEntityID") {
+            qWithID(coordinator) { (_: Entity.ID, _: Transform) in }
+        }
+
+        // Prepare churn selection outside measurement and add sanity counts
+        var rng = SystemRandomNumberGenerator()
+        let idsQuery = Query { WithEntityID.self }
+        let allIDs = Array(idsQuery.fetchAll(coordinator)).map { $0 }
+        #expect(!allIDs.isEmpty)
+
+        // Precompute a 1/3 selection mask
+        var selected: [Bool] = .init(repeating: false, count: allIDs.count)
+        for i in 0..<allIDs.count { selected[i] = (Int.random(in: 0..<3, using: &rng) == 0) }
+
+        // Count entities with Health before/after
+        func countWithHealth() -> Int {
+            Array(Query { WithEntityID.self; With<Health>.self }.fetchAll(coordinator)).count
+        }
+        let healthBefore = countWithHealth()
+
+        _ = measure("Churn-AddRemove Health") {
+            for (i, id) in allIDs.enumerated() where selected[i] {
+                coordinator.add(Health(hp: 10), to: id)
+            }
+            for (i, id) in allIDs.enumerated() where selected[i] {
+                coordinator.remove(Health.self, from: id)
+            }
+        }
+        let healthAfter = countWithHealth()
+        print("Churn sanity: before=\(healthBefore) after=\(healthAfter) delta=\(healthAfter - healthBefore)")
+
+        // Destroy and respawn half the world (deterministic subset)
+        let toDestroy = allIDs.enumerated().compactMap { (i, id) in (i & 1) == 0 ? id : nil }
+        _ = measureCount("Destroy-Half", count: toDestroy.count) {
+            for id in toDestroy { coordinator.destroy(id) }
+        }
+
+        // Respawn exactly the same count, mixed components
+        _ = measureCount("Respawn-Half", count: toDestroy.count) {
+            for i in 0..<toDestroy.count {
+                switch i & 3 {
+                case 0:
+                    _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+                case 1:
+                    _ = coordinator.spawn(Gravity(force: .zero))
+                case 2:
+                    _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+                default:
+                    _ = coordinator.spawn(Health(hp: 5), Mana(mp: 5))
+                }
+            }
+        }
+
+        // Parallel iteration with heavier per-entity work to amortize overhead
+        let workIters = 32
+        _ = measure("Query-Parallel Move (heavier)") {
+            qMove(parallel: coordinator) { t, g in
+                var ax = t.position.x
+                let gx = g.force.x
+                var i = 0
+                while i < workIters {
+                    ax = (ax + gx) * 1.0001 - gx * 0.9999
+                    i += 1
+                }
+                t.position.x = ax
+            }
+        }
+
+        // Combination queries (pairwise interactions on a subset)
+        let pairQuery = Query { Write<Transform>.self; With<TagA>.self; Without<TagB>.self }
+        _ = measure("Query-Combinations Pairwise") {
+            pairQuery(combinations: coordinator) { a, b in
+                let (ta) = a.values
+                let (tb) = b.values
+                ta.position.x += 0.001
+                tb.position.x -= 0.001
+            }
+        }
+
+        // Cache effect: run the same query twice back-to-back to observe plan reuse
+        _ = measure("Cache-First Run") {
+            qMove(coordinator) { t, g in t.position.x += g.force.x }
+        }
+        _ = measure("Cache-Second Run") {
+            qMove(coordinator) { t, g in t.position.x += g.force.x }
+        }
+
+        // Mixed complex query resembling a gameplay frame
+        let complexQuery = Query {
+            Write<Transform>.self
+            Gravity.self
+            With<Health>.self
+            Without<TagB>.self
+        }
+        _ = measure("Frame-Mix Update") {
+            complexQuery(coordinator) { t, g in
+                t.position.x += g.force.x
+                t.position.y += g.force.y
+                t.position.z += g.force.z
+            }
+        }
+    }
+
+    @Test func ecsCacheMicroBenchmark() {
+        let clock = ContinuousClock()
+        func seconds(_ d: Duration) -> Double {
+            let c = d.components
+            return Double(c.seconds) + Double(c.attoseconds) / 1e18
+        }
+        func measure(_ name: String, _ block: () -> Void) -> Duration {
+            let d = clock.measure(block)
+            print(name + ":", d)
+            return d
+        }
+
+        let coordinator = Coordinator()
+        let N = 300_000
+        for _ in 0..<N {
+            _ = coordinator.spawn(
+                Transform(position: .zero, rotation: .zero, scale: .zero),
+                Gravity(force: .zero)
+            )
+        }
+        let qMove = Query { Write<Transform>.self; Gravity.self }
+        let first = measure("CacheMicro-First") {
+            qMove(coordinator) { t, g in t.position.x += g.force.x }
+        }
+        let second = measure("CacheMicro-Second") {
+            qMove(coordinator) { t, g in t.position.x += g.force.x }
+        }
+        let s1 = seconds(first), s2 = seconds(second)
+        if s2 > 0 { print("CacheMicro ratio (second/first):", s2 / s1) }
+    }
 }
 
 public struct Downward: Component, Sendable {
@@ -273,7 +501,7 @@ public struct Vector3: Hashable, Sendable {
     }
 }
 
-public struct Gravity: Component {
+public struct Gravity: Component, Sendable {
     public static let componentTag = ComponentTag.makeTag()
 
     public var force: Vector3
