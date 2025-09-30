@@ -1,5 +1,32 @@
 import Foundation
 
+public struct QueryMetadata {
+    public let signature: ComponentSignature
+    public let readSignature: ComponentSignature
+    public let writeSignature: ComponentSignature
+    public let excludedSignature: ComponentSignature
+
+    @inlinable @inline(__always)
+    init(signature: ComponentSignature, readSignature: ComponentSignature, writeSignature: ComponentSignature, excludedSignature: ComponentSignature) {
+        self.signature = signature
+        self.readSignature = readSignature
+        self.writeSignature = writeSignature
+        self.excludedSignature = excludedSignature
+    }
+}
+
+extension Query {
+    @inlinable @inline(__always)
+    public var metadata: QueryMetadata {
+        QueryMetadata(
+            signature: signature,
+            readSignature: readSignature,
+            writeSignature: writeSignature,
+            excludedSignature: excludedSignature
+        )
+    }
+}
+
 public struct QueryHash: Hashable {
     let value: Int
 
@@ -167,6 +194,12 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     public let signature: ComponentSignature
 
     @inline(__always)
+    public let readSignature: ComponentSignature
+
+    @inline(__always)
+    public let writeSignature: ComponentSignature
+
+    @inline(__always)
     public let excludedSignature: ComponentSignature
 
     @inline(__always)
@@ -182,6 +215,8 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         self.excludedComponents = excludedComponents
         self.includeEntityID = includeEntityID
         self.signature = Self.makeSignature(backstageComponents: backstageComponents)
+        self.readSignature = Self.makeReadSignature(backstageComponents: backstageComponents)
+        self.writeSignature = Self.makeWriteSignature()
         self.excludedSignature = Self.makeExcludedSignature(excludedComponents)
         self.hash = QueryHash(include: signature, exclude: excludedSignature)
     }
@@ -196,7 +231,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @usableFromInline @inline(__always)
-    internal func getArrays(_ coordinator: inout Coordinator)
+    internal func getArrays(_ coordinator: Coordinator)
     -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index?>], excluded: [ContiguousArray<Array.Index?>])?
     {
         if
@@ -227,7 +262,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @usableFromInline @inline(__always)
-    internal func getBaseSparseList(_ coordinator: inout Coordinator) -> ContiguousArray<SlotIndex>? {
+    internal func getBaseSparseList(_ coordinator: Coordinator) -> ContiguousArray<SlotIndex>? {
         if
             let cached = coordinator.signatureQueryCache[hash],
             cached.version == coordinator.worldVersion
@@ -252,134 +287,128 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @inlinable @inline(__always)
     public func performCombinations(
-        _ coordinator: inout Coordinator,
+        _ context: some QueryContextConvertible,
         _ handler: (consuming CombinationPack<repeat (each T).ResolvedType>, consuming CombinationPack<repeat (each T).ResolvedType>) -> Void
     ) {
-        guard let (baseSlots, otherComponents, excludedComponents) = getArrays(&coordinator) else { return }
+        let context = context.queryContext
+        guard let (baseSlots, otherComponents, excludedComponents) = getArrays(context.coordinator) else { return }
 
-        withUnsafeMutablePointer(to: &coordinator) {
-            nonisolated(unsafe) let coordinator = $0
-            withTypedBuffers(&coordinator.pointee.pool) { (accessors: repeat TypedAccess<(each T).QueriedComponent>) in
-                slotALoop: for slotAIndex in baseSlots.startIndex..<baseSlots.endIndex {
-                    let slotA = baseSlots[slotAIndex]
-                    let slotRaw = slotA.rawValue
+        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<(each T).QueriedComponent>) in
+            slotALoop: for slotAIndex in baseSlots.startIndex..<baseSlots.endIndex {
+                let slotA = baseSlots[slotAIndex]
+                let slotRaw = slotA.rawValue
+
+                for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
+                    // Entity does not have all required components, skip.
+                    continue slotALoop
+                }
+                for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
+                    // Entity has at least one excluded component, skip.
+                    continue slotALoop
+                }
+                let idA = Entity.ID(
+                    slot: SlotIndex(rawValue: slotRaw),
+                    generation: context.coordinator.indices[generationFor: slotA]
+                )
+
+                slotBLoop: for slotBIndex in (slotAIndex + 1)..<baseSlots.endIndex {
+                    let slotB = baseSlots[slotBIndex]
+                    let slotRaw = slotB.rawValue
 
                     for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
                         // Entity does not have all required components, skip.
-                        continue slotALoop
+                        continue slotBLoop
                     }
                     for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
                         // Entity has at least one excluded component, skip.
-                        continue slotALoop
+                        continue slotBLoop
                     }
-                    let idA = Entity.ID(
+                    let idB = Entity.ID(
                         slot: SlotIndex(rawValue: slotRaw),
-                        generation: coordinator.pointee.indices[generationFor: slotA]
+                        generation: context.coordinator.indices[generationFor: slotB]
                     )
-
-                    slotBLoop: for slotBIndex in (slotAIndex + 1)..<baseSlots.endIndex {
-                        let slotB = baseSlots[slotBIndex]
-                        let slotRaw = slotB.rawValue
-
-                        for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
-                            // Entity does not have all required components, skip.
-                            continue slotBLoop
-                        }
-                        for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
-                            // Entity has at least one excluded component, skip.
-                            continue slotBLoop
-                        }
-                        let idB = Entity.ID(
-                            slot: SlotIndex(rawValue: slotRaw),
-                            generation: coordinator.pointee.indices[generationFor: slotB]
-                        )
-                        handler(
-                            CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: idA))),
-                            CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: idB)))
-                        )
-                    }
+                    handler(
+                        CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: idA))),
+                        CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: idB)))
+                    )
                 }
             }
         }
     }
 
     @inlinable @inline(__always)
-    public func perform(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        guard let (baseSlots, otherComponents, excludedComponents) = getArrays(&coordinator) else { return }
+    public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        let context = context.queryContext
+        guard let (baseSlots, otherComponents, excludedComponents) = getArrays(context.coordinator) else { return }
 
-        withUnsafeMutablePointer(to: &coordinator) {
-            nonisolated(unsafe) let coordinator = $0
-            withTypedBuffers(&coordinator.pointee.pool) { (
-                accessors: repeat TypedAccess<(each T).QueriedComponent>
-            ) in
-                slotLoop: for slot in baseSlots {
-                    let slotRaw = slot.rawValue
+        withTypedBuffers(&context.coordinator.pool) { (
+            accessors: repeat TypedAccess<(each T).QueriedComponent>
+        ) in
+            slotLoop: for slot in baseSlots {
+                let slotRaw = slot.rawValue
 
-                    for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
-                        // Entity does not have all required components, skip.
-                        continue slotLoop
-                    }
-                    for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
-                        // Entity has at least one excluded component, skip.
-                        continue slotLoop
-                    }
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slotRaw),
-                        generation: coordinator.pointee.indices[generationFor: slot]
-                    )
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
+                    // Entity does not have all required components, skip.
+                    continue slotLoop
                 }
+                for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
+                    // Entity has at least one excluded component, skip.
+                    continue slotLoop
+                }
+                let id = Entity.ID(
+                    slot: SlotIndex(rawValue: slotRaw),
+                    generation: context.coordinator.indices[generationFor: slot]
+                )
+                handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
             }
         }
     }
 
     // This is just here as an example, signatures will be important for archetypes and groups
     @inlinable @inline(__always)
-    public func performWithSignature(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        guard let baseSlots = getBaseSparseList(&coordinator) else { return }
+    public func performWithSignature(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        let context = context.queryContext
+        guard let baseSlots = getBaseSparseList(context.coordinator) else { return }
 
-        withUnsafeMutablePointer(to: &coordinator) {
-            nonisolated(unsafe) let coordinator = $0
+        withTypedBuffers(&context.coordinator.pool) { (
+            accessors: repeat TypedAccess<(each T).QueriedComponent>
+        ) in
+            let querySignature = self.signature
+            let excludedSignature = self.excludedSignature
 
-            withTypedBuffers(&coordinator.pointee.pool) { (
-                accessors: repeat TypedAccess<(each T).QueriedComponent>
-            ) in
-                let querySignature = self.signature
-                let excludedSignature = self.excludedSignature
+            slotLoop: for slot in baseSlots {
+                let slotRaw = slot.rawValue
+                let signature = context.coordinator.entitySignatures[slotRaw]
 
-                slotLoop: for slot in baseSlots {
-                    let slotRaw = slot.rawValue
-                    let signature = coordinator.pointee.entitySignatures[slotRaw]
-
-                    guard
-                        signature.rawHashValue.isSuperset(
-                            of: querySignature.rawHashValue,
-                            isDisjoint: excludedSignature.rawHashValue
-                        )
-                    else {
-                        continue slotLoop
-                    }
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slotRaw),
-                        generation: coordinator.pointee.indices[generationFor: slot]
+                guard
+                    signature.rawHashValue.isSuperset(
+                        of: querySignature.rawHashValue,
+                        isDisjoint: excludedSignature.rawHashValue
                     )
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                else {
+                    continue slotLoop
                 }
+                let id = Entity.ID(
+                    slot: SlotIndex(rawValue: slotRaw),
+                    generation: context.coordinator.indices[generationFor: slot]
+                )
+                handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
             }
         }
     }
 
     @inlinable @inline(__always)
-    public func performParallel(_ coordinator: inout Coordinator, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
-        let slots = coordinator.pool.slots(repeat (each T).QueriedComponent.self, included: backstageComponents, excluded: excludedComponents)
+    public func performParallel(_ context: some QueryContextConvertible, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
+        let context = context.queryContext
+        let slots = context.coordinator.pool.slots(repeat (each T).QueriedComponent.self, included: backstageComponents, excluded: excludedComponents)
 
-        withTypedBuffers(&coordinator.pool) { (
+        withTypedBuffers(&context.coordinator.pool) { (
             accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
             let cores = ProcessInfo.processInfo.processorCount
             let chunkSize = (slots.count + cores - 1) / cores
 
-            withUnsafePointer(to: &coordinator.indices) {
+            withUnsafePointer(to: &context.coordinator.indices) {
                 nonisolated(unsafe) let indices: UnsafePointer<IndexRegistry> = $0
                 DispatchQueue.concurrentPerform(iterations: min(cores, slots.count)) { i in
                     let start = i * chunkSize
@@ -396,14 +425,16 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         }
     }
 
-    public func iterAll(_ coordinator: inout Coordinator) -> LazyWritableQuerySequence<repeat each T> {
-        let slots = coordinator.pool.slots(
+    @inlinable @inline(__always)
+    public func iterAll(_ context: some QueryContextConvertible) -> LazyWritableQuerySequence<repeat each T> {
+        let context = context.queryContext
+        let slots = context.coordinator.pool.slots(
             repeat (each T).QueriedComponent.self,
             included: backstageComponents,
             excluded: excludedComponents
         )
 
-        let accessors = withTypedBuffers(&coordinator.pool) { (
+        let accessors = withTypedBuffers(&context.coordinator.pool) { (
             accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
             (repeat each accessors)
@@ -414,19 +445,21 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         }
 
         return LazyWritableQuerySequence(
-            entityIDs: slots.map { Entity.ID(slot: $0, generation: coordinator.indices[generationFor: $0]) },
+            entityIDs: slots.map { Entity.ID(slot: $0, generation: context.coordinator.indices[generationFor: $0]) },
             accessors: repeat each accessors
         )
     }
 
-    public func fetchAll(_ coordinator: inout Coordinator) -> LazyQuerySequence<repeat each T> {
-        let slots = coordinator.pool.slots(
+    @inlinable @inline(__always)
+    public func fetchAll(_ context: some QueryContextConvertible) -> LazyQuerySequence<repeat each T> {
+        let context = context.queryContext
+        let slots = context.coordinator.pool.slots(
             repeat (each T).QueriedComponent.self,
             included: backstageComponents,
             excluded: excludedComponents
         )
 
-        let accessors = withTypedBuffers(&coordinator.pool) { (
+        let accessors = withTypedBuffers(&context.coordinator.pool) { (
             accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
             (repeat each accessors)
@@ -437,26 +470,28 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         }
 
         return LazyQuerySequence(
-            entityIDs: slots.map { Entity.ID(slot: $0, generation: coordinator.indices[generationFor: $0]) },
+            entityIDs: slots.map { Entity.ID(slot: $0, generation: context.coordinator.indices[generationFor: $0]) },
             accessors: repeat each accessors
         )
     }
 
-    public func fetchOne(_ coordinator: inout Coordinator) -> (repeat (each T).ReadOnlyResolvedType)? {
+    @inlinable @inline(__always)
+    public func fetchOne(_ context: some QueryContextConvertible) -> (repeat (each T).ReadOnlyResolvedType)? {
+        let context = context.queryContext
         var result: (repeat (each T).ReadOnlyResolvedType)? = nil
-        let slots = coordinator.pool.slots(
+        let slots = context.coordinator.pool.slots(
             repeat (each T).QueriedComponent.self,
             included: backstageComponents,
             excluded: excludedComponents
         )
-        withTypedBuffers(&coordinator.pool) { (
+        withTypedBuffers(&context.coordinator.pool) { (
             accessors: repeat TypedAccess<(each T).QueriedComponent>
         ) in
             for slot in slots {
                 result = (
                     repeat (each T).makeReadOnlyResolved(
                         access: each accessors,
-                        entityID: Entity.ID(slot: slot, generation: coordinator.indices[generationFor: slot])
+                        entityID: Entity.ID(slot: slot, generation: context.coordinator.indices[generationFor: slot])
                     )
                 )
                 break
@@ -466,8 +501,44 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         return result
     }
 
-    public func callAsFunction(_ coordinator: inout Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        perform(&coordinator, handler)
+    @inlinable @inline(__always)
+    public func callAsFunction(_ context: QueryContext, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        perform(context, handler)
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(_ coordinator: Coordinator, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        perform(QueryContext(coordinator: coordinator), handler)
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(parallel context: QueryContext, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
+        performParallel(context, handler)
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(parallel coordinator: Coordinator, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
+        performParallel(QueryContext(coordinator: coordinator), handler)
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(fetchOne context: QueryContext) -> (repeat (each T).ReadOnlyResolvedType)? {
+        fetchOne(context)
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(fetchOne coordinator: Coordinator) -> (repeat (each T).ReadOnlyResolvedType)? {
+        fetchOne(QueryContext(coordinator: coordinator))
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(fetchAll context: QueryContext) -> LazyQuerySequence<repeat each T> {
+        fetchAll(context)
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(fetchAll coordinator: Coordinator) -> LazyQuerySequence<repeat each T> {
+        fetchAll(QueryContext(coordinator: coordinator))
     }
 
     @inlinable @inline(__always)
@@ -478,12 +549,32 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             signature = signature.appending(tag)
         }
 
-        func add(_ tag: ComponentTag) {
-            signature = signature.appending(tag)
-        }
-
         for tagType in repeat (each T).self {
             guard tagType.QueriedComponent != Never.self else { continue }
+            signature = signature.appending(tagType.componentTag)
+        }
+
+        return signature
+    }
+
+    @inlinable @inline(__always)
+    static func makeReadSignature(backstageComponents: Set<ComponentTag>) -> ComponentSignature {
+        var signature = ComponentSignature()
+
+        for tagType in repeat (each T).self {
+            guard tagType.QueriedComponent != Never.self, tagType as? any WritableComponent.Type == nil else { continue } // TODO: Test this
+            signature = signature.appending(tagType.componentTag)
+        }
+
+        return signature
+    }
+
+    @inlinable @inline(__always)
+    static func makeWriteSignature() -> ComponentSignature {
+        var signature = ComponentSignature()
+
+        for tagType in repeat (each T).self {
+            guard tagType.QueriedComponent != Never.self, tagType is any WritableComponent.Type else { continue } // TODO: Test this
             signature = signature.appending(tagType.componentTag)
         }
 
@@ -502,8 +593,15 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 }
 
+@usableFromInline
 struct UnsafeSendable<T>: @unchecked Sendable {
+    @usableFromInline
     let value: T
+
+    @usableFromInline
+    init(value: T) {
+        self.value = value
+    }
 }
 
 public struct TypedAccess<C: Component>: @unchecked Sendable {
@@ -676,6 +774,7 @@ public extension Query {
     }
 }
 
+@usableFromInline
 protocol WritableComponent: Component {
     associatedtype Wrapped: Component
 }

@@ -27,8 +27,6 @@ extension ComponentPool {
         let array = components[C.componentTag] ?? AnyComponentArray(ComponentArray<C>())
         array.append(component, id: entityID)
         components[C.componentTag] = array
-        // TODO: Fix this
-//        components[C.componentTag, default: AnyComponentArray(ComponentArray<C>())].append(component, id: entityID)
     }
 
     @usableFromInline

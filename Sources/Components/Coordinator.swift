@@ -1,3 +1,5 @@
+import Synchronization
+
 public struct ResourceKey: Hashable {
     @usableFromInline
     let type: ObjectIdentifier
@@ -13,7 +15,7 @@ public struct ResourceKey: Hashable {
     }
 }
 
-public struct Coordinator {
+public final class Coordinator {
     @usableFromInline
     var pool = ComponentPool()
     //var tables = ArchetypePool()
@@ -37,10 +39,10 @@ public struct Coordinator {
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline
-    private(set) var resources: [ResourceKey: Any] = [:]
+    internal let resources = Mutex<[ResourceKey: Any]>([:])
 
     public init() {
-        MainSystem.install(into: &self)
+        MainSystem.install(into: self)
     }
 
     @inlinable @inline(__always)
@@ -57,7 +59,7 @@ public struct Coordinator {
 
     @inlinable @inline(__always)
     @discardableResult
-    public mutating func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
+    public func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
         defer {
             worldVersion += 1
         }
@@ -65,8 +67,9 @@ public struct Coordinator {
         for component in repeat each components {
             pool.append(component, for: newEntity)
         }
+
         // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
-//        pool.ensureSparseSetCount(includes: newEntity)
+        //pool.ensureSparseSetCount(includes: newEntity)
 
         var signature = ComponentSignature()
         for tag in repeat (each C).componentTag {
@@ -83,17 +86,19 @@ public struct Coordinator {
 
     @inlinable @inline(__always)
     @discardableResult
-    public mutating func spawn() -> Entity.ID {
+    public func spawn() -> Entity.ID {
         let newEntity = indices.allocateID()
         let signature = ComponentSignature()
         setSpawnedSignature(newEntity, signature: signature)
+
         // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
-//        pool.ensureSparseSetCount(includes: newEntity)
+        //pool.ensureSparseSetCount(includes: newEntity)
+
         return newEntity
     }
 
     @usableFromInline
-    mutating internal func setSpawnedSignature(_ entityID: Entity.ID, signature: ComponentSignature) {
+    internal func setSpawnedSignature(_ entityID: Entity.ID, signature: ComponentSignature) {
         if entitySignatures.endIndex == entityID.slot.rawValue {
             entitySignatures.append(signature)
         } else {
@@ -104,7 +109,7 @@ public struct Coordinator {
     }
 
     @inlinable @inline(__always)
-    public mutating func add<C: Component>(_ component: C, to entityID: Entity.ID) {
+    public func add<C: Component>(_ component: C, to entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
             worldVersion += 1
@@ -115,7 +120,7 @@ public struct Coordinator {
     }
 
     @inlinable @inline(__always)
-    public mutating func remove(_ componentTag: ComponentTag, from entityID: Entity.ID) {
+    public func remove(_ componentTag: ComponentTag, from entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
             worldVersion += 1
@@ -126,7 +131,7 @@ public struct Coordinator {
     }
 
     @inlinable @inline(__always)
-    public mutating func remove<C: Component>(_ componentType: C.Type = C.self, from entityID: Entity.ID) {
+    public func remove<C: Component>(_ componentType: C.Type = C.self, from entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
             worldVersion += 1
@@ -137,7 +142,7 @@ public struct Coordinator {
     }
 
     @inlinable @inline(__always)
-    public mutating func destroy(_ entityID: Entity.ID) {
+    public func destroy(_ entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
             worldVersion += 1
@@ -148,57 +153,63 @@ public struct Coordinator {
     }
 
     @inlinable @inline(__always)
-    public mutating func add(_ system: some System) {
+    public func add(_ system: some System) {
         systemManager.add(system)
     }
 
     @inlinable @inline(__always)
-    public mutating func remove(_ systemID: SystemID) {
+    public func remove(_ systemID: SystemID) {
         systemManager.remove(systemID)
     }
 
     @inlinable @inline(__always)
-    public mutating func addRessource<R>(_ resource: R) {
-        resources[ResourceKey(R.self)] = resource
+    public func addRessource<R>(_ resource: sending R) {
+        let sending = UnsafeSendable(value: resource)
+        resources.withLock { r in
+            r[ResourceKey(R.self)] = sending.value
+        }
     }
 
     @inlinable @inline(__always)
     public func resource<R>(_ type: R.Type = R.self) -> R {
-        resources[ResourceKey(R.self)] as! R
+        resources.withLock {
+            $0[ResourceKey(R.self)] as! R
+        }
     }
 
     @inlinable @inline(__always)
-    public subscript<R>(resource resourceType: R.Type = R.self) -> R {
+    public subscript<R>(resource resourceType: sending R.Type = R.self) -> R {
         _read {
-            yield resources[ResourceKey(R.self)] as! R
+            yield resources.withLock { $0[ResourceKey(R.self)] as! R }
         }
         set {
-            resources[ResourceKey(R.self)] = newValue
+            let sending = UnsafeSendable(value: resourceType)
+            resources.withLock { $0[ResourceKey(R.self)] = sending.value }
         }
     }
 
     @inlinable @inline(__always)
-    public mutating func addSchedule(_ schedule: Schedule) {
+    public func addSchedule(_ schedule: Schedule) {
         systemManager.addSchedule(schedule)
     }
 
     @inlinable @inline(__always)
-    public mutating func addSystem<S: ScheduleLabel>(_ s: S.Type = S.self, system: some System) {
+    public func addSystem<S: ScheduleLabel>(_ s: S.Type = S.self, system: some System) {
         systemManager.addSystem(S.self, system: system)
     }
 
     @inlinable @inline(__always)
-    public mutating func runSchedule<S: ScheduleLabel>(_ scheduleLabel: S.Type = S.self) {
-        systemManager.schedules[S.key]?.run(&self)
+    public func runSchedule<S: ScheduleLabel>(_ scheduleLabel: S.Type = S.self) {
+        systemManager.schedules[S.key]?.run(self)
     }
 
     @inlinable @inline(__always)
-    public mutating func runSchedule(_ scheduleLabelKey: ScheduleLabelKey) {
-        systemManager.schedules[scheduleLabelKey]?.run(&self)
+    public func runSchedule(_ scheduleLabelKey: ScheduleLabelKey) {
+        systemManager.schedules[scheduleLabelKey]?.run(self)
     }
 
     @inlinable @inline(__always)
-    public mutating func run() {
+    public func run() {
         runSchedule(Main.self)
     }
 }

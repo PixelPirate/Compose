@@ -1,13 +1,3 @@
-// TODO: When I have sparse sets, then I guess I could add EnTT groups on top?
-// TODO: Do I want archetypes? If yes, I definitely want the option to store specific components as spare sets.
-// TODO: Do I want all three? Archetypes and SparseSets and then a group option for the sparse set components?
-//       E.g. one could say Transform, Mesh and Material are all sparse and then also make a group for these three.
-//       Then other general purpose components just get the archetype magic and some flags just get a sparse set
-//       without groups.
-//       Sounds kind of cool.
-// TODO: Parallelise queries. It should be memory safe since every entity has it's own memory location.
-//       I don't think systems can be parallel though, right?
-
 public typealias ComponentArray<C: Component> = SparseSet<C, SlotIndex>
 
 extension SlotIndex: SparseSetIndex {

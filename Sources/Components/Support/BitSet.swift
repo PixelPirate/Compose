@@ -1,14 +1,7 @@
-//
-//  BitSet.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 23.09.25.
-//
-
 #if canImport(Darwin)
-import Darwin // for memcmp
+import Darwin
 #else
-import Glibc  // Linux
+import Glibc
 #endif
 
 public struct BitSet: Hashable {
@@ -66,6 +59,18 @@ public struct BitSet: Hashable {
         return BitSet(words: newWords, bitCount: maxBitCount)
     }
 
+    @inlinable @inline(__always)
+    public mutating func formUnion(_ other: BitSet) {
+        let maxWords = max(self.words.count, other.words.count)
+        let maxBitCount = max(self.bitCount, other.bitCount)
+        ensureCapacity(forBit: maxBitCount)
+        for i in 0..<maxWords {
+            let a = i < self.words.count ? self.words[i] : 0
+            let b = i < other.words.count ? other.words[i] : 0
+            words[i] = a | b
+        }
+    }
+
     /// Ensure capacity for a specific bit index (0-based). Grows storage.
     @usableFromInline @inline(__always)
     internal mutating func ensureCapacity(forBit bit: Int) {
@@ -75,7 +80,7 @@ public struct BitSet: Hashable {
         if requiredWords > words.count {
             words.append(contentsOf: repeatElement(0, count: requiredWords - words.count))
         }
-        if requiredBits > bitCount { bitCount = requiredBits }
+        if requiredBits > bitCount { bitCount = requiredBits } // TODO: Should this be done here? Shouldn't this only increase capacity and nothing more?
     }
 
     /// Call after any mutating change to keep a canonical tail (clears bits beyond bitCount in last word).
@@ -139,6 +144,18 @@ public struct BitSet: Hashable {
             }
         }
         _maskTail()
+    }
+
+    @inlinable @inline(__always)
+    public func contains(_ bit: Int) -> Bool {
+        guard bit >= 0 else { return false }
+        if bit >= bitCount { return false }
+        let wordIndex = bit >> 6
+        if wordIndex < words.count {
+            let mask: UInt64 = 1 &<< (bit & 63)
+            return words[wordIndex] & mask != 0
+        }
+        return false
     }
 
     @inlinable @inline(__always)

@@ -8,7 +8,7 @@ import Testing
     }
     let clock = ContinuousClock()
 
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     let setup = clock.measure {
         for _ in 0...500_000 {
@@ -37,7 +37,7 @@ import Testing
     print("Setup:", setup)
 
     let duration = clock.measure {
-        query.perform(&coordinator) { transform, gravity in
+        query(coordinator) { transform, gravity in
             transform.position.x += gravity.force.x
         }
     }
@@ -53,7 +53,7 @@ import Testing
     }
     let clock = ContinuousClock()
 
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     let setup = clock.measure {
         for _ in 0...1_000_000 {
@@ -66,7 +66,7 @@ import Testing
     print("Setup:", setup)
 
     let duration = clock.measure {
-        query.perform(&coordinator) { transform, gravity in
+        query(coordinator) { transform, gravity in
             transform.position.x += gravity.force.x
         }
     }
@@ -109,7 +109,7 @@ import Testing
         var numberWang: Int = 12
     }
 
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
     let mockComponent = MockComponent()
 
     for componentNumber in 10..<150 {
@@ -147,7 +147,7 @@ import Testing
 
     let clock = ContinuousClock()
     let duration = clock.measure {
-        query.perform(&coordinator) { com1, com2, com3 in
+        query(coordinator) { com1, com2, com3 in
             com1.numberWang = com2.numberWang * com3.numberWang * com2.numberWang
         }
     }
@@ -159,7 +159,7 @@ import Testing
 
 @Test func testRepeat() {
     let clock = ContinuousClock()
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
     for _ in 0..<10_000 {
         coordinator.spawn(
             Transform(position: .zero, rotation: .zero, scale: .zero),
@@ -171,7 +171,7 @@ import Testing
 
     let setup1 = clock.measure {
         for _ in 0..<1000 {
-            query.perform(&coordinator) { transform, gravity in
+            query(coordinator) { transform, gravity in
                 transform.position.x += gravity.force.x
             }
         }
@@ -180,7 +180,7 @@ import Testing
 
     let setup2 = clock.measure {
         for _ in 0..<1000 {
-            query.perform(&coordinator) { transform, gravity in
+            query(coordinator) { transform, gravity in
                 transform.position.x += gravity.force.x
             }
         }
@@ -203,7 +203,7 @@ import Testing
         Without<RigidBody>.self
     }
 
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     let expectedID = coordinator.spawn(
         Transform(position: .zero, rotation: .zero, scale: .zero),
@@ -250,15 +250,15 @@ import Testing
         )
     }
 
-    #expect(query.fetchOne(&coordinator)?.0 == expectedID)
-    #expect(Array(query.fetchAll(&coordinator)).map { $0.0 } == [expectedID])
+    #expect(query(fetchOne: coordinator)?.0 == expectedID)
+    #expect(Array(query(fetchAll: coordinator)).map { $0.0 } == [expectedID])
     await confirmation(expectedCount: 1) { confirmation in
-        query.perform(&coordinator) { (_: Entity.ID, _: Write<Transform>) in
+        query(coordinator) { (_: Entity.ID, _: Write<Transform>) in
             confirmation()
         }
     }
     await confirmation(expectedCount: 1) { confirmation in
-        query.performParallel(&coordinator) { (_: Entity.ID, _: Write<Transform>) in
+        query(parallel: coordinator) { (_: Entity.ID, _: Write<Transform>) in
             confirmation()
         }
     }
@@ -274,18 +274,18 @@ import Testing
     #expect(query.excludedComponents == [])
     #expect(query.signature == ComponentSignature(Transform.componentTag, Gravity.componentTag))
 
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     coordinator.spawn(
         Transform(position: .zero, rotation: .zero, scale: .zero),
         Gravity(force: Vector3(x: 1, y: 1, z: 1))
     )
 
-    query.perform(&coordinator) { (transform: Write<Transform>, gravity: Gravity) in
+    query(coordinator) { (transform: Write<Transform>, gravity: Gravity) in
         transform.position.x += gravity.force.x
     }
 
-    let transform = try #require(Query { Transform.self }.fetchOne(&coordinator))
+    let transform = try #require(Query { Transform.self }.fetchOne(coordinator))
     #expect(transform.position == Vector3(x: 1, y: 0, z: 0))
 }
 
@@ -299,13 +299,13 @@ import Testing
     #expect(query.excludedComponents == [])
     #expect(query.signature == ComponentSignature(Transform.componentTag, Gravity.componentTag))
 
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     coordinator.spawn(
         Transform(position: .zero, rotation: .zero, scale: .zero)
     )
 
-    #expect(query.fetchOne(&coordinator) == nil)
+    #expect(query(fetchOne: coordinator) == nil)
 }
 
 @Test func without() throws {
@@ -318,14 +318,14 @@ import Testing
     #expect(query.excludedComponents == [Gravity.componentTag])
     #expect(query.signature == ComponentSignature(Transform.componentTag))
 
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     coordinator.spawn(
         Transform(position: .zero, rotation: .zero, scale: .zero),
         Gravity(force: Vector3(x: 1, y: 1, z: 1))
     )
 
-    #expect(query.fetchOne(&coordinator) == nil)
+    #expect(query(fetchOne: coordinator) == nil)
 }
 
 @Test func withoutNotExisting() throws {
@@ -338,17 +338,17 @@ import Testing
     #expect(query.excludedComponents == [Gravity.componentTag])
     #expect(query.signature == ComponentSignature(Transform.componentTag))
 
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     coordinator.spawn(
         Transform(position: .zero, rotation: .zero, scale: .zero)
     )
 
-    #expect(query.fetchOne(&coordinator) == Transform(position: .zero, rotation: .zero, scale: .zero))
+    #expect(query(fetchOne: coordinator) == Transform(position: .zero, rotation: .zero, scale: .zero))
 }
 
 @Test func iterAll() throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     for _ in 0..<1_000 {
         coordinator.spawn(
@@ -360,7 +360,7 @@ import Testing
     let transforms = Query {
         Write<Transform>.self
     }
-    .iterAll(&coordinator)
+    .iterAll(coordinator)
 
     func elementTypeIsWriteTransform<S>(_: S) where S: Sequence, S.Element == Write<Transform> {}
     elementTypeIsWriteTransform(transforms)
@@ -371,7 +371,7 @@ import Testing
         Write<Transform>.self
         Gravity.self
     }
-    .iterAll(&coordinator)
+    .iterAll(coordinator)
 
     func elementTypeIsWriteTransformGravity<S>(_: S) where S: Sequence, S.Element == (Write<Transform>, Gravity) {}
     elementTypeIsWriteTransformGravity(multiComponents)
@@ -380,7 +380,7 @@ import Testing
 }
 
 @Test func iterPerformance() throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     for _ in 0..<1_000_000 {
         coordinator.spawn(
@@ -397,7 +397,7 @@ import Testing
     let clock = ContinuousClock()
 
     let iterDuration = clock.measure {
-        let transforms = query.iterAll(&coordinator)
+        let transforms = query.iterAll(coordinator)
 
         for (transform, gravity) in transforms {
             transform.position.x += gravity.force.x
@@ -405,7 +405,7 @@ import Testing
     }
 
     let performDuration = clock.measure {
-        query.perform(&coordinator) { transform, gravity in
+        query(coordinator) { transform, gravity in
             transform.position.x += gravity.force.x
         }
     }
@@ -414,7 +414,7 @@ import Testing
 }
 
 @Test func fetchAll() throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     for _ in 0..<1_000 {
         coordinator.spawn(
@@ -426,7 +426,7 @@ import Testing
     let transforms = Query {
         Write<Transform>.self
     }
-    .fetchAll(&coordinator)
+    .fetchAll(coordinator)
 
     func elementTypeIsTransform<S>(_: S) where S: Sequence, S.Element == Transform {}
     elementTypeIsTransform(transforms)
@@ -437,7 +437,7 @@ import Testing
         Write<Transform>.self
         Gravity.self
     }
-    .fetchAll(&coordinator)
+    .fetchAll(coordinator)
 
     func elementTypeIsTransformGravity<S>(_: S) where S: Sequence, S.Element == (Transform, Gravity) {}
     elementTypeIsTransformGravity(multiComponents)
@@ -446,7 +446,7 @@ import Testing
 }
 
 @Test func fetchOne() {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     for _ in 0..<1_000 {
         coordinator.spawn(
@@ -460,14 +460,14 @@ import Testing
         WithEntityID.self
         RigidBody.self
     }
-    .fetchOne(&coordinator)
+    .fetchOne(coordinator)
 
     #expect(fetchResult?.0 == expectedEntityID)
     #expect(fetchResult?.1 == RigidBody(velocity: Vector3(x: 1, y: 2, z: 3), acceleration: .zero))
 }
 
 @Test func withEntityID() async throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
     let expectedID = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
     coordinator.spawn(RigidBody(velocity: .zero, acceleration: .zero))
 
@@ -477,20 +477,20 @@ import Testing
     }
 
     await confirmation(expectedCount: 1) { confirmation in
-        query.perform(&coordinator) { (entityID: Entity.ID, _: Transform) in
+        query(coordinator) { (entityID: Entity.ID, _: Transform) in
             #expect(entityID == expectedID)
             confirmation()
         }
     }
     await confirmation(expectedCount: 1) { confirmation in
-        query.performParallel(&coordinator) { (entityID: Entity.ID, _: Transform) in
+        query(parallel: coordinator) { (entityID: Entity.ID, _: Transform) in
             #expect(entityID == expectedID)
             confirmation()
         }
     }
-    #expect(query.fetchOne(&coordinator)?.0 == expectedID)
+    #expect(query(fetchOne: coordinator)?.0 == expectedID)
 
-    let all = Array(query.fetchAll(&coordinator))
+    let all = Array(query(fetchAll: coordinator))
     #expect(all.count == 1)
     #expect(all[0].0 == expectedID)
     #expect(all[0].1 == Transform(position: .zero, rotation: .zero, scale: .zero))
@@ -498,7 +498,7 @@ import Testing
 
 @Test
 func testReuseSlot() async throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
     let entityA = coordinator.spawn(Gravity(force: .zero))
     coordinator.destroy(entityA)
     let entityB = coordinator.spawn(Gravity(force: .zero))
@@ -509,11 +509,11 @@ func testReuseSlot() async throws {
 
     // Using the old ID is ignored:
     coordinator.remove(Gravity.self, from: entityA)
-    #expect(Query { Gravity.self }.fetchOne(&coordinator) != nil)
+    #expect(Query { Gravity.self }.fetchOne(coordinator) != nil)
 
     // Using the current ID works:
     coordinator.remove(Gravity.self, from: entityB)
-    #expect(Query { Gravity.self }.fetchOne(&coordinator) == nil)
+    #expect(Query { Gravity.self }.fetchOne(coordinator) == nil)
 }
 
 //@Test func entityIDs() {
@@ -554,7 +554,7 @@ func testReuseSlot() async throws {
 //}
 
 @Test func memory() throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     for i in 0..<500_000 {
         coordinator.spawn(
@@ -573,7 +573,7 @@ func testReuseSlot() async throws {
     }
 
     var index = 0
-    query.perform(&coordinator) { transform, gravity in
+    query(coordinator) { transform, gravity in
         #expect(transform.position == Vector3(x: Float(index), y: Float(index), z: Float(index)))
         #expect(gravity.force == Vector3(x: Float(-index), y: Float(-index), z: Float(-index)))
         index += 1
@@ -596,7 +596,7 @@ func testReuseSlot() async throws {
 }
 
 @Test func virtualComponent() async throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     coordinator.spawn(Transform(position: Vector3(x: 1, y: 1, z: 1), rotation: .zero, scale: Vector3(x: 1, y: 1, z: 1)))
     let expectedID = coordinator.spawn(Transform(position: Vector3(x: -1, y: -1, z: -1), rotation: .zero, scale: Vector3(x: -1, y: -1, z: -1)))
@@ -607,7 +607,7 @@ func testReuseSlot() async throws {
     }
 
     await confirmation(expectedCount: 1) { confirmation in
-        query.perform(&coordinator) { entityID, downward in
+        query(coordinator) { entityID, downward in
             if downward.isDownward {
                 #expect(entityID == expectedID)
                 confirmation()
@@ -617,6 +617,20 @@ func testReuseSlot() async throws {
 
     // TODO: This will read into random memory, the access buffer isn't valid anymore here:
 //    #expect(Array(query.fetchAll(&coordinator)).filter { $0.1.isDownward }.map { $0.0 } == [expectedID] )
+}
+
+@Test func queryMetadata() throws {
+    let query = Query {
+        Write<Transform>.self
+        With<Person>.self
+        RigidBody.self
+        Without<Gravity>.self
+    }
+
+    #expect(query.metadata.readSignature == ComponentSignature(RigidBody.componentTag))
+    #expect(query.metadata.writeSignature == ComponentSignature(Transform.componentTag))
+    #expect(query.metadata.signature == ComponentSignature(Transform.componentTag, Person.componentTag, RigidBody.componentTag))
+    #expect(query.metadata.excludedSignature == ComponentSignature(Gravity.componentTag))
 }
 
 public struct Downward: Component, Sendable {
@@ -641,3 +655,61 @@ public struct Downward: Component, Sendable {
         return Downward(isDownward: access.access(entityID).value.position.y < 0)
     }
 }
+
+public struct Vector3: Hashable, Sendable {
+    public var x: Float
+    public var y: Float
+    public var z: Float
+
+    public static let zero = Vector3(x: 0, y: 0, z: 0)
+
+    public init(x: Float, y: Float, z: Float) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
+}
+
+public struct Gravity: Component {
+    public static let componentTag = ComponentTag.makeTag()
+
+    public var force: Vector3
+
+    public init(force: Vector3) {
+        self.force = force
+    }
+}
+
+public struct RigidBody: Component, Equatable {
+    public static let componentTag = ComponentTag.makeTag()
+
+    public var velocity: Vector3
+    public var acceleration: Vector3
+
+    public init(velocity: Vector3, acceleration: Vector3) {
+        self.velocity = velocity
+        self.acceleration = acceleration
+    }
+}
+
+public struct Transform: Equatable, Component, Sendable {
+    public static let componentTag = ComponentTag.makeTag()
+
+    public var position: Vector3
+    public var rotation: Vector3
+    public var scale: Vector3
+
+    public init(position: Vector3, rotation: Vector3, scale: Vector3) {
+        self.position = position
+        self.rotation = rotation
+        self.scale = scale
+    }
+}
+
+public struct Person: Component {
+    public static let componentTag = ComponentTag.makeTag()
+
+    public init() {
+    }
+}
+

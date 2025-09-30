@@ -63,10 +63,30 @@ public struct ComponentSignature: Hashable {
     }
 
     @inlinable @inline(__always)
+    public func contains(_ tag: ComponentTag) -> Bool {
+        rawHashValue.contains(tag.rawValue)
+    }
+
+    @inlinable @inline(__always)
     public func removing(_ tag: ComponentTag) -> Self {
         var newSignature = rawHashValue
         newSignature.remove(tag.rawValue)
         return ComponentSignature(raw: newSignature)
+    }
+
+    @inlinable @inline(__always)
+    public func union(_ other: ComponentSignature) -> Self {
+        appending(other)
+    }
+
+    @inlinable @inline(__always)
+    public mutating func formUnion(_ other: ComponentSignature) {
+        rawHashValue.formUnion(other.rawHashValue)
+    }
+
+    @inlinable @inline(__always)
+    public func isDisjoint(with other: ComponentSignature) -> Bool {
+        rawHashValue.isDisjoint(with: other.rawHashValue)
     }
 
     @inlinable @inline(__always)
