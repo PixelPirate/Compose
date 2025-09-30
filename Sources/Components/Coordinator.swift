@@ -39,7 +39,7 @@ public final class Coordinator {
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline
-    internal let resources = Mutex<[ResourceKey: Any]>([:])
+    internal let resources = Mutex<[ResourceKey: Any]>([:]) // TODO: I don't think the mutex is needed. The executors already guarantee that a system has unique mutable access.
 
     public init() {
         MainSystem.install(into: self)

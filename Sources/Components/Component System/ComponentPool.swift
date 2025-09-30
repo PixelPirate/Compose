@@ -93,11 +93,11 @@ extension ComponentPool {
         let smallest = arrays[0]
         if arrays.count == 1 {
             if excluded.isEmpty {
-                return smallest.componentsToEntites.map { $0 }
+                return Array(smallest.componentsToEntites)
             } else {
                 return smallest.componentsToEntites.filter { slot in
                     excludedArrays.allSatisfy { componentArray in
-                        !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == -1
+                        !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == nil
                     }
                 }
                 .map {
