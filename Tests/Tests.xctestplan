@@ -1,0 +1,36 @@
+{
+  "configurations" : [
+    {
+      "id" : "ADE046EF-8C3C-4B8B-B7C7-FE37D570CCD3",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "skippedTags" : {
+        "tags" : [
+          ".performance"
+        ]
+      },
+      "skippedTests" : {
+        "suites" : [
+          {
+            "name" : "PerformanceTests"
+          }
+        ]
+      },
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "ComponentsTests",
+        "name" : "ComponentsTests"
+      }
+    }
+  ],
+  "version" : 2
+}

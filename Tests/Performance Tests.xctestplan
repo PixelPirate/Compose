@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "38C4C0CA-50EE-4A00-9209-3F98B130E893",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "ComponentsPerformanceTests",
+        "name" : "ComponentsPerformanceTests"
+      }
+    }
+  ],
+  "version" : 1
+}

@@ -1,82 +1,46 @@
 import Testing
-/*@testable*/ import Components
+@testable import Components
 
-@Test func testPerformance() throws {
+@Test func testQueryPerform() async throws {
     let query = Query {
         Write<Transform>.self
         Gravity.self
     }
-    let clock = ContinuousClock()
 
     let coordinator = Coordinator()
 
-    let setup = clock.measure {
-        for _ in 0...500_000 {
-            coordinator.spawn(
-                 Gravity(force: Vector3(x: 1, y: 1, z: 1))
-            )
-        }
-        for _ in 0...500_000 {
-            coordinator.spawn(
-                Transform(position: .zero, rotation: .zero, scale: .zero),
-                Gravity(force: Vector3(x: 1, y: 1, z: 1))
-            )
-        }
-        for _ in 0...500_000 {
-            coordinator.spawn(
-                Transform(position: .zero, rotation: .zero, scale: .zero)
-            )
-        }
-        for _ in 0...500_000 {
-            coordinator.spawn(
-                Transform(position: .zero, rotation: .zero, scale: .zero),
-                Gravity(force: Vector3(x: 1, y: 1, z: 1))
-            )
-        }
+    for _ in 0..<500 {
+        coordinator.spawn(
+             Gravity(force: Vector3(x: 1, y: 1, z: 1))
+        )
     }
-    print("Setup:", setup)
+    for _ in 0..<500 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero),
+            Gravity(force: Vector3(x: 1, y: 1, z: 1))
+        )
+    }
+    for _ in 0..<500 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero)
+        )
+    }
+    for _ in 0..<500 {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero),
+            Gravity(force: Vector3(x: 1, y: 1, z: 1))
+        )
+    }
 
-    let duration = clock.measure {
+    await confirmation(expectedCount: 1_000) { confirm in
         query(coordinator) { transform, gravity in
             transform.position.x += gravity.force.x
+            confirm()
         }
     }
-//~0.012 seconds (Iteration)
-//~0.014 seconds (Signature)
-    print(duration)
 }
 
-@Test func testPerformanceSimple() throws {
-    let query = Query {
-        Write<Transform>.self
-        Gravity.self
-    }
-    let clock = ContinuousClock()
-
-    let coordinator = Coordinator()
-
-    let setup = clock.measure {
-        for _ in 0...1_000_000 {
-            coordinator.spawn(
-                Transform(position: .zero, rotation: .zero, scale: .zero),
-                Gravity(force: Vector3(x: 0, y: 0, z: 0))
-            )
-        }
-    }
-    print("Setup:", setup)
-
-    let duration = clock.measure {
-        query(coordinator) { transform, gravity in
-            transform.position.x += gravity.force.x
-        }
-    }
-    // Bevy seems to need 6.7ms for this (Archetypes), 12.5ms with sparse sets
-    //~0.011 seconds (Iteration)
-    //~0.014 seconds (Signature)
-    print(duration)
-}
-
-@Test func testManyComponents() {
+@Test func testManyComponents() async {
     struct MockComponent: Component {
         nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 0)
 
@@ -114,10 +78,10 @@ import Testing
 
     for componentNumber in 10..<150 {
         MockComponent.componentTag = ComponentTag(rawValue: componentNumber)
-        for _ in 0..<2_000 {
+        for _ in 0..<200 {
             coordinator.spawn(mockComponent)
         }
-        for _ in 0..<2_000 {
+        for _ in 0..<200 {
             let entity = coordinator.spawn()
             for otherComponentNumber in 10..<componentNumber {
                 MockComponent.componentTag = ComponentTag(rawValue: otherComponentNumber)
@@ -125,7 +89,7 @@ import Testing
             }
         }
     }
-    for _ in 0..<10_000 {
+    for _ in 0..<100 {
         coordinator.spawn(Component_1())
         coordinator.spawn(Component_2())
         coordinator.spawn(Component_3())
@@ -145,54 +109,12 @@ import Testing
         Without<Component_5>.self
     }
 
-    let clock = ContinuousClock()
-    let duration = clock.measure {
+    await confirmation(expectedCount: 100) { confirm in
         query(coordinator) { com1, com2, com3 in
             com1.numberWang = com2.numberWang * com3.numberWang * com2.numberWang
+            confirm()
         }
     }
-
-    //~0.00026 seconds (Iteration)
-    //~0.00030 seconds (Signature)
-    print(duration)
-}
-
-@Test func testRepeat() {
-    let clock = ContinuousClock()
-    let coordinator = Coordinator()
-    for _ in 0..<10_000 {
-        coordinator.spawn(
-            Transform(position: .zero, rotation: .zero, scale: .zero),
-            Gravity(force: .zero)
-        )
-    }
-
-    let query = Query { Write<Transform>.self; Gravity.self }
-
-    let setup1 = clock.measure {
-        for _ in 0..<1000 {
-            query(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
-            }
-        }
-    }
-    print("first run:", setup1)
-
-    let setup2 = clock.measure {
-        for _ in 0..<1000 {
-            query(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
-            }
-        }
-    }
-    print("second run (cached):", setup2)
-
-    // (Iteration)
-    //first run: 0.112772916 seconds
-    //second run (cached): 0.113031667 seconds
-    // (Signature)
-    //first run: 0.113668375 seconds
-    //second run (cached): 0.114894083 seconds
 }
 
 @Test func combined() async throws {
@@ -379,10 +301,10 @@ import Testing
     #expect(Array(multiComponents).count == 1_000)
 }
 
-@Test func iterPerformance() throws {
+@Test func iter() throws {
     let coordinator = Coordinator()
 
-    for _ in 0..<1_000_000 {
+    for _ in 0..<100 {
         coordinator.spawn(
             Transform(position: .zero, rotation: .zero, scale: .zero),
             Gravity(force: Vector3(x: 1, y: 1, z: 1))
@@ -394,23 +316,21 @@ import Testing
         Gravity.self
     }
 
-    let clock = ContinuousClock()
+    let transforms = query.iterAll(coordinator)
 
-    let iterDuration = clock.measure {
-        let transforms = query.iterAll(coordinator)
-
-        for (transform, gravity) in transforms {
-            transform.position.x += gravity.force.x
-        }
+    var iterCount = 0
+    for (transform, gravity) in transforms {
+        transform.position.x += gravity.force.x
+        iterCount += 1
     }
 
-    let performDuration = clock.measure {
-        query(coordinator) { transform, gravity in
-            transform.position.x += gravity.force.x
-        }
+    var performCount = 0
+    query(coordinator) { transform, gravity in
+        transform.position.x += gravity.force.x
+        performCount += 1
     }
 
-    print("Iter:", iterDuration, "Perform:", performDuration)
+    #expect(iterCount == performCount)
 }
 
 @Test func fetchAll() throws {
@@ -516,42 +436,42 @@ func testReuseSlot() async throws {
     #expect(Query { Gravity.self }.fetchOne(coordinator) == nil)
 }
 
-//@Test func entityIDs() {
-//    var coordinator = Coordinator()
-//
-//    #expect(coordinator.indices.archetype.isEmpty)
-//    #expect(coordinator.indices.freeIDs.isEmpty)
-//    #expect(coordinator.indices.generation.isEmpty)
-//    #expect(coordinator.indices.nextID.rawValue == 0)
-//
-//    let id1 = coordinator.spawn()
-//    let id2 = coordinator.spawn()
-//
-//    #expect(id1 != id2)
-//    #expect(coordinator.indices.archetype.isEmpty)
-//    #expect(coordinator.indices.freeIDs.isEmpty)
-//    #expect(coordinator.indices.generation == [1, 1])
-//    #expect(coordinator.indices.nextID.rawValue == 2)
-//    #expect(id1.generation == 1)
-//    #expect(id2.generation == 1)
-//
-//    coordinator.destroy(id1)
-//
-//    #expect(coordinator.indices.archetype.isEmpty)
-//    #expect(coordinator.indices.freeIDs == [id1.slot])
-//    #expect(coordinator.indices.generation == [2, 1])
-//    #expect(coordinator.indices.nextID.rawValue == 2)
-//
-//    let id3 = coordinator.spawn()
-//
-//    #expect(id3.slot == id1.slot)
-//    #expect(id3.generation != id1.generation)
-//    #expect(id3.generation == 3)
-//    #expect(coordinator.indices.archetype.isEmpty)
-//    #expect(coordinator.indices.freeIDs == [])
-//    #expect(coordinator.indices.generation == [3, 1])
-//    #expect(coordinator.indices.nextID.rawValue == 2)
-//}
+@Test func entityIDs() {
+    var coordinator = Coordinator()
+
+    #expect(coordinator.indices.archetype.isEmpty)
+    #expect(coordinator.indices.freeIDs.isEmpty)
+    #expect(coordinator.indices.generation.isEmpty)
+    #expect(coordinator.indices.nextID.rawValue == 0)
+
+    let id1 = coordinator.spawn()
+    let id2 = coordinator.spawn()
+
+    #expect(id1 != id2)
+    #expect(coordinator.indices.archetype.isEmpty)
+    #expect(coordinator.indices.freeIDs.isEmpty)
+    #expect(coordinator.indices.generation == [1, 1])
+    #expect(coordinator.indices.nextID.rawValue == 2)
+    #expect(id1.generation == 1)
+    #expect(id2.generation == 1)
+
+    coordinator.destroy(id1)
+
+    #expect(coordinator.indices.archetype.isEmpty)
+    #expect(coordinator.indices.freeIDs == [id1.slot])
+    #expect(coordinator.indices.generation == [2, 1])
+    #expect(coordinator.indices.nextID.rawValue == 2)
+
+    let id3 = coordinator.spawn()
+
+    #expect(id3.slot == id1.slot)
+    #expect(id3.generation != id1.generation)
+    #expect(id3.generation == 3)
+    #expect(coordinator.indices.archetype.isEmpty)
+    #expect(coordinator.indices.freeIDs == [])
+    #expect(coordinator.indices.generation == [3, 1])
+    #expect(coordinator.indices.nextID.rawValue == 2)
+}
 
 @Test func memory() throws {
     let coordinator = Coordinator()

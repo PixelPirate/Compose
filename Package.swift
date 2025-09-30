@@ -33,6 +33,12 @@ let package = Package(
                 "Components",
             ]
         ),
+        .testTarget(
+            name: "ComponentsPerformanceTests",
+            dependencies: [
+                "Components",
+            ]
+        ),
     ],
     swiftLanguageModes: [SwiftLanguageMode.v6]
 )
