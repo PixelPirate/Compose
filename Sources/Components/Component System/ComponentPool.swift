@@ -55,9 +55,13 @@ extension ComponentPool {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
         var excludedArrays: [AnyComponentArray] = []
+        var queryingForEntityID = false
 
         for component in repeat each components {
-            let tag = component.componentTag
+            let tag = component.QueriedComponent.componentTag
+            if component == WithEntityID.self {
+                queryingForEntityID = true
+            }
             guard component.QueriedComponent.self != Never.self else {
                 continue
             }
@@ -82,6 +86,18 @@ extension ComponentPool {
                 continue
             }
             excludedArrays.append(array)
+        }
+
+        guard !arrays.isEmpty else {
+            if queryingForEntityID {
+                // TODO: Optimize
+                return Array(Set(self.components.values.flatMap { $0.componentsToEntites }))
+            }
+            return []
+        }
+
+        guard arrays.count > 1 else {
+            return Array(arrays[0].componentsToEntites)
         }
 
         // Sort by ascending number of entities to minimise membership checks.
@@ -142,9 +158,13 @@ extension ComponentPool {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
         var excludedArrays: [AnyComponentArray] = []
+        var isQueryingForEntityIDs = false
 
         for component in repeat each components {
-            let tag = component.componentTag
+            let tag = component.QueriedComponent.componentTag
+            if component == WithEntityID.self {
+                isQueryingForEntityIDs = true
+            }
             guard component.QueriedComponent.self != Never.self else {
                 continue
             }
@@ -169,6 +189,25 @@ extension ComponentPool {
                 continue
             }
             excludedArrays.append(array)
+        }
+
+        guard !arrays.isEmpty else {
+            if isQueryingForEntityIDs {
+                return (
+                    ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites })),
+                    [],
+                    excludedArrays.map(\.entityToComponents)
+                )
+            }
+            return ([], [], excludedArrays.map(\.entityToComponents))
+        }
+
+        guard arrays.count > 1 else {
+            return (
+                arrays[0].componentsToEntites,
+                [],
+                excludedArrays.map(\.entityToComponents)
+            )
         }
 
         // Sort by ascending number of entities to minimize membership checks.
