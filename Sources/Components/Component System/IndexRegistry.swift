@@ -42,6 +42,15 @@ struct IndexRegistry {
     }
 
     @inlinable @inline(__always)
+    var liveEntities: [Entity.ID] {
+        (0..<nextID.rawValue)
+            .map { Entity.ID(slot: SlotIndex(rawValue: $0), generation: 0) }
+            .filter { id in
+                !freeIDs.lazy.map(\.rawValue).contains(id.slot.rawValue)
+            }
+    }
+
+    @inlinable @inline(__always)
     mutating func free(id: Entity.ID) {
         freeIDs.append(id.slot)
         self[generationFor: id.slot] += 1

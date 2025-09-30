@@ -58,6 +58,13 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
+    public var liveEntities: [Entity.ID] {
+        _read {
+            yield indices.liveEntities
+        }
+    }
+
+    @inlinable @inline(__always)
     @discardableResult
     public func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
         defer {
