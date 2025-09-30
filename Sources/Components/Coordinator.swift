@@ -39,7 +39,7 @@ public final class Coordinator {
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline
-    internal let resources = Mutex<[ResourceKey: Any]>([:]) // TODO: I don't think the mutex is needed. The executors already guarantee that a system has unique mutable access.
+    internal private(set) var resources: [ResourceKey: Any] = [:] // TODO: I don't think the mutex is needed. The executors already guarantee that a system has unique mutable access.
 
     public init() {
         MainSystem.install(into: self)
@@ -164,27 +164,21 @@ public final class Coordinator {
 
     @inlinable @inline(__always)
     public func addRessource<R>(_ resource: sending R) {
-        let sending = UnsafeSendable(value: resource)
-        resources.withLock { r in
-            r[ResourceKey(R.self)] = sending.value
-        }
+        resources[ResourceKey(R.self)] = resource
     }
 
     @inlinable @inline(__always)
     public func resource<R>(_ type: R.Type = R.self) -> R {
-        resources.withLock {
-            $0[ResourceKey(R.self)] as! R
-        }
+        resources[ResourceKey(R.self)] as! R
     }
 
     @inlinable @inline(__always)
     public subscript<R>(resource resourceType: sending R.Type = R.self) -> R {
         _read {
-            yield resources.withLock { $0[ResourceKey(R.self)] as! R }
+            yield resources[ResourceKey(R.self)] as! R
         }
         set {
-            let sending = UnsafeSendable(value: resourceType)
-            resources.withLock { $0[ResourceKey(R.self)] = sending.value }
+            resources[ResourceKey(R.self)] = newValue
         }
     }
 
