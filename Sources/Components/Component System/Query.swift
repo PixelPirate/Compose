@@ -163,7 +163,7 @@ public struct LazyWritableQuerySequence<each T: Component>: Sequence {
 /// Contains all queried components for one entity in a combination query.
 /// - Note: This type only exists as a fix for the compiler, since just returning every component or two tuples crashes the build.
 @dynamicMemberLookup
-public struct CombinationPack<each T>: ~Copyable {
+public struct CombinationPack<each T> {
     @inline(__always)
     public let values: (repeat each T)
 
@@ -288,48 +288,31 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     @inlinable @inline(__always)
     public func performCombinations(
         _ context: some QueryContextConvertible,
-        _ handler: (consuming CombinationPack<repeat (each T).ResolvedType>, consuming CombinationPack<repeat (each T).ResolvedType>) -> Void
+        _ handler: (CombinationPack<repeat (each T).ResolvedType>, CombinationPack<repeat (each T).ResolvedType>) -> Void
     ) {
         let context = context.queryContext
-        guard let (baseSlots, otherComponents, excludedComponents) = getArrays(context.coordinator) else { return }
+        let filteredSlots = context.coordinator.pool.slots(
+            repeat (each T).self,
+            included: backstageComponents,
+            excluded: excludedComponents
+        )
 
         withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<(each T).QueriedComponent>) in
-            slotALoop: for slotAIndex in baseSlots.startIndex..<baseSlots.endIndex {
-                let slotA = baseSlots[slotAIndex]
-                let slotRaw = slotA.rawValue
-
-                for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
-                    // Entity does not have all required components, skip.
-                    continue slotALoop
-                }
-                for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
-                    // Entity has at least one excluded component, skip.
-                    continue slotALoop
-                }
-                let idA = Entity.ID(
-                    slot: SlotIndex(rawValue: slotRaw),
-                    generation: context.coordinator.indices[generationFor: slotA]
+            let resolved = filteredSlots.map { [indices = context.coordinator.indices] slot in
+                let id = Entity.ID(
+                    slot: slot,
+                    generation: indices[generationFor: slot]
                 )
 
-                slotBLoop: for slotBIndex in (slotAIndex + 1)..<baseSlots.endIndex {
-                    let slotB = baseSlots[slotBIndex]
-                    let slotRaw = slotB.rawValue
-
-                    for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
-                        // Entity does not have all required components, skip.
-                        continue slotBLoop
-                    }
-                    for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
-                        // Entity has at least one excluded component, skip.
-                        continue slotBLoop
-                    }
-                    let idB = Entity.ID(
-                        slot: SlotIndex(rawValue: slotRaw),
-                        generation: context.coordinator.indices[generationFor: slotB]
-                    )
+                return CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: id)))
+            }
+            for i in 0..<resolved.count {
+                for j in i+1..<resolved.count {
+                    let slotA = resolved[i]
+                    let slotB = resolved[j]
                     handler(
-                        CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: idA))),
-                        CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: idB)))
+                        resolved[i],
+                        resolved[j]
                     )
                 }
             }
@@ -478,6 +461,31 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @inlinable @inline(__always)
+    public func unsafeFetchAllWritable(_ context: some QueryContextConvertible) -> LazyWritableQuerySequence<repeat each T> {
+        let context = context.queryContext
+        let slots = context.coordinator.pool.slots(
+            repeat (each T).self,
+            included: backstageComponents,
+            excluded: excludedComponents
+        )
+
+        let accessors = withTypedBuffers(&context.coordinator.pool) { (
+            accessors: repeat TypedAccess<(each T).QueriedComponent>
+        ) in
+            (repeat each accessors)
+        }
+
+        guard let accessors else {
+            return LazyWritableQuerySequence()
+        }
+
+        return LazyWritableQuerySequence(
+            entityIDs: slots.map { Entity.ID(slot: $0, generation: context.coordinator.indices[generationFor: $0]) },
+            accessors: repeat each accessors
+        )
+    }
+
+    @inlinable @inline(__always)
     public func fetchOne(_ context: some QueryContextConvertible) -> (repeat (each T).ReadOnlyResolvedType)? {
         let context = context.queryContext
         var result: (repeat (each T).ReadOnlyResolvedType)? = nil
@@ -524,12 +532,12 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @inlinable @inline(__always)
-    public func callAsFunction(combinations context: QueryContext, _ handler: (consuming CombinationPack<repeat (each T).ResolvedType>, consuming CombinationPack<repeat (each T).ResolvedType>) -> Void) {
+    public func callAsFunction(combinations context: QueryContext, _ handler: (CombinationPack<repeat (each T).ResolvedType>, CombinationPack<repeat (each T).ResolvedType>) -> Void) {
         performCombinations(context, handler)
     }
 
     @inlinable @inline(__always)
-    public func callAsFunction(combinations coordinator: Coordinator, _ handler: (consuming CombinationPack<repeat (each T).ResolvedType>, consuming CombinationPack<repeat (each T).ResolvedType>) -> Void) {
+    public func callAsFunction(combinations coordinator: Coordinator, _ handler: (CombinationPack<repeat (each T).ResolvedType>, CombinationPack<repeat (each T).ResolvedType>) -> Void) {
         performCombinations(QueryContext(coordinator: coordinator), handler)
     }
 
@@ -551,6 +559,16 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     @inlinable @inline(__always)
     public func callAsFunction(fetchAll coordinator: Coordinator) -> LazyQuerySequence<repeat each T> {
         fetchAll(QueryContext(coordinator: coordinator))
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(unsafeFetchAllWritable context: QueryContext) -> LazyWritableQuerySequence<repeat each T> {
+        unsafeFetchAllWritable(context)
+    }
+
+    @inlinable @inline(__always)
+    public func callAsFunction(unsafeFetchAllWritable coordinator: Coordinator) -> LazyWritableQuerySequence<repeat each T> {
+        unsafeFetchAllWritable(QueryContext(coordinator: coordinator))
     }
 
     @inlinable @inline(__always)
