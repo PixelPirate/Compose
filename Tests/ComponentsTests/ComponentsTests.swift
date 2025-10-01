@@ -117,6 +117,33 @@ import Testing
     }
 }
 
+@Test func addRemove() throws {
+    let coordinator = Coordinator()
+    for _ in 0..<100 {
+        coordinator.spawn(Person())
+    }
+    let all = Array(Query { WithEntityID.self; Person.self }.fetchAll(coordinator))
+    #expect(all.count == 100)
+    for i in 0..<50 {
+        coordinator.remove(Person.self, from: all[i].0)
+    }
+
+    #expect(Array(Query { WithEntityID.self; Person.self }.fetchAll(coordinator)).count == 50)
+}
+
+@Test func doubleAddRemove() throws {
+    let coordinator = Coordinator()
+    for _ in 0..<100 {
+        coordinator.spawn(Person())
+    }
+    let all = Array(Query { WithEntityID.self; Person.self }.fetchAll(coordinator))
+    #expect(all.count == 100)
+    for i in 0..<50 {
+        coordinator.add(Person(), to: all[i].0)
+    }
+    #expect(Array(Query { WithEntityID.self; Person.self }.fetchAll(coordinator)).count == 100)
+}
+
 @Test func combined() async throws {
     let query = Query {
         WithEntityID.self

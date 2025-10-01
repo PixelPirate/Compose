@@ -31,12 +31,16 @@ extension ComponentPool {
 
     @usableFromInline
     mutating func remove<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) {
-        remove(C.componentTag, entityID)
+        guard let array = components[C.componentTag] else { return }
+        array.remove(entityID)
+        components[C.componentTag] = array
     }
 
     @usableFromInline
     mutating func remove(_ componentTag: ComponentTag, _ entityID: Entity.ID) {
-        components[componentTag]?.remove(entityID)
+        guard let array = components[componentTag] else { return }
+        array.remove(entityID)
+        components[componentTag] = array
     }
 
     @usableFromInline
