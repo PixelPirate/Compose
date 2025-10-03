@@ -40,6 +40,30 @@ import Testing
     }
 }
 
+@Test func fixedLoop() async throws {
+    await confirmation(expectedCount: 64) { confirmation in
+        struct TestSystem: System {
+            var metadata: SystemMetadata {
+                TestSystem.metadata(from: [])
+            }
+
+            var id = SystemID(name: "MySystem")
+
+            let confirmation: Confirmation
+
+            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+                confirmation()
+            }
+        }
+
+        let coordinator = Coordinator()
+        coordinator.addSystem(FixedUpdate.self, system: TestSystem(confirmation: confirmation))
+
+        coordinator[resource: WorldClock.self] = coordinator[resource: WorldClock.self].advancing(by: 1.0)
+        coordinator.run()
+    }
+}
+
 @Test func testManyComponents() async {
     struct MockComponent: Component {
         nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 0)

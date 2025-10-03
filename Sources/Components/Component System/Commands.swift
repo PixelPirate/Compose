@@ -69,7 +69,7 @@ public struct Commands: ~Copyable {
     @inlinable @inline(__always)
     mutating func integrate(into coordinator: Coordinator) {
         while let command = queue.popLast() {
-            command(coordinator) // TODO: Avoid multiple locks.
+            command(coordinator)
         }
     }
 }

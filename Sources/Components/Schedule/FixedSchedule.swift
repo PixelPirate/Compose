@@ -31,8 +31,8 @@ struct RunFixedMainLoopSystem: System {
         context.coordinator[resource: FixedClock.self].accumulate(delta)
 
         // TODO: Fix this. Endless loop.
-//        while context.coordinator[resource: FixedClock.self].expend() {
-//            context.coordinator.runSchedule(FixedMain.self)
-//        }
+        while context.coordinator[resource: FixedClock.self].expend() {
+            context.coordinator.runSchedule(FixedMain.self)
+        }
     }
 }

@@ -61,22 +61,32 @@ struct FixedClock {
     let speed: Double = 1
     private var accumulated: TimeInterval = 0
 
-    init(timestep: Double = 1/64, elapsed: TimeInterval = 0, accumulated: TimeInterval = 0) {
-        self.timeStep = timestep
+    init(timeStep: Double = 1/64, elapsed: TimeInterval = 0, accumulated: TimeInterval = 0) {
+        self.timeStep = timeStep
         self.elapsed = elapsed
         self.accumulated = accumulated
     }
 
     mutating func expend() -> Bool { // TODO: Do I need a maximum here?
-        guard accumulated >= timeStep else {
+        guard let new = accumulated.checkedSubtraction(timeStep) else {
             return false
         }
-        accumulated -= accumulated - timeStep
+        accumulated = new
         elapsed += timeStep
         return true
     }
 
     mutating func accumulate(_ delta: TimeInterval) {
         accumulated += delta
+    }
+}
+
+extension TimeInterval {
+    /// Subtracts two numbers, checking for underflow (negative result).
+    /// Returns nil if the result would be < 0.
+    @inlinable @inline(__always)
+    func checkedSubtraction(_ other: Double) -> Double? {
+        let result = self - other
+        return result < 0 ? nil : result
     }
 }
