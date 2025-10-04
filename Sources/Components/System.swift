@@ -40,6 +40,30 @@ extension System {
             resourceAccess: access
         )
     }
+
+//    public static func metadata(
+//        from queries: [QueryMetadata]
+//    ) -> SystemMetadata {
+//        var include = ComponentSignature()
+//        var read = ComponentSignature()
+//        var write = ComponentSignature()
+//        var exclude = ComponentSignature()
+//
+//        for query in queries {
+//            include = include.appending(query.signature)
+//            read = read.appending(query.readSignature)
+//            write = write.appending(query.writeSignature)
+//            exclude = exclude.appending(query.excludedSignature)
+//        }
+//
+//        return SystemMetadata(
+//            includedSignature: include,
+//            readSignature: read,
+//            writeSignature: write,
+//            excludedSignature: exclude,
+//            resourceAccess: []
+//        )
+//    }
 }
 
 public struct SystemMetadata {
