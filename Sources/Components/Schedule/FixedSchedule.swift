@@ -1,7 +1,7 @@
 import Foundation
 
 struct FixedMainScheduleOrder {
-    let labels: [ScheduleLabelKey]
+    let labels: [ScheduleLabel]
 }
 
 
@@ -32,7 +32,7 @@ struct RunFixedMainLoopSystem: System {
 
         // TODO: Fix this. Endless loop.
         while context.coordinator[resource: FixedClock.self].expend() {
-            context.coordinator.runSchedule(FixedMain.self)
+            context.coordinator.runSchedule(.fixedMain)
         }
     }
 }

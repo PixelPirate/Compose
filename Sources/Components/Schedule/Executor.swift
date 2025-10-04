@@ -1,6 +1,7 @@
 import Foundation
 
 public protocol Executor {
+    @inlinable
     func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands)
 }
 
@@ -10,6 +11,7 @@ public struct LinearExecutor: Executor {
     public init() {
     }
 
+    @inlinable
     public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
         let context = QueryContext(coordinator: coordinator)
 
@@ -25,6 +27,7 @@ public struct SingleThreadedExecutor: Executor {
     public init() {
     }
 
+    @inlinable
     public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
         let context = QueryContext(coordinator: coordinator)
         let stagehand = Stagehand(systems: systems)
@@ -44,6 +47,7 @@ public struct MultiThreadedExecutor: Executor {
     public init() {
     }
 
+    @inlinable
     public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
         let context = QueryContext(coordinator: coordinator)
         let stagehand = Stagehand(systems: systems)
@@ -73,6 +77,7 @@ public struct UnsafeUncheckedMultiThreadedExecutor: Executor {
     public init() {
     }
 
+    @inlinable
     public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
         let context = QueryContext(coordinator: coordinator)
 

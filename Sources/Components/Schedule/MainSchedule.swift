@@ -1,8 +1,8 @@
 import Atomics
 
 struct MainScheduleOrder {
-    let labels: [ScheduleLabelKey]
-    let startup: [ScheduleLabelKey]
+    let labels: [ScheduleLabel]
+    let startup: [ScheduleLabel]
 }
 
 extension MainSystem {
@@ -11,37 +11,37 @@ extension MainSystem {
         coordinator.addRessource(
             MainScheduleOrder(
                 labels: [
-                    First.key,
-                    PreUpdate.key,
-                    RunFixedMainLoop.key,
-                    Update.key,
-                    SpawnScene.key,
-                    PostUpdate.key,
-                    Last.key
+                    .first,
+                    .preUpdate,
+                    .runFixedMainLoop,
+                    .update,
+                    .spawnScene,
+                    .postUpdate,
+                    .last
                 ],
                 startup: [
-                    PreStartup.key,
-                    Startup.key,
-                    PostStartup.key
+                    .preStartup,
+                    .startup,
+                    .postStartup
                 ]
             )
         )
         coordinator.addRessource(
             FixedMainScheduleOrder(
                 labels: [
-                    FixedFirst.key,
-                    FixedPreUpdate.key,
-                    FixedUpdate.key,
-                    FixedPostUpdate.key,
-                    FixedLast.key
+                    .fixedFirst,
+                    .fixedPreUpdate,
+                    .fixedUpdate,
+                    .fixedPostUpdate,
+                    .fixedLast
                 ]
             )
         )
 
-        coordinator.addSchedule(Schedule(label: Main.self, executor: LinearExecutor()))
-        coordinator.addSystem(Main.self, system: MainSystem())
-        coordinator.addSystem(FixedMain.self, system: FixedMainSystem())
-        coordinator.addSystem(RunFixedMainLoop.self, system: RunFixedMainLoopSystem())
+        coordinator.addSchedule(Schedule(label: .main, executor: LinearExecutor()))
+        coordinator.addSystem(.main, system: MainSystem())
+        coordinator.addSystem(.fixedMain, system: FixedMainSystem())
+        coordinator.addSystem(.runFixedMainLoop, system: RunFixedMainLoopSystem())
 
         TimeSystem.install(into: coordinator)
     }

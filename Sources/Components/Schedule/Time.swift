@@ -17,7 +17,7 @@ extension TimeSystem {
     static func install(into coordinator: Coordinator) {
         coordinator.addRessource(WorldClock())
         coordinator.addRessource(FixedClock())
-        coordinator.addSystem(Last.self, system: TimeSystem())
+        coordinator.addSystem(.last, system: TimeSystem())
     }
 }
 

@@ -195,22 +195,17 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
-    public func addSystem<S: ScheduleLabel>(_ s: S.Type = S.self, system: some System) {
-        systemManager.addSystem(S.self, system: system)
+    public func addSystem(_ label: ScheduleLabel, system: some System) {
+        systemManager.addSystem(label, system: system)
     }
 
     @inlinable @inline(__always)
-    public func runSchedule<S: ScheduleLabel>(_ scheduleLabel: S.Type = S.self) {
-        systemManager.schedules[S.key]?.run(self)
-    }
-
-    @inlinable @inline(__always)
-    public func runSchedule(_ scheduleLabelKey: ScheduleLabelKey) {
-        systemManager.schedules[scheduleLabelKey]?.run(self)
+    public func runSchedule(_ scheduleLabel: ScheduleLabel) {
+        systemManager.schedules[scheduleLabel]?.run(self)
     }
 
     @inlinable @inline(__always)
     public func run() {
-        runSchedule(Main.self)
+        runSchedule(.main)
     }
 }

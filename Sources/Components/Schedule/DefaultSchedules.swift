@@ -1,18 +1,22 @@
-public struct Main: ScheduleLabel {}
-public struct FixedMain: ScheduleLabel {}
+public extension ScheduleLabel {
+    static let main = ScheduleLabel()
+    static let fixedMain = ScheduleLabel()
+}
 
-public struct First: ScheduleLabel {}
-public struct PreUpdate: ScheduleLabel {}
-public struct RunFixedMainLoop: ScheduleLabel {}
-public struct Update: ScheduleLabel {}
-public struct SpawnScene: ScheduleLabel {}
-public struct PostUpdate: ScheduleLabel {}
-public struct Last: ScheduleLabel {}
-public struct PreStartup: ScheduleLabel {}
-public struct Startup: ScheduleLabel {}
-public struct PostStartup: ScheduleLabel {}
-public struct FixedFirst: ScheduleLabel {}
-public struct FixedPreUpdate: ScheduleLabel {}
-public struct FixedUpdate: ScheduleLabel {}
-public struct FixedPostUpdate: ScheduleLabel {}
-public struct FixedLast: ScheduleLabel {}
+public extension ScheduleLabel {
+    static let first = ScheduleLabel()
+    static let preUpdate = ScheduleLabel()
+    static let runFixedMainLoop = ScheduleLabel()
+    static let update = ScheduleLabel()
+    static let spawnScene = ScheduleLabel()
+    static let postUpdate = ScheduleLabel()
+    static let last = ScheduleLabel()
+    static let preStartup = ScheduleLabel()
+    static let startup = ScheduleLabel()
+    static let postStartup = ScheduleLabel()
+    static let fixedFirst = ScheduleLabel()
+    static let fixedPreUpdate = ScheduleLabel()
+    static let fixedUpdate = ScheduleLabel()
+    static let fixedPostUpdate = ScheduleLabel()
+    static let fixedLast = ScheduleLabel()
+}

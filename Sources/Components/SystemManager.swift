@@ -7,7 +7,7 @@ struct SystemManager {
     internal var metadata: [SystemID: SystemMetadata] = [:]
 
     @usableFromInline
-    private(set) var schedules: [ScheduleLabelKey: Schedule] = [:]
+    private(set) var schedules: [ScheduleLabel: Schedule] = [:]
 
     @inlinable @inline(__always)
     mutating func add(_ system: some System) {
@@ -38,7 +38,7 @@ struct SystemManager {
     }
 
     @inlinable @inline(__always)
-    public mutating func addSystem<S: ScheduleLabel>(_ s: S.Type = S.self, system: some System) {
-        schedules[S.key, default: Schedule(label: S.self)].addSystem(system)
+    public mutating func addSystem(_ label: ScheduleLabel, system: some System) {
+        schedules[label, default: Schedule(label: label)].addSystem(system)
     }
 }

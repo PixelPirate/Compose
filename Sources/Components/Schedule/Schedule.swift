@@ -1,52 +1,48 @@
 import Foundation
+import Atomics
 
-public protocol ScheduleLabel: Hashable, SendableMetatype, Sendable {
-    static var key: ScheduleLabelKey { get }
-}
+public struct ScheduleLabel: Hashable, Sendable {
+    private let rawValue: Int
 
-extension ScheduleLabel {
-    public static var key: ScheduleLabelKey {
-        ScheduleLabelKey(key: ObjectIdentifier(Self.Type.self))
-    }
-}
-
-public struct ScheduleLabelKey: Hashable {
-    @usableFromInline
-    internal let value: ObjectIdentifier
-
-    @usableFromInline
-    init(key: ObjectIdentifier) {
-        self.value = key
+    public init() {
+        self = Self.makeTag()
     }
 
-    @inlinable @inline(__always)
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(value)
+    private init(rawValue: Int) {
+        self.rawValue = rawValue
     }
 
-    @inlinable @inline(__always)
-    public static func == (lhs: ScheduleLabelKey, rhs: ScheduleLabelKey) -> Bool {
-        lhs.value == rhs.value
+    nonisolated(unsafe) private static var nextTag: UnsafeAtomic<Int> = .create(0)
+
+    private static func makeTag() -> Self {
+        ScheduleLabel(
+            rawValue: Self.nextTag.loadThenWrappingIncrement(ordering: .sequentiallyConsistent)
+        )
     }
 }
 
 public struct Schedule {
-    public let label: ScheduleLabelKey
-    private let executor: any Executor
-    private var systems: [any System]
+    public let label: ScheduleLabel
+    @usableFromInline
+    internal let executor: any Executor
+    @usableFromInline
+    internal var systems: [any System]
 
-    public init<L: ScheduleLabel>(label: L.Type, systems: [any System] = [], executor: any Executor = SingleThreadedExecutor()) {
-        self.label = label.key
+    @inlinable
+    public init(label: ScheduleLabel, systems: [any System] = [], executor: any Executor = SingleThreadedExecutor()) {
+        self.label = label
         self.executor = executor
         self.systems = systems
     }
 
+    @inlinable
     public func run(_ coordinator: Coordinator) {
         var commands = Commands()
         executor.run(systems: systems[...], coordinator: coordinator, commands: &commands)
         commands.integrate(into: coordinator)
     }
 
+    @inlinable
     public mutating func addSystem(_ system: some System) {
         systems.append(system)
     }
