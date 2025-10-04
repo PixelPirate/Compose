@@ -7,15 +7,20 @@ struct TimeSystem: System {
 
     let id = SystemID(name: "Time")
 
+    // We use a monotonic suspending clock since we want to treat the simulation as frozen when the system is suspended and
+    // we also don't want any negative delta time when the systems time changes for whichever reasons.
+    let clock = SuspendingClock()
+
     func run(context: QueryContext, commands: inout Commands) {
-        let clock = context.coordinator[resource: WorldClock.self]
-        context.coordinator[resource: WorldClock.self] = clock.advancing(by: CFAbsoluteTime() - clock.elapsed)
+        let worldClock = context.coordinator[resource: WorldClock.self]
+        let delta =  worldClock.instant.duration(to: clock.now) / .seconds(1)
+        context.coordinator[resource: WorldClock.self] = worldClock.advancing(by: delta)
     }
 }
 
 extension TimeSystem {
     static func install(into coordinator: Coordinator) {
-        coordinator.addRessource(WorldClock())
+        coordinator.addRessource(WorldClock(instant: .now))
         coordinator.addRessource(FixedClock())
         coordinator.addSystem(.last, system: TimeSystem())
     }
@@ -24,6 +29,7 @@ extension TimeSystem {
 struct WorldClock {
     let delta: TimeInterval
     let elapsed: TimeInterval
+    let instant: SuspendingClock.Instant
 
     var isPaused = false
 
@@ -31,9 +37,17 @@ struct WorldClock {
 
     var maximumDelta: TimeInterval = 0.25
 
-    init(delta: TimeInterval = 0, elapsed: TimeInterval = 0, isPaused: Bool = false, speed: Double = 1, maximumDelta: TimeInterval = 0.25) {
+    init(
+        delta: TimeInterval = 0,
+        elapsed: TimeInterval = 0,
+        instant: SuspendingClock.Instant,
+        isPaused: Bool = false,
+        speed: Double = 1,
+        maximumDelta: TimeInterval = 0.25
+    ) {
         self.delta = delta
         self.elapsed = elapsed
+        self.instant = instant
         self.isPaused = isPaused
         self.speed = speed
         self.maximumDelta = maximumDelta
@@ -48,6 +62,7 @@ struct WorldClock {
         return WorldClock(
             delta: newWorldDelta,
             elapsed: elapsed + newWorldDelta,
+            instant: instant.advanced(by: .seconds(wallDelta)),
             speed: speed
         )
     }
