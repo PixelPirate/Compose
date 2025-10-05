@@ -23,8 +23,7 @@ public struct ScheduleLabel: Hashable, Sendable {
 
 public struct Schedule {
     public let label: ScheduleLabel
-    @usableFromInline
-    internal let executor: any Executor
+    public var executor: any Executor
     @usableFromInline
     internal var systems: [any System]
 

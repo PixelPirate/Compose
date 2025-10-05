@@ -41,4 +41,9 @@ struct SystemManager {
     public mutating func addSystem(_ label: ScheduleLabel, system: some System) {
         schedules[label, default: Schedule(label: label)].addSystem(system)
     }
+    
+    @inlinable @inline(__always)
+    public mutating func update(_ label: ScheduleLabel, update: (inout Schedule) -> Void) {
+        update(&schedules[label, default: Schedule(label: label)])
+    }
 }

@@ -208,4 +208,9 @@ public final class Coordinator {
     public func run() {
         runSchedule(.main)
     }
+    
+    @inlinable @inline(__always)
+    public func update(_ scheduleLabel: ScheduleLabel, update: (inout Schedule) -> Void) {
+        systemManager.update(scheduleLabel, update: update)
+    }
 }
