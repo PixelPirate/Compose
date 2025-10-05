@@ -64,6 +64,41 @@ import Testing
     }
 }
 
+@Test func updateExecutor() async throws {
+    let coordinator = Coordinator()
+    struct TestSystem: System {
+        let id = SystemID(name: "TestSystem")
+        var metadata: SystemMetadata {
+            Self.metadata(from: [])
+        }
+
+        let confirmation: Confirmation
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            confirmation()
+        }
+    }
+    struct TestExecutor: Executor {
+        let confirmation: Confirmation
+        func run(systems: ArraySlice<any Components.System>, coordinator: Components.Coordinator, commands: inout Components.Commands) {
+            confirmation()
+            for system in systems {
+                system.run(context: QueryContext(coordinator: coordinator), commands: &commands)
+            }
+        }
+    }
+    await confirmation(expectedCount: 1) { systemConfirmation in
+        await confirmation(expectedCount: 1) { executorConfirmation in
+            coordinator.addSystem(.update, system: TestSystem(confirmation: systemConfirmation))
+            #expect(coordinator.systemManager.schedules[.update]?.executor is SingleThreadedExecutor)
+            coordinator.update(.update) { schedule in
+                schedule.executor = TestExecutor(confirmation: executorConfirmation)
+            }
+            coordinator.runSchedule(.update)
+        }
+    }
+}
+
 @Test func testManyComponents() async {
     struct MockComponent: Component {
         nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 0)
