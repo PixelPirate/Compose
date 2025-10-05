@@ -6,8 +6,7 @@ public protocol Executor {
 }
 
 /// This executor will simply loop over all systems and run each synchronously after another in one thread.
-/// - Note: This executor will not check for conflicting mutable access.
-public struct LinearExecutor: Executor {
+public struct SingleThreadedExecutor: Executor {
     public init() {
     }
 
@@ -17,26 +16,6 @@ public struct LinearExecutor: Executor {
 
         for system in systems {
             system.run(context: context, commands: &commands)
-        }
-    }
-}
-
-/// This executor will group all systems into stages where each stage guarantees that there is no conflicting mutable access to the same component or resource between systems.
-/// The stages and systems are then run synchronously one after another in the same thread.
-public struct SingleThreadedExecutor: Executor {
-    public init() {
-    }
-
-    @inlinable
-    public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
-        let context = QueryContext(coordinator: coordinator)
-        let stagehand = Stagehand(systems: systems)
-        let stages = stagehand.buildStages()
-
-        for stage in stages {
-            for system in stage.systems {
-                system.run(context: context, commands: &commands)
-            }
         }
     }
 }

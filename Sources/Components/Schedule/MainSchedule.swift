@@ -38,7 +38,7 @@ extension MainSystem {
             )
         )
 
-        coordinator.addSchedule(Schedule(label: .main, executor: LinearExecutor()))
+        coordinator.addSchedule(Schedule(label: .main, executor: SingleThreadedExecutor()))
         coordinator.addSystem(.main, system: MainSystem())
         coordinator.addSystem(.fixedMain, system: FixedMainSystem())
         coordinator.addSystem(.runFixedMainLoop, system: RunFixedMainLoopSystem())

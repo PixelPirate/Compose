@@ -57,7 +57,7 @@ import Testing
         }
 
         let coordinator = Coordinator()
-        coordinator.addSystem(FixedUpdate.self, system: TestSystem(confirmation: confirmation))
+        coordinator.addSystem(.fixedUpdate, system: TestSystem(confirmation: confirmation))
 
         coordinator[resource: WorldClock.self] = coordinator[resource: WorldClock.self].advancing(by: 1.0)
         coordinator.run()
