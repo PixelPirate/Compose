@@ -33,6 +33,12 @@ public struct MultiThreadedExecutor: Executor {
         let stages = stagehand.buildStages()
 
         for stage in stages {
+            // `concurrentPerform` recommends that "the number of iterations to be at least three times the number of available cores"
+            // but I would presume that the number of systems in a stage would generally not be this high of a number. So instead of
+            // the current calculation which tries to keep the iterations low, I should instead always just take the number of systems
+            // as the iteration count, but if the number of systems is less then the number of cores, I just run all systems
+            // in one thread since the threading overhead is actually quite significant.
+
             let cores = ProcessInfo.processInfo.processorCount
             let chunkSize = (systems.count + cores - 1) / cores
 
