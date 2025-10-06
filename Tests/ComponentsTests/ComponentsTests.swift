@@ -1,5 +1,6 @@
 import Testing
 @testable import Components
+import Synchronization
 
 @Test func testQueryPerform() async throws {
     let query = Query {
@@ -47,7 +48,7 @@ import Testing
                 TestSystem.metadata(from: [])
             }
 
-            var id = SystemID(name: "MySystem")
+            static let id = SystemID(name: "MySystem")
 
             let confirmation: Confirmation
 
@@ -67,7 +68,7 @@ import Testing
 @Test func updateExecutor() async throws {
     let coordinator = Coordinator()
     struct TestSystem: System {
-        let id = SystemID(name: "TestSystem")
+        static let id = SystemID(name: "TestSystem")
         var metadata: SystemMetadata {
             Self.metadata(from: [])
         }
@@ -97,6 +98,73 @@ import Testing
             coordinator.runSchedule(.update)
         }
     }
+}
+
+@Test func systemOrder() throws {
+    let coordinator = Coordinator()
+
+    struct TestSystem1: System {
+        static let id = SystemID(name: "TestSystem1")
+        var metadata: SystemMetadata {
+            Self.metadata(from: [])
+        }
+
+        let confirmation: () -> Void
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            confirmation()
+        }
+    }
+
+    struct TestSystem2: System {
+        static let id = SystemID(name: "TestSystem2")
+        var metadata: SystemMetadata {
+            Self.metadata(from: [])
+        }
+
+        let confirmation: () -> Void
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            confirmation()
+        }
+    }
+
+    struct TestSystem3: System {
+        static let id = SystemID(name: "TestSystem3")
+        var metadata: SystemMetadata {
+            Self.metadata(from: [], runAfter: [TestSystem2.id])
+        }
+
+        let confirmation: () -> Void
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            confirmation()
+        }
+    }
+
+    let lock: Mutex<[SystemID]> = Mutex([])
+
+    coordinator.addSystem(.update, system: TestSystem1 { lock.withLock { $0.append(TestSystem1.id) } })
+    coordinator.addSystem(.update, system: TestSystem3 { lock.withLock { $0.append(TestSystem3.id) } })
+    coordinator.addSystem(.update, system: TestSystem2 { lock.withLock { $0.append(TestSystem2.id) } })
+
+    coordinator.update(.update) { $0.executor = MultiThreadedExecutor() }
+
+    coordinator.runSchedule(.update)
+
+    let result1 = lock.withLock { $0 }
+
+    #expect(result1 == [TestSystem1.id, TestSystem2.id, TestSystem3.id])
+
+    lock.withLock { $0.removeAll() }
+
+    coordinator.update(.update) { $0.executor = SingleThreadedExecutor() }
+
+    coordinator.runSchedule(.update)
+
+    let result2 = lock.withLock { $0 }
+
+    #expect(result2 == [TestSystem1.id, TestSystem2.id, TestSystem3.id])
 }
 
 @Test func testManyComponents() async {

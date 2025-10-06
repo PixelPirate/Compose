@@ -13,9 +13,13 @@ public struct SingleThreadedExecutor: Executor {
     @inlinable
     public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
         let context = QueryContext(coordinator: coordinator)
+        let stagehand = Stagehand(systems: systems)
+        let stages = stagehand.buildStages()
 
-        for system in systems {
-            system.run(context: context, commands: &commands)
+        for stage in stages {
+            for system in stage.systems {
+                system.run(context: context, commands: &commands)
+            }
         }
     }
 }
@@ -32,6 +36,7 @@ public struct MultiThreadedExecutor: Executor {
         let stagehand = Stagehand(systems: systems)
         let stages = stagehand.buildStages()
 
+        // TODO: Low number of systems: Single threaded, medium number: One chunk, large number: Chunks
         for stage in stages {
             // `concurrentPerform` recommends that "the number of iterations to be at least three times the number of available cores"
             // but I would presume that the number of systems in a stage would generally not be this high of a number. So instead of
@@ -40,6 +45,8 @@ public struct MultiThreadedExecutor: Executor {
             // in one thread since the threading overhead is actually quite significant.
 
             let cores = ProcessInfo.processInfo.processorCount
+
+            // `chunkSize` represents the best size of a chunk so that all cores are very roughly equally used.
             let chunkSize = (systems.count + cores - 1) / cores
 
             let send = UnsafeSendable(value: stage.systems)
