@@ -24,7 +24,7 @@ final class Stagehand {
         while !unscheduled.isEmpty {
             // Build one stage at a time from systems whose dependencies are satisfied
             var stage: [System] = []
-            stage.reserveCapacity(remaining.count)
+            stage.reserveCapacity(unscheduled.count)
             var stageSystemIDs = Set<SystemID>()
 
             // Conflict tracking for this stage
