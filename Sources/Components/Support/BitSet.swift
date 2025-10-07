@@ -130,7 +130,7 @@ public struct BitSet: Hashable {
         let mask: UInt64 = 1 &<< (bit & 63)
         words[wordIndex] |= mask
         let requiredBits = bit &+ 1
-        bitCount = requiredBits
+        bitCount = max(bitCount, requiredBits)
         _maskTail()
     }
 
