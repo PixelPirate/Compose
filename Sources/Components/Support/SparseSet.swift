@@ -29,6 +29,13 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     }
 
     @inlinable @inline(__always)
+    public mutating func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
+        components.reserveCapacity(minimumComponentCapacity)
+        keys.reserveCapacity(minimumComponentCapacity)
+        slots.reserveCapacity(minimumCapacity: minimumSlotCapacity)
+    }
+
+    @inlinable @inline(__always)
     public init(_ pairs: [(SlotIndex, Component)]) {
         for (id, component) in pairs {
             append(component, to: id)
@@ -221,5 +228,10 @@ public struct SparseArray<Value, Index: SparseSetIndex>: Collection, Expressible
     @inlinable @inline(__always)
     public mutating func append<S>(contentsOf newElements: S) where Element == S.Element, S: Sequence {
         values.append(contentsOf: newElements)
+    }
+
+    @inlinable @inline(__always)
+    public mutating func reserveCapacity(minimumCapacity: Int) {
+        values.reserveCapacity(minimumCapacity)
     }
 }

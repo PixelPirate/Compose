@@ -24,7 +24,11 @@ extension ComponentPool {
 
     @usableFromInline
     mutating func append<C: Component>(_ component: C, for entityID: Entity.ID) {
-        let array = components[C.componentTag] ?? AnyComponentArray(ComponentArray<C>())
+        let array = components[C.componentTag] ?? {
+            var newArray = AnyComponentArray(ComponentArray<C>())
+            newArray.reserveCapacity(minimumComponentCapacity: 50, minimumSlotCapacity: 500)
+            return newArray
+        }()
         array.append(component, id: entityID)
         components[C.componentTag] = array
     }

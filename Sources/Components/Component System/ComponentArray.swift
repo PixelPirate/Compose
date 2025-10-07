@@ -35,6 +35,9 @@ public protocol AnyComponentArrayBox: AnyObject {
 
     @inlinable @inline(__always)
     func ensureEntity(_ entityID: Entity.ID)
+
+    @inlinable @inline(__always)
+    func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int)
 }
 
 @usableFromInline
@@ -96,6 +99,11 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     subscript(index index: Array.Index) -> C {
         _read { yield base[index] }
         _modify { yield &base[index] }
+    }
+
+    @inlinable @inline(__always)
+    func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
+        base.reserveCapacity(minimumComponentCapacity: minimumComponentCapacity, minimumSlotCapacity: minimumSlotCapacity)
     }
 }
 
@@ -161,5 +169,10 @@ public struct AnyComponentArray {
     @inlinable @inline(__always)
     func ensureEntity(_ entityID: Entity.ID) {
         base.ensureEntity(entityID)
+    }
+
+    @inlinable @inline(__always)
+    public mutating func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
+        base.reserveCapacity(minimumComponentCapacity: minimumComponentCapacity, minimumSlotCapacity: minimumSlotCapacity)
     }
 }
