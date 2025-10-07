@@ -21,6 +21,7 @@ final class Stagehand {
 
         while !remaining.isEmpty {
             var stage: [System] = []
+            stage.reserveCapacity(remaining.count)
             var stageResourceReaders = Set<ResourceKey>()
             var stageResourceWriters = Set<ResourceKey>()
             var stageComponentReaders = ComponentSignature()
@@ -75,20 +76,4 @@ final class Stagehand {
 
         return stages
     }
-
-    /// Run all stages in order; systems inside a stage in parallel
-//    func runAll(on world: World) async {
-//        let stages = buildStages()
-//        for (idx, stage) in stages.enumerated() {
-//            // print("Running stage \(idx): \(stage.systems.map{$0.name})")
-//            await withTaskGroup(of: Void.self) { group in
-//                for sys in stage.systems {
-//                    group.addTask {
-//                        await sys.run(on: world)
-//                    }
-//                }
-//                await group.waitForAll()
-//            }
-//        }
-//    }
 }

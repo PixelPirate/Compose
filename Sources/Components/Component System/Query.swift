@@ -634,6 +634,17 @@ struct UnsafeSendable<T>: @unchecked Sendable {
     }
 }
 
+@usableFromInline
+final class UnsafeMutableSendable<T>: @unchecked Sendable {
+    @usableFromInline
+    var value: T
+
+    @usableFromInline
+    init(value: T) {
+        self.value = value
+    }
+}
+
 public struct TypedAccess<C: Component>: @unchecked Sendable {
     @usableFromInline internal var buffer: UnsafeMutableBufferPointer<C>
     @usableFromInline internal var indices: ContiguousArray<ContiguousArray.Index?>

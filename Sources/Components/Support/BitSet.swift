@@ -39,11 +39,24 @@ public struct BitSet: Hashable {
         self.words = ContiguousArray(repeating: 0, count: n)
     }
 
+    @inlinable @inline(__always)
+    public init(fullBitCount: Int) {
+        precondition(bitCount >= 0)
+        self.bitCount = 0 // actual used range starts at 0; we only grow when bits are set
+        let n = (bitCount + 63) >> 6
+        self.words = ContiguousArray(repeating: .max, count: n)
+    }
+
     @usableFromInline
     internal init(words: ContiguousArray<UInt64>, bitCount: Int) {
         self.words = words
         self.bitCount = bitCount
         self._maskTail()
+    }
+
+    @inlinable @inline(__always)
+    public var isEmpty: Bool {
+        bitCount == 0
     }
 
     @inlinable @inline(__always)
@@ -69,6 +82,7 @@ public struct BitSet: Hashable {
             let b = i < other.words.count ? other.words[i] : 0
             words[i] = a | b
         }
+        bitCount = maxBitCount
     }
 
     /// Ensure capacity for a specific bit index (0-based). Grows storage.
@@ -80,7 +94,6 @@ public struct BitSet: Hashable {
         if requiredWords > words.count {
             words.append(contentsOf: repeatElement(0, count: requiredWords - words.count))
         }
-        if requiredBits > bitCount { bitCount = requiredBits } // TODO: Should this be done here? Shouldn't this only increase capacity and nothing more?
     }
 
     /// Call after any mutating change to keep a canonical tail (clears bits beyond bitCount in last word).
@@ -117,7 +130,7 @@ public struct BitSet: Hashable {
         let mask: UInt64 = 1 &<< (bit & 63)
         words[wordIndex] |= mask
         let requiredBits = bit &+ 1
-        if requiredBits > bitCount { bitCount = requiredBits }
+        bitCount = requiredBits
         _maskTail()
     }
 

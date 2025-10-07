@@ -1,4 +1,5 @@
 import Synchronization
+import Foundation
 
 public struct ResourceKey: Hashable {
     @usableFromInline
@@ -40,6 +41,8 @@ public final class Coordinator {
 
     @usableFromInline
     internal private(set) var resources: [ResourceKey: Any] = [:] // TODO: I don't think the mutex is needed. The executors already guarantee that a system has unique mutable access.
+    @usableFromInline
+    internal let resourcesLock = NSRecursiveLock()
 
     public init() {
         MainSystem.install(into: self)
@@ -171,21 +174,31 @@ public final class Coordinator {
 
     @inlinable @inline(__always)
     public func addRessource<R>(_ resource: sending R) {
+        resourcesLock.lock()
+        defer { resourcesLock.unlock() }
         resources[ResourceKey(R.self)] = resource
     }
 
     @inlinable @inline(__always)
     public func resource<R>(_ type: R.Type = R.self) -> R {
-        resources[ResourceKey(R.self)] as! R
+        resourcesLock.lock()
+        defer { resourcesLock.unlock() }
+        return resources[ResourceKey(R.self)] as! R
     }
 
     @inlinable @inline(__always)
     public subscript<R>(resource resourceType: sending R.Type = R.self) -> R {
+        @inlinable @inline(__always)
         _read {
+            resourcesLock.lock()
             yield resources[ResourceKey(R.self)] as! R
+            resourcesLock.unlock()
         }
+        @inlinable @inline(__always)
         set {
+            resourcesLock.lock()
             resources[ResourceKey(R.self)] = newValue
+            resourcesLock.unlock()
         }
     }
 

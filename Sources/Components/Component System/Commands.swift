@@ -1,4 +1,4 @@
-public struct Commands: ~Copyable {
+public struct Commands {
     public struct Command {
         @usableFromInline
         let action: (Coordinator) -> Void
@@ -20,6 +20,11 @@ public struct Commands: ~Copyable {
     @inlinable @inline(__always)
     public init(queue: [Command] = []) {
         self.queue = queue
+    }
+
+    @inlinable @inline(__always)
+    public mutating func append(contentsOf sequence: consuming Commands) {
+        queue.append(contentsOf: sequence.queue)
     }
 
     @inlinable @inline(__always)

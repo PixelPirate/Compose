@@ -14,11 +14,12 @@ public struct QueryContext: QueryContextConvertible {
 
     @inlinable @inline(__always)
     public subscript<R>(resource resourceType: sending R.Type = R.self) -> R {
+        @inlinable @inline(__always)
         _read {
             yield coordinator[resource: resourceType]
         }
         @inlinable @inline(__always)
-        set {
+        nonmutating set {
             coordinator[resource: resourceType] = newValue
         }
     }

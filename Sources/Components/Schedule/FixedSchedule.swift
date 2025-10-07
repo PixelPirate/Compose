@@ -19,6 +19,7 @@ struct FixedMainSystem: System {
         }
     }
 }
+
 struct RunFixedMainLoopSystem: System {
     var metadata: SystemMetadata {
         Self.metadata(from: [])

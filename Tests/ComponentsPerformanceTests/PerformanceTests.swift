@@ -1,5 +1,6 @@
 import Testing
 import Components
+import Foundation
 
 extension Tag {
   @Tag static var performance: Self
@@ -81,6 +82,149 @@ extension Tag {
         print(duration)
     }
 
+    @Test func testPerformanceParallel() {
+        let coordinator = Coordinator()
+        for _ in 0...200 {
+            coordinator.spawn(
+                Transform(position: .zero, rotation: .zero, scale: .zero),
+                Gravity(force: Vector3(x: 10, y: 10, z: 10))
+            )
+        }
+        class BaseTestSystem: System {
+            var id: SystemID { SystemID(name: "TestSystem") }
+
+            var metadata: SystemMetadata {
+                Self.metadata(from: [queryA.metadata, queryB.metadata])
+            }
+
+            let queryA = Query {
+                Transform.self
+            }
+
+            let queryB = Query {
+                Gravity.self
+            }
+
+            func run(context: QueryContext, commands: inout Commands) {
+                if Bool.random() {
+                    queryA(context) { transform in
+                        var value = context[resource: Float.self]
+                        value += sin(abs(pow(Float(expensiveOperation()), 2)))
+                        context[resource: Float.self] = value
+                    }
+                } else {
+                    queryB(context) { gravity in
+                        var value = context[resource: Float.self]
+                        value += sin(abs(pow(Float(expensiveOperation()), 2)))
+                        context[resource: Float.self] = value
+                    }
+                }
+            }
+
+            func expensiveOperation(size: Int = 50) -> Int {
+                var a = [[Int]]()
+                var b = [[Int]]()
+
+                // Initialize matrices
+                for i in 0..<size {
+                    a.append((0..<size).map { i + $0 })
+                    b.append((0..<size).map { i * $0 })
+                }
+
+                // Multiply matrices
+                var result = Array(repeating: Array(repeating: 0, count: size), count: size)
+                for i in 0..<size {
+                    for j in 0..<size {
+                        var sum = 0
+                        for k in 0..<size {
+                            sum += a[i][k] * b[k][j]
+                        }
+                        result[i][j] = sum
+                    }
+                }
+
+                // Return something to prevent compiler optimization
+                return result[0][0]
+            }
+        }
+        final class System1: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        final class System2: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        final class System3: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        final class System4: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        final class System5: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        final class System6: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        final class System7: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        final class System8: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        final class System9: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        final class System10: BaseTestSystem {
+            override var id: SystemID {
+                SystemID(name: "1")
+            }
+        }
+        coordinator[resource: Float.self] = 0
+        coordinator.addSystem(.update, system: System1())
+        coordinator.addSystem(.update, system: System2())
+        coordinator.addSystem(.update, system: System3())
+        coordinator.addSystem(.update, system: System4())
+        coordinator.addSystem(.update, system: System5())
+        coordinator.addSystem(.update, system: System6())
+        coordinator.addSystem(.update, system: System7())
+        coordinator.addSystem(.update, system: System8())
+        coordinator.addSystem(.update, system: System9())
+        coordinator.addSystem(.update, system: System10())
+        coordinator.update(.update) {
+            $0.executor = MultiThreadedExecutor()
+//            $0.executor = SingleThreadedExecutor()
+        }
+        let clock = ContinuousClock()
+        let duration1 = clock.measure {
+            coordinator.runSchedule(.update)
+        }
+        let duration2 = clock.measure {
+            coordinator.runSchedule(.update)
+        }
+        let duration3 = clock.measure {
+            coordinator.runSchedule(.update)
+        }
+        print(duration1, duration2, duration3)
+    }
+    
     @Test func testPerformanceManyComponents() {
         struct MockComponent: Component {
             nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 0)
