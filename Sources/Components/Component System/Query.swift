@@ -234,16 +234,19 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     internal func getArrays(_ coordinator: Coordinator)
     -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index?>], excluded: [ContiguousArray<Array.Index?>])?
     {
+        coordinator.sparseQueryCacheLock.lock()
         if
             let cached = coordinator.sparseQueryCache[hash],
             cached.version == coordinator.worldVersion
         {
+            coordinator.sparseQueryCacheLock.unlock()
             return (
                 cached.base,
                 cached.others,
                 cached.excluded
             )
         } else {
+            coordinator.sparseQueryCacheLock.unlock()
             guard let new = coordinator.pool.baseAndOthers(
                 repeat (each T).self,
                 included: backstageComponents,
@@ -251,34 +254,43 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             ) else {
                 return nil
             }
-            coordinator.sparseQueryCache[hash] = SparseQueryPlan(
+            let newPlan = SparseQueryPlan(
                 base: new.base,
                 others: new.others,
                 excluded: new.excluded,
                 version: coordinator.worldVersion
             )
+            coordinator.sparseQueryCacheLock.lock()
+            coordinator.sparseQueryCache[hash] = newPlan
+            coordinator.sparseQueryCacheLock.unlock()
             return new
         }
     }
 
     @usableFromInline @inline(__always)
     internal func getBaseSparseList(_ coordinator: Coordinator) -> ContiguousArray<SlotIndex>? {
+        coordinator.signatureQueryCacheLock.lock()
         if
             let cached = coordinator.signatureQueryCache[hash],
             cached.version == coordinator.worldVersion
         {
+            coordinator.signatureQueryCacheLock.unlock()
             return cached.base
         } else {
+            coordinator.signatureQueryCacheLock.unlock()
             guard let new = coordinator.pool.base(
                 repeat (each T).QueriedComponent.self,
                 included: backstageComponents
             ) else {
                 return nil
             }
-            coordinator.signatureQueryCache[hash] = SignatureQueryPlan(
+            let newCache = SignatureQueryPlan(
                 base: new,
                 version: coordinator.worldVersion
             )
+            coordinator.signatureQueryCacheLock.lock()
+            coordinator.signatureQueryCache[hash] = newCache
+            coordinator.signatureQueryCacheLock.unlock()
             return new
         }
     }

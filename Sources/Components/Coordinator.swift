@@ -1,5 +1,6 @@
 import Synchronization
 import Foundation
+import os
 
 public struct ResourceKey: Hashable {
     @usableFromInline
@@ -32,9 +33,13 @@ public final class Coordinator {
 
     @usableFromInline
     var signatureQueryCache: [QueryHash: SignatureQueryPlan] = [:]
+    @usableFromInline
+    internal let signatureQueryCacheLock = OSAllocatedUnfairLock()
 
     @usableFromInline
     var sparseQueryCache: [QueryHash: SparseQueryPlan] = [:]
+    @usableFromInline
+    internal let sparseQueryCacheLock = OSAllocatedUnfairLock()
 
     @usableFromInline
     private(set) var worldVersion: UInt64 = 0
