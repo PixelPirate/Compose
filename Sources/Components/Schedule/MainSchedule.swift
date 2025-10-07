@@ -54,7 +54,7 @@ struct MainSystem: System {
         Self.metadata(from: [])
     }
 
-    let id = SystemID(name: "Main")
+    static let id = SystemID(name: "Main")
 
     func run(context: QueryContext, commands: inout Commands) {
         if Self.first.exchange(false, ordering: .relaxed) {

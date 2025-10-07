@@ -5,7 +5,7 @@ struct TimeSystem: System {
         Self.metadata(from: [])
     }
 
-    let id = SystemID(name: "Time")
+    static let id = SystemID(name: "Time")
 
     // We use a monotonic suspending clock since we want to treat the simulation as frozen when the system is suspended and
     // we also don't want any negative delta time when the systems time changes for whichever reasons.

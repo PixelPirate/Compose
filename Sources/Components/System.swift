@@ -1,5 +1,5 @@
 public protocol System {
-    var id: SystemID { get }
+    static var id: SystemID { get }
     var metadata: SystemMetadata { get }
 
     func run(context: QueryContext, commands: inout Commands)
@@ -9,7 +9,8 @@ extension System {
     public static func metadata<each ReadResource, each WriteResource>(
         from queries: [QueryMetadata],
         reading readResources: repeat (each ReadResource).Type,
-        writing writeResources: repeat (each WriteResource).Type
+        writing writeResources: repeat (each WriteResource).Type,
+        runAfter: Set<SystemID> = []
     ) -> SystemMetadata {
         var include = ComponentSignature()
         var read = ComponentSignature()
@@ -37,6 +38,7 @@ extension System {
             readSignature: read,
             writeSignature: write,
             excludedSignature: exclude,
+            runAfter: runAfter,
             resourceAccess: access
         )
     }
@@ -71,6 +73,7 @@ public struct SystemMetadata {
     public let readSignature: ComponentSignature
     public let writeSignature: ComponentSignature
     public let excludedSignature: ComponentSignature
+    public var runAfter: Set<SystemID>
 
     public let resourceAccess: [(ResourceKey, Access)]
 
@@ -80,7 +83,7 @@ public struct SystemMetadata {
     }
 }
 
-public struct SystemID: Hashable {
+public struct SystemID: Hashable, Sendable {
     public let rawHashValue: Int
 
     public init(name: String) {

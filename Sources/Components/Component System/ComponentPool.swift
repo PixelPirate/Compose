@@ -100,10 +100,6 @@ extension ComponentPool {
             return []
         }
 
-        guard arrays.count > 1 else {
-            return Array(arrays[0].componentsToEntites)
-        }
-
         // Sort by ascending number of entities to minimise membership checks.
         arrays.sort { lhs, rhs in
             lhs.componentsToEntites.count < rhs.componentsToEntites.count

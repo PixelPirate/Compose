@@ -10,12 +10,12 @@ struct SystemManager {
     private(set) var schedules: [ScheduleLabel: Schedule] = [:]
 
     @inlinable @inline(__always)
-    mutating func add(_ system: some System) {
-        guard !systems.keys.contains(system.id) else {
+    mutating func add<S: System>(_ system: S) {
+        guard !systems.keys.contains(S.id) else {
             fatalError("System already registered.")
         }
-        systems[system.id] = system
-        metadata[system.id] = system.metadata
+        systems[S.id] = system
+        metadata[S.id] = system.metadata
     }
 
     @inlinable @inline(__always)
