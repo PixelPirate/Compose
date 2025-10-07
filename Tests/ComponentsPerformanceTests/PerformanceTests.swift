@@ -42,14 +42,24 @@ extension Tag {
         }
         print("Setup:", setup)
 
-        let duration = clock.measure {
+        let duration1 = clock.measure {
+            query(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration2 = clock.measure {
+            query(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration3 = clock.measure {
             query(coordinator) { transform, gravity in
                 transform.position.x += gravity.force.x
             }
         }
     //~0.012 seconds (Iteration)
     //~0.014 seconds (Signature)
-        print(duration)
+        print(duration1, duration2, duration3)
     }
 
     @Test func testPerformanceSimple() throws {
@@ -125,7 +135,7 @@ extension Tag {
                 var a = [[Int]]()
                 var b = [[Int]]()
 
-                // Initialize matrices
+                // Initialise matrices
                 for i in 0..<size {
                     a.append((0..<size).map { i + $0 })
                     b.append((0..<size).map { i * $0 })
@@ -143,7 +153,7 @@ extension Tag {
                     }
                 }
 
-                // Return something to prevent compiler optimization
+                // Return something to prevent compiler optimisation
                 return result[0][0]
             }
         }
@@ -154,47 +164,47 @@ extension Tag {
         }
         final class System2: BaseTestSystem {
             override static var id: SystemID {
-                SystemID(name: "1")
+                SystemID(name: "2")
             }
         }
         final class System3: BaseTestSystem {
             override static var id: SystemID {
-                SystemID(name: "1")
+                SystemID(name: "3")
             }
         }
         final class System4: BaseTestSystem {
             override static var id: SystemID {
-                SystemID(name: "1")
+                SystemID(name: "4")
             }
         }
         final class System5: BaseTestSystem {
             override static var id: SystemID {
-                SystemID(name: "1")
+                SystemID(name: "5")
             }
         }
         final class System6: BaseTestSystem {
             override static var id: SystemID {
-                SystemID(name: "1")
+                SystemID(name: "6")
             }
         }
         final class System7: BaseTestSystem {
             override static var id: SystemID {
-                SystemID(name: "1")
+                SystemID(name: "7")
             }
         }
         final class System8: BaseTestSystem {
             override static var id: SystemID {
-                SystemID(name: "1")
+                SystemID(name: "8")
             }
         }
         final class System9: BaseTestSystem {
             override static var id: SystemID {
-                SystemID(name: "1")
+                SystemID(name: "9")
             }
         }
         final class System10: BaseTestSystem {
             override static var id: SystemID {
-                SystemID(name: "1")
+                SystemID(name: "10")
             }
         }
         coordinator[resource: Float.self] = 0
@@ -210,19 +220,31 @@ extension Tag {
         coordinator.addSystem(.update, system: System10())
         coordinator.update(.update) {
             $0.executor = MultiThreadedExecutor()
-//            $0.executor = SingleThreadedExecutor()
         }
         let clock = ContinuousClock()
-        let duration1 = clock.measure {
+        let multiDuration1 = clock.measure {
             coordinator.runSchedule(.update)
         }
-        let duration2 = clock.measure {
+        let multiDuration2 = clock.measure {
             coordinator.runSchedule(.update)
         }
-        let duration3 = clock.measure {
+        let multiDuration3 = clock.measure {
             coordinator.runSchedule(.update)
         }
-        print(duration1, duration2, duration3)
+        coordinator.update(.update) {
+            $0.executor = SingleThreadedExecutor()
+        }
+        let singleDuration1 = clock.measure {
+            coordinator.runSchedule(.update)
+        }
+        let singleDuration2 = clock.measure {
+            coordinator.runSchedule(.update)
+        }
+        let singleDuration3 = clock.measure {
+            coordinator.runSchedule(.update)
+        }
+        print("Single threaded:", singleDuration1, singleDuration2, singleDuration3)
+        print("Multi threaded:", multiDuration1, multiDuration2, multiDuration3)
     }
     
     @Test func testPerformanceManyComponents() {
@@ -296,10 +318,14 @@ extension Tag {
 
         let clock = ContinuousClock()
         let duration = clock.measure {
-            query(coordinator) { com1, com2, com3 in
-                com1.numberWang = com2.numberWang * com3.numberWang * com2.numberWang
+            for _ in 0..<10_000 {
+                query(coordinator) { com1, com2, com3 in
+                    com1.numberWang = com2.numberWang * com3.numberWang * com2.numberWang
+                }
             }
         }
+
+        // Big version: 2.43s (appDev)
 
         //~0.00026 seconds (Iteration)
         //~0.00030 seconds (Signature)

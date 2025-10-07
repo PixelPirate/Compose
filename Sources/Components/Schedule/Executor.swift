@@ -59,9 +59,9 @@ public struct MultiThreadedExecutor: Executor {
                 let end = min(start + chunkSize, send.value.count)
 
                 for (index, system) in send.value[start..<end].enumerated() {
-                    var commands = localCommands[start+i+index]
+                    var commands = localCommands[start+index]
                     system.run(context: context, commands: &commands)
-                    localCommands[start+i+index] = commands
+                    localCommands[start+index] = commands
                 }
             }
 
@@ -93,9 +93,9 @@ public struct UnsafeUncheckedMultiThreadedExecutor: Executor {
             let end = min(start + chunkSize, send.value.count)
 
             for (index, system) in send.value[start..<end].enumerated() {
-                var commands = localCommands[start+i+index]
+                var commands = localCommands[start+index]
                 system.run(context: context, commands: &commands)
-                localCommands[start+i+index] = commands
+                localCommands[start+index] = commands
             }
         }
 
