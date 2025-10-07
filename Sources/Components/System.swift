@@ -34,6 +34,7 @@ extension System {
         }
 
         return SystemMetadata(
+            id: Self.id,
             includedSignature: include,
             readSignature: read,
             writeSignature: write,
@@ -69,6 +70,7 @@ extension System {
 }
 
 public struct SystemMetadata {
+    public let id: SystemID
     public let includedSignature: ComponentSignature
     public let readSignature: ComponentSignature
     public let writeSignature: ComponentSignature

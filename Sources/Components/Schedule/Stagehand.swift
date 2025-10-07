@@ -81,7 +81,7 @@ final class Stagehand {
 
                     // If no conflicts and deps satisfied, schedule it into this stage
                     stage.append(system)
-                    stageSystemIDs.insert(type(of: system).id)
+                    stageSystemIDs.insert(system.metadata.id)
                     stageResourceReaders.formUnion(systemResourceReaders)
                     stageResourceWriters.formUnion(systemResourceWriters)
                     stageComponentReaders.formUnion(systemComponentReaders)
@@ -101,7 +101,7 @@ final class Stagehand {
                 let countBlockedByDeps = unscheduled.filter { !$0.metadata.runAfter.isSubset(of: scheduledIDs) }.count
                 if countBlockedByDeps == unscheduled.count {
                     // All remaining systems are waiting on deps that will never resolve -> cycle.
-                    let remainingIDs = unscheduled.map { type(of: $0).id }
+                    let remainingIDs = unscheduled.map { $0.metadata.id }
                     preconditionFailure("Cyclic runAfter dependencies detected among systems: \(remainingIDs)")
                 } else {
                     // There exist systems with deps satisfied, but none fit due to conflicts.
@@ -119,7 +119,7 @@ final class Stagehand {
 
             // Finalize stage and mark its systems as scheduled
             for sys in stage {
-                scheduledIDs.insert(type(of: sys).id)
+                scheduledIDs.insert(sys.metadata.id)
             }
             stages.append(ScheduledStage(systems: stage))
         }
