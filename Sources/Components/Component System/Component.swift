@@ -17,7 +17,7 @@ public extension Component {
     static var storage: ComponentStorage { .sparse }
 }
 
-public struct ComponentSignature: Hashable {
+public struct ComponentSignature: Hashable, CustomDebugStringConvertible {
     @usableFromInline
     var rawHashValue: BitSet
 
@@ -92,6 +92,10 @@ public struct ComponentSignature: Hashable {
     @inlinable @inline(__always)
     public static func + (lhs: ComponentSignature, rhs: ComponentSignature) -> ComponentSignature {
         lhs.appending(rhs)
+    }
+
+    public var debugDescription: String {
+        "ComponentSignature(bitCount: \(rawHashValue.bitCount), words: \(rawHashValue.words)"
     }
 }
 
