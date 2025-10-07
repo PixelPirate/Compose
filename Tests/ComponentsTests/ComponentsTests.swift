@@ -693,6 +693,20 @@ func testReuseSlot() async throws {
 //    #expect(Array(query.fetchAll(&coordinator)).filter { $0.1.isDownward }.map { $0.0 } == [expectedID] )
 }
 
+@Test func signature() {
+    #expect(ComponentSignature(Transform.componentTag) == ComponentSignature(Transform.componentTag))
+    #expect(ComponentSignature(Person.componentTag) == ComponentSignature(Person.componentTag))
+    #expect(ComponentSignature(RigidBody.componentTag) == ComponentSignature(RigidBody.componentTag))
+    #expect(ComponentSignature(Transform.componentTag) != ComponentSignature(RigidBody.componentTag))
+
+    let a = ComponentSignature(Transform.componentTag, Person.componentTag, RigidBody.componentTag)
+    var b = ComponentSignature()
+    b.append(RigidBody.componentTag)
+    b.append(Person.componentTag)
+    b.append(Transform.componentTag)
+    #expect(a == b)
+}
+
 @Test func queryMetadata() throws {
     let query = Query {
         Write<Transform>.self
