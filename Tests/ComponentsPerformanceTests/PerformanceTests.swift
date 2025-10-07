@@ -91,7 +91,7 @@ extension Tag {
             )
         }
         class BaseTestSystem: System {
-            var id: SystemID { SystemID(name: "TestSystem") }
+            class var id: SystemID { SystemID(name: "TestSystem") }
 
             var metadata: SystemMetadata {
                 Self.metadata(from: [queryA.metadata, queryB.metadata])
@@ -148,52 +148,52 @@ extension Tag {
             }
         }
         final class System1: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
         final class System2: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
         final class System3: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
         final class System4: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
         final class System5: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
         final class System6: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
         final class System7: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
         final class System8: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
         final class System9: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
         final class System10: BaseTestSystem {
-            override var id: SystemID {
+            override static var id: SystemID {
                 SystemID(name: "1")
             }
         }
