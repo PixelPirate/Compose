@@ -84,7 +84,7 @@ public final class Coordinator {
         }
 
         // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
-        //pool.ensureSparseSetCount(includes: newEntity)
+        pool.ensureSparseSetCount(includes: newEntity)
 
         var signature = ComponentSignature()
         for tag in repeat (each C).componentTag {
@@ -107,7 +107,7 @@ public final class Coordinator {
         setSpawnedSignature(newEntity, signature: signature)
 
         // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
-        //pool.ensureSparseSetCount(includes: newEntity)
+        pool.ensureSparseSetCount(includes: newEntity)
 
         return newEntity
     }

@@ -336,17 +336,15 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         let context = context.queryContext
         guard let (baseSlots, otherComponents, excludedComponents) = getArrays(context.coordinator) else { return }
 
-        withTypedBuffers(&context.coordinator.pool) { (
-            accessors: repeat TypedAccess<(each T).QueriedComponent>
-        ) in
+        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<(each T).QueriedComponent>) in
             slotLoop: for slot in baseSlots {
                 let slotRaw = slot.rawValue
 
-                for component in otherComponents where !component.indices.contains(slotRaw) || component[slotRaw] == nil {
+                for component in otherComponents where component[slotRaw] == nil {
                     // Entity does not have all required components, skip.
                     continue slotLoop
                 }
-                for component in excludedComponents where component.indices.contains(slotRaw) && component[slotRaw] != nil {
+                for component in excludedComponents where component[slotRaw] != nil {
                     // Entity has at least one excluded component, skip.
                     continue slotLoop
                 }
@@ -365,9 +363,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         let context = context.queryContext
         guard let baseSlots = getBaseSparseList(context.coordinator) else { return }
 
-        withTypedBuffers(&context.coordinator.pool) { (
-            accessors: repeat TypedAccess<(each T).QueriedComponent>
-        ) in
+        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<(each T).QueriedComponent>) in
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
 

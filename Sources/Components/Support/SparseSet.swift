@@ -219,7 +219,7 @@ public struct SparseArray<Value, Index: SparseSetIndex>: Collection, Expressible
     }
 
     @inlinable @inline(__always)
-    public mutating func append<S>(contentsOf newElements: S) where Element == S.Element, S : Sequence {
+    public mutating func append<S>(contentsOf newElements: S) where Element == S.Element, S: Sequence {
         values.append(contentsOf: newElements)
     }
 }
