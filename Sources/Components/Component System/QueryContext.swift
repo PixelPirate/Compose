@@ -1,6 +1,6 @@
-public struct QueryContext: QueryContextConvertible {
+public struct QueryContext: QueryContextConvertible, Sendable {
     @usableFromInline
-    internal var coordinator: Coordinator
+    nonisolated(unsafe) internal var coordinator: Coordinator
 
     @usableFromInline
     init(coordinator: Coordinator) {

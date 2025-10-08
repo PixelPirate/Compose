@@ -713,16 +713,57 @@ func testReuseSlot() async throws {
         With<Person>.self
         RigidBody.self
         Without<Gravity>.self
+        Material?.self
     }
 
-    #expect(query.metadata.readSignature == ComponentSignature(RigidBody.componentTag))
+    #expect(query.metadata.readSignature == ComponentSignature(RigidBody.componentTag, Material.componentTag))
     #expect(query.metadata.writeSignature == ComponentSignature(Transform.componentTag))
-    #expect(query.metadata.signature == ComponentSignature(Transform.componentTag, Person.componentTag, RigidBody.componentTag))
+    #expect(query.metadata.signature == ComponentSignature(Transform.componentTag, Person.componentTag, RigidBody.componentTag, Material.componentTag))
     #expect(query.metadata.excludedSignature == ComponentSignature(Gravity.componentTag))
+}
+
+@Test func optional() async throws {
+    let coordinator = Coordinator()
+    coordinator.spawn(Person())
+    coordinator.spawn(Person(), Material())
+    let query = Query {
+        Person.self
+        Material?.self
+    }
+    await confirmation(expectedCount: 1) { nilConfirmation in
+        await confirmation(expectedCount: 1) { nonNilConfirmation in
+            query(coordinator) { person, material in
+                if material == nil {
+                    nilConfirmation()
+                }
+                if material != nil {
+                    nonNilConfirmation()
+                }
+            }
+        }
+    }
+}
+
+@Test func writeOptional() async throws {
+    let coordinator = Coordinator()
+    coordinator.spawn(Person())
+    coordinator.spawn(Person(), Gravity(force: .zero))
+    let query = Query {
+        Person.self
+        OptionalWrite<Gravity>.self
+    }
+
+    query(coordinator) { person, gravity in
+        gravity.force?.x += 1
+    }
+
+    let all = Array(Query { Gravity.self }.fetchAll(coordinator))
+    #expect(all == [Gravity(force: Vector3(x: 1, y: 0, z: 0))])
 }
 
 public struct Downward: Component, Sendable {
     public static var componentTag: ComponentTag { Transform.componentTag }
+    public typealias QueriedComponent = Transform
 
     let isDownward: Bool
 
@@ -732,13 +773,13 @@ public struct Downward: Component, Sendable {
     }
 
     @inlinable @inline(__always)
-    public static func makeResolved(access: TypedAccess<Transform>, entityID: Entity.ID) -> Downward {
+    public static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> Downward {
         print("called")
         return Downward(isDownward: access.access(entityID).value.position.y < 0)
     }
 
     @inlinable @inline(__always)
-    public static func makeReadOnlyResolved(access: TypedAccess<Transform>, entityID: Entity.ID) -> Downward {
+    public static func makeReadOnlyResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> Downward {
         print("called readonly", entityID, access.access(entityID).value.position.y)
         return Downward(isDownward: access.access(entityID).value.position.y < 0)
     }
@@ -758,7 +799,7 @@ public struct Vector3: Hashable, Sendable {
     }
 }
 
-public struct Gravity: Component {
+public struct Gravity: Component, Equatable {
     public static let componentTag = ComponentTag.makeTag()
 
     public var force: Vector3
@@ -801,3 +842,9 @@ public struct Person: Component {
     }
 }
 
+public struct Material: Component {
+    public static let componentTag = ComponentTag.makeTag()
+    
+    public init() {
+    }
+}

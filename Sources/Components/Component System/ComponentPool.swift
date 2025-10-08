@@ -161,6 +161,9 @@ extension ComponentPool {
         var isQueryingForEntityIDs = false
 
         for component in repeat each components {
+            if component is any OptionalQueriedComponent.Type {
+                continue // Optional components can be skipped here.
+            }
             let tag = component.QueriedComponent.componentTag
             if component == WithEntityID.self {
                 isQueryingForEntityIDs = true
