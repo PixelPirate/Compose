@@ -98,15 +98,15 @@ extension TypedAccess {
     }
 }
 
-public struct LazyQuerySequence<each T: Component>: Sequence {
+public struct LazyQuerySequence<each T: ComponentResolving>: Sequence {
     @usableFromInline
     internal let entityIDs: [Entity.ID]
 
     @usableFromInline
-    internal let accessors: (repeat TypedAccess<(each T).QueriedComponent>)
+    internal let accessors: (repeat TypedAccess<each T>)
 
     @inlinable @inline(__always)
-    init(entityIDs: [Entity.ID], accessors: repeat TypedAccess<(each T).QueriedComponent>) {
+    init(entityIDs: [Entity.ID], accessors: repeat TypedAccess<each T>) {
         self.entityIDs = entityIDs
         self.accessors = (repeat each accessors)
     }
@@ -114,7 +114,7 @@ public struct LazyQuerySequence<each T: Component>: Sequence {
     @inlinable @inline(__always)
     init() {
         self.entityIDs = []
-        self.accessors = (repeat TypedAccess<(each T).QueriedComponent>.empty)
+        self.accessors = (repeat TypedAccess<each T>.empty)
     }
 
     @inlinable @inline(__always)
@@ -129,15 +129,15 @@ public struct LazyQuerySequence<each T: Component>: Sequence {
     }
 }
 
-public struct LazyWritableQuerySequence<each T: Component>: Sequence {
+public struct LazyWritableQuerySequence<each T: ComponentResolving>: Sequence {
     @usableFromInline
     internal let entityIDs: [Entity.ID]
 
     @usableFromInline
-    internal let accessors: (repeat TypedAccess<(each T).QueriedComponent>)
+    internal let accessors: (repeat TypedAccess<each T>)
 
     @inlinable @inline(__always)
-    init(entityIDs: [Entity.ID], accessors: repeat TypedAccess<(each T).QueriedComponent>) {
+    init(entityIDs: [Entity.ID], accessors: repeat TypedAccess<each T>) {
         self.entityIDs = entityIDs
         self.accessors = (repeat each accessors)
     }
@@ -145,7 +145,7 @@ public struct LazyWritableQuerySequence<each T: Component>: Sequence {
     @inlinable @inline(__always)
     init() {
         self.entityIDs = []
-        self.accessors = (repeat TypedAccess<(each T).QueriedComponent>.empty)
+        self.accessors = (repeat TypedAccess<each T>.empty)
     }
 
     @inlinable @inline(__always)
@@ -309,7 +309,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             excluded: excludedComponents
         )
 
-        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<(each T).QueriedComponent>) in
+        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
             let resolved = filteredSlots.map { [indices = context.coordinator.indices] slot in
                 let id = Entity.ID(
                     slot: slot,
@@ -320,8 +320,6 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             }
             for i in 0..<resolved.count {
                 for j in i+1..<resolved.count {
-                    let slotA = resolved[i]
-                    let slotB = resolved[j]
                     handler(
                         resolved[i],
                         resolved[j]
@@ -336,7 +334,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         let context = context.queryContext
         guard let (baseSlots, otherComponents, excludedComponents) = getArrays(context.coordinator) else { return }
 
-        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<(each T).QueriedComponent>) in
+        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
             slotLoop: for slot in baseSlots {
                 let slotRaw = slot.rawValue
 
@@ -363,7 +361,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         let context = context.queryContext
         guard let baseSlots = getBaseSparseList(context.coordinator) else { return }
 
-        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<(each T).QueriedComponent>) in
+        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
 
@@ -394,11 +392,11 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         let slots = context.coordinator.pool.slots(repeat (each T).QueriedComponent.self, included: backstageComponents, excluded: excludedComponents)
 
         withTypedBuffers(&context.coordinator.pool) { (
-            accessors: repeat TypedAccess<(each T).QueriedComponent>
+            accessors: repeat TypedAccess<each T>
         ) in
             let cores = ProcessInfo.processInfo.processorCount
             let chunkSize = max(1, (slots.count + cores - 1) / cores) // ceil division
-            let chunks = (slots.count + chunkSize - 1) / chunkSize     // ceil number of chunks
+            let chunks = (slots.count + chunkSize - 1) / chunkSize // ceil number of chunks
 
             withUnsafePointer(to: &context.coordinator.indices) {
                 nonisolated(unsafe) let indices: UnsafePointer<IndexRegistry> = $0
@@ -428,7 +426,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         )
 
         let accessors = withTypedBuffers(&context.coordinator.pool) { (
-            accessors: repeat TypedAccess<(each T).QueriedComponent>
+            accessors: repeat TypedAccess<each T>
         ) in
             (repeat each accessors)
         }
@@ -453,7 +451,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         )
 
         let accessors = withTypedBuffers(&context.coordinator.pool) { (
-            accessors: repeat TypedAccess<(each T).QueriedComponent>
+            accessors: repeat TypedAccess<each T>
         ) in
             (repeat each accessors)
         }
@@ -478,7 +476,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         )
 
         let accessors = withTypedBuffers(&context.coordinator.pool) { (
-            accessors: repeat TypedAccess<(each T).QueriedComponent>
+            accessors: repeat TypedAccess<each T>
         ) in
             (repeat each accessors)
         }
@@ -503,7 +501,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
             excluded: excludedComponents
         )
         withTypedBuffers(&context.coordinator.pool) { (
-            accessors: repeat TypedAccess<(each T).QueriedComponent>
+            accessors: repeat TypedAccess<each T>
         ) in
             for slot in slots {
                 result = (
@@ -653,18 +651,18 @@ final class UnsafeMutableSendable<T>: @unchecked Sendable {
     }
 }
 
-public struct TypedAccess<C: Component>: @unchecked Sendable {
-    @usableFromInline internal var buffer: UnsafeMutableBufferPointer<C>
+public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
+    @usableFromInline internal var buffer: UnsafeMutableBufferPointer<C.QueriedComponent>
     @usableFromInline internal var indices: ContiguousArray<ContiguousArray.Index?>
 
     @usableFromInline
-    init(buffer: UnsafeMutableBufferPointer<C>, indices: ContiguousArray<ContiguousArray.Index?>) {
+    init(buffer: UnsafeMutableBufferPointer<C.QueriedComponent>, indices: ContiguousArray<ContiguousArray.Index?>) {
         self.buffer = buffer
         self.indices = indices
     }
 
     @inlinable @inline(__always)
-    public subscript(_ id: Entity.ID) -> C {
+    public subscript(_ id: Entity.ID) -> C.QueriedComponent {
         _read {
             yield buffer[indices[id.slot.rawValue].unsafelyUnwrapped]
         }
@@ -674,8 +672,44 @@ public struct TypedAccess<C: Component>: @unchecked Sendable {
     }
 
     @inlinable @inline(__always)
-    public func access(_ id: Entity.ID) -> SingleTypedAccess<C> {
+    public subscript(optional id: Entity.ID) -> C.QueriedComponent? {
+        _read {
+            guard id.slot.rawValue < indices.count, let index = indices[id.slot.rawValue] else {
+                yield nil
+                return
+            }
+            yield buffer[index]
+        }
+        nonmutating _modify {
+            var wrapped: Optional<C.QueriedComponent>
+            if let index = indices[id.slot.rawValue] {
+                wrapped = Optional(buffer[index])
+                yield &wrapped
+                guard let newValue = wrapped else {
+                    fatalError("Removal of component through `Optional` not supported.")
+                }
+                buffer[index] = newValue
+            } else {
+                wrapped = nil
+                yield &wrapped
+                guard wrapped == nil else {
+                    fatalError("Insertion of component through `Optional` not supported.")
+                }
+            }
+        }
+    }
+
+    @inlinable @inline(__always)
+    public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
         SingleTypedAccess(buffer: buffer.baseAddress.unsafelyUnwrapped.advanced(by: indices[id.slot.rawValue].unsafelyUnwrapped))
+    }
+
+    @inlinable @inline(__always)
+    public func optionalAccess(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent>? {
+        guard id.slot.rawValue < indices.count, let index = indices[id.slot.rawValue] else {
+            return nil
+        }
+        return SingleTypedAccess(buffer: buffer.baseAddress.unsafelyUnwrapped.advanced(by: indices[id.slot.rawValue].unsafelyUnwrapped))
     }
 }
 
@@ -704,10 +738,10 @@ public protocol ComponentResolving {
     associatedtype QueriedComponent: Component = Self
 
     @inlinable @inline(__always)
-    static func makeResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> ResolvedType
+    static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> ResolvedType
 
     @inlinable @inline(__always)
-    static func makeReadOnlyResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> ReadOnlyResolvedType
+    static func makeReadOnlyResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> ReadOnlyResolvedType
 }
 
 public extension ComponentResolving where Self: Component, ResolvedType == Self, QueriedComponent == Self, ReadOnlyResolvedType == Self {
@@ -718,22 +752,6 @@ public extension ComponentResolving where Self: Component, ResolvedType == Self,
 
     @inlinable @inline(__always)
     static func makeReadOnlyResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> Self {
-        access[entityID]
-    }
-}
-
-extension Write: ComponentResolving {
-    public typealias ResolvedType = Write<Wrapped>
-    public typealias ReadOnlyResolvedType = Wrapped
-    public typealias QueriedComponent = Wrapped
-
-    @inlinable @inline(__always)
-    public static func makeResolved(access: TypedAccess<Wrapped>, entityID: Entity.ID) -> Write<Wrapped> {
-        Write<Wrapped>(access: access.access(entityID))
-    }
-
-    @inlinable @inline(__always)
-    public static func makeReadOnlyResolved(access: TypedAccess<Wrapped>, entityID: Entity.ID) -> Wrapped {
         access[entityID]
     }
 }
@@ -853,6 +871,66 @@ public struct Write<C: Component>: WritableComponent, Sendable {
     }
 }
 
+extension Write: ComponentResolving {
+    public typealias ResolvedType = Write<Wrapped>
+    public typealias ReadOnlyResolvedType = Wrapped
+    public typealias QueriedComponent = Wrapped
+
+    @inlinable @inline(__always)
+    public static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> Write<Wrapped> {
+        Write<Wrapped>(access: access.access(entityID))
+    }
+
+    @inlinable @inline(__always)
+    public static func makeReadOnlyResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> Wrapped {
+        access[entityID]
+    }
+}
+
+@dynamicMemberLookup
+public struct OptionalWrite<C: Component>: WritableComponent, Sendable {
+    public static var componentTag: ComponentTag { C.componentTag }
+
+    public typealias Wrapped = C
+
+    @usableFromInline
+    nonisolated(unsafe) let access: SingleTypedAccess<C>?
+
+    @inlinable @inline(__always)
+    init(access: SingleTypedAccess<C>?) {
+        self.access = access
+    }
+
+    @inlinable @inline(__always)
+    public subscript<R>(dynamicMember keyPath: WritableKeyPath<C, R>) -> R? {
+        _read {
+            yield access?.value[keyPath: keyPath]
+        }
+        nonmutating _modify {
+            var value = access?.value[keyPath: keyPath]
+            yield &value
+            guard let newValue = value, let access else {
+                fatalError("Cannot write `nil` through an optional. Remove component through proper means like an command.")
+            }
+            access.value[keyPath: keyPath] = newValue
+        }
+    }
+}
+
+extension OptionalWrite: ComponentResolving {
+    public typealias QueriedComponent = Wrapped
+
+    @inlinable @inline(__always)
+    public static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> OptionalWrite<Wrapped> {
+        OptionalWrite<Wrapped>(access: access.optionalAccess(entityID))
+    }
+
+    @inlinable @inline(__always)
+    public static func makeReadOnlyResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> Wrapped? {
+        access[optional: entityID]
+    }
+}
+
 public struct With<C: Component>: Component, Sendable {
     public static var componentTag: ComponentTag { C.componentTag }
 
@@ -868,12 +946,12 @@ public struct WithEntityID: Component, Sendable {
     public init() {}
 
     @inlinable @inline(__always)
-    public static func makeResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> ResolvedType {
+    public static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> ResolvedType {
         entityID
     }
 
     @inlinable @inline(__always)
-    public static func makeReadOnlyResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> ResolvedType {
+    public static func makeReadOnlyResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> ResolvedType {
         entityID
     }
 }
@@ -887,9 +965,34 @@ extension Never: Component {
     public typealias QueriedComponent = Never
 }
 
+public protocol OptionalQueriedComponent {
+    associatedtype Queried: Component
+}
+//public protocol OptionalComponent: Component {
+//}
+
+extension Optional: Component, ComponentResolving where Wrapped: Component {
+    public typealias QueriedComponent = Wrapped
+    public static var componentTag: ComponentTag { Wrapped.componentTag }
+    public static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> Optional<Wrapped> {
+        access[optional: entityID]
+    }
+
+    public static func makeReadOnlyResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> Optional<Wrapped> {
+        access[optional: entityID]
+    }
+}
+
+//extension Optional: Component, OptionalComponent where Wrapped: OptionalQueriedComponent & Component {
+//    public static var componentTag: ComponentTag { Wrapped.componentTag }
+//}
+extension Optional: OptionalQueriedComponent where Wrapped: Component {
+    public typealias Queried = Wrapped
+}
+
 @discardableResult
 @usableFromInline
-func withTypedBuffers<each C: Component, R>(
+func withTypedBuffers<each C: ComponentResolving, R>(
     _ pool: inout ComponentPool,
     _ body: (repeat TypedAccess<each C>) throws -> R
 ) rethrows -> R? {
@@ -897,11 +1000,16 @@ func withTypedBuffers<each C: Component, R>(
         return (repeat tryMakeAccess((each C).self))
     }
 
-    func tryMakeAccess<D: Component>(_ type: D.Type) -> TypedAccess<D> {
-        guard D.self != Never.self else { return TypedAccess<D>.empty }
-        guard let anyArray = pool.components[D.componentTag] else { fatalError("Unknown component.") }
+    func tryMakeAccess<D: ComponentResolving>(_ type: D.Type) -> TypedAccess<D> {
+        guard D.QueriedComponent.self != Never.self else { return TypedAccess<D>.empty }
+        guard let anyArray = pool.components[D.QueriedComponent.componentTag] else {
+            guard D.self is any OptionalQueriedComponent.Type else {
+                fatalError("Unknown component.")
+            }
+            return TypedAccess<D>.empty
+        }
         var result: TypedAccess<D>? = nil
-        anyArray.withBuffer(D.self) { buffer, entitiesToIndices in
+        anyArray.withBuffer(D.QueriedComponent.self) { buffer, entitiesToIndices in
             result = TypedAccess(buffer: buffer, indices: entitiesToIndices)
             // Escaping the buffer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
             // The solution would be a recursive function which would recursively call `withBuffer` on the head until the pack is empty, and then call `body` with all the buffers.
@@ -916,79 +1024,79 @@ func withTypedBuffers<each C: Component, R>(
 }
 
 
-@discardableResult
-@usableFromInline
-func withTypedBuffers<C1: Component, R>(
-    _ pool: inout ComponentPool,
-    _ body: (TypedAccess<C1>) throws -> R
-) rethrows -> R? {
-    guard C1.self != Never.self else {
-        return try body(TypedAccess<C1>.empty)
-    }
-    guard let anyArray = pool.components[C1.componentTag] else {
-        return nil
-    }
-    return try anyArray.withBuffer(C1.self) { buffer, entitiesToIndices in
-        let access = TypedAccess(buffer: buffer, indices: entitiesToIndices)
-        return try body(access)
-    }
-}
-
-@discardableResult
-@usableFromInline
-func withTypedBuffers<C1: Component, C2: Component, R>(
-    _ pool: inout ComponentPool,
-    _ body: (TypedAccess<C1>, TypedAccess<C2>) throws -> R
-) rethrows -> R? {
-    @inline(__always)
-    func withAccess<X: Component>(_ type: X.Type = X.self, continuation: (TypedAccess<X>) throws -> R?) rethrows -> R? {
-        guard X.self != Never.self else {
-            return try continuation(TypedAccess<X>.empty)
-        }
-        guard let anyArray = pool.components[X.componentTag] else {
-            return nil
-        }
-        return try anyArray.withBuffer(X.self) { buffer, entitiesToIndices in
-            let access = TypedAccess(buffer: buffer, indices: entitiesToIndices)
-            return try continuation(access)
-        }
-    }
-
-    return try withAccess(C1.self) { access1 in
-        try withAccess(C2.self) { access2 in
-            try body(access1, access2)
-        }
-    }
-}
-
-@discardableResult
-@usableFromInline
-func withTypedBuffers<C1: Component, C2: Component, C3: Component, R>(
-    _ pool: inout ComponentPool,
-    _ body: (TypedAccess<C1>, TypedAccess<C2>, TypedAccess<C3>) throws -> R
-) rethrows -> R? {
-    @inline(__always)
-    func withAccess<X: Component>(_ type: X.Type = X.self, continuation: (TypedAccess<X>) throws -> R?) rethrows -> R? {
-        guard X.self != Never.self else {
-            return try continuation(TypedAccess<X>.empty)
-        }
-        guard let anyArray = pool.components[X.componentTag] else {
-            return nil
-        }
-        return try anyArray.withBuffer(X.self) { buffer, entitiesToIndices in
-            let access = TypedAccess(buffer: buffer, indices: entitiesToIndices)
-            return try continuation(access)
-        }
-    }
-
-    return try withAccess(C1.self) { access1 in
-        try withAccess(C2.self) { access2 in
-            try withAccess(C3.self) { access3 in
-                try body(access1, access2, access3)
-            }
-        }
-    }
-}
+//@discardableResult
+//@usableFromInline
+//func withTypedBuffers<C1: Component, R>(
+//    _ pool: inout ComponentPool,
+//    _ body: (TypedAccess<C1>) throws -> R
+//) rethrows -> R? {
+//    guard C1.self != Never.self else {
+//        return try body(TypedAccess<C1>.empty)
+//    }
+//    guard let anyArray = pool.components[C1.componentTag] else {
+//        return nil
+//    }
+//    return try anyArray.withBuffer(C1.self) { buffer, entitiesToIndices in
+//        let access = TypedAccess(buffer: buffer, indices: entitiesToIndices)
+//        return try body(access)
+//    }
+//}
+//
+//@discardableResult
+//@usableFromInline
+//func withTypedBuffers<C1: Component, C2: Component, R>(
+//    _ pool: inout ComponentPool,
+//    _ body: (TypedAccess<C1>, TypedAccess<C2>) throws -> R
+//) rethrows -> R? {
+//    @inline(__always)
+//    func withAccess<X: Component>(_ type: X.Type = X.self, continuation: (TypedAccess<X>) throws -> R?) rethrows -> R? {
+//        guard X.self != Never.self else {
+//            return try continuation(TypedAccess<X>.empty)
+//        }
+//        guard let anyArray = pool.components[X.componentTag] else {
+//            return nil
+//        }
+//        return try anyArray.withBuffer(X.self) { buffer, entitiesToIndices in
+//            let access = TypedAccess(buffer: buffer, indices: entitiesToIndices)
+//            return try continuation(access)
+//        }
+//    }
+//
+//    return try withAccess(C1.self) { access1 in
+//        try withAccess(C2.self) { access2 in
+//            try body(access1, access2)
+//        }
+//    }
+//}
+//
+//@discardableResult
+//@usableFromInline
+//func withTypedBuffers<C1: Component, C2: Component, C3: Component, R>(
+//    _ pool: inout ComponentPool,
+//    _ body: (TypedAccess<C1>, TypedAccess<C2>, TypedAccess<C3>) throws -> R
+//) rethrows -> R? {
+//    @inline(__always)
+//    func withAccess<X: Component>(_ type: X.Type = X.self, continuation: (TypedAccess<X>) throws -> R?) rethrows -> R? {
+//        guard X.self != Never.self else {
+//            return try continuation(TypedAccess<X>.empty)
+//        }
+//        guard let anyArray = pool.components[X.componentTag] else {
+//            return nil
+//        }
+//        return try anyArray.withBuffer(X.self) { buffer, entitiesToIndices in
+//            let access = TypedAccess(buffer: buffer, indices: entitiesToIndices)
+//            return try continuation(access)
+//        }
+//    }
+//
+//    return try withAccess(C1.self) { access1 in
+//        try withAccess(C2.self) { access2 in
+//            try withAccess(C3.self) { access3 in
+//                try body(access1, access2, access3)
+//            }
+//        }
+//    }
+//}
 
 
 

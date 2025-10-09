@@ -9,12 +9,12 @@ public protocol Component: ComponentResolving, SendableMetatype {
 }
 
 public enum ComponentStorage {
-    case sparse
+    case sparseSet
 }
 
 public extension Component {
     @inlinable @inline(__always)
-    static var storage: ComponentStorage { .sparse }
+    static var storage: ComponentStorage { .sparseSet }
 }
 
 public struct ComponentSignature: Hashable, CustomDebugStringConvertible {

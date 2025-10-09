@@ -123,6 +123,21 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         slots[slot] = nil
     }
 
+    /// Swap two elements in the dense storage and fix up the index maps.
+    /// - Precondition: i and j are valid dense indices into `components`.
+    @inlinable @inline(__always)
+    internal mutating func swapDenseAt(_ i: ContiguousArray.Index, _ j: ContiguousArray.Index) {
+        if i == j { return }
+        components.swapAt(i, j)
+        // keys[i] / keys[j] are SlotIndex that correspond to the entities at those dense positions.
+        let ki = keys[i]
+        let kj = keys[j]
+        keys.swapAt(i, j)
+        // Update sparse map so that the slots now point to the new dense indices.
+        slots[ki] = j
+        slots[kj] = i
+    }
+
     @inlinable @inline(__always)
     public subscript(slot slot: SlotIndex) -> Component {
         _read {
