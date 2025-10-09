@@ -66,14 +66,14 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     /// Returns true if this array contains a component for the given entity.
     @inlinable @inline(__always)
     public func containsEntity(_ slot: SlotIndex) -> Bool {
-        slots.contains(index: slot) && slots[slot] != nil
+        /*slots.contains(index: slot) &&*/ slots[slot] != nil
     }
 
     @inlinable @inline(__always)
     public func componentIndex(_ slot: SlotIndex) -> ContiguousArray.Index? {
-        guard slots.contains(index: slot) else {
-            return nil
-        }
+//        guard slots.contains(index: slot) else {
+//            return nil
+//        }
         return slots[slot]
     }
 
@@ -94,16 +94,16 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
         components.append(component)
         keys.append(slot)
-        if !slots.contains(index: slot) {
-            let missingCount = (slot.index + 1) - slots.count
-            slots.append(contentsOf: repeatElement(nil, count: missingCount))
-        }
+//        if !slots.contains(index: slot) {
+//            let missingCount = (slot.index + 1) - slots.count
+//            slots.append(contentsOf: repeatElement(nil, count: missingCount))
+//        }
         slots[slot] = components.endIndex - 1
     }
 
     @inlinable @inline(__always)
     public mutating func remove(_ slot: SlotIndex) {
-        guard slots.contains(index: slot), let componentIndex = slots[slot] else {
+        guard /*slots.contains(index: slot),*/ let componentIndex = slots[slot] else {
             return
         }
 

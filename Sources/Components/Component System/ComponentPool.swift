@@ -1,5 +1,6 @@
 public struct ComponentPool {
     private(set) var components: [ComponentTag: AnyComponentArray] = [:]
+    private var ensuredEntityID: Entity.ID?
 
     public init(components: [ComponentTag : AnyComponentArray] = [:]) {
         self.components = components
@@ -20,6 +21,7 @@ extension ComponentPool {
         for component in components.values {
             component.ensureEntity(entityID)
         }
+        ensuredEntityID = entityID
     }
 
     @usableFromInline
@@ -27,6 +29,7 @@ extension ComponentPool {
         let array = components[C.componentTag] ?? {
             var newArray = AnyComponentArray(ComponentArray<C>())
             newArray.reserveCapacity(minimumComponentCapacity: 50, minimumSlotCapacity: 500)
+            newArray.ensureEntity(ensuredEntityID ?? entityID)
             return newArray
         }()
         array.append(component, id: entityID)
