@@ -7,11 +7,10 @@ extension SparseSet {
     /// Returns the dense index for the given slot if present.
     @inlinable @inline(__always)
     internal func denseIndex(for slot: SlotIndex) -> Int? {
-        if slots.contains(index: slot) {
-            // NOTE: SparseArray subscript is total; caller must ensure presence.
+//        if slots.contains(index: slot) {
             return slots[slot]
-        }
-        return nil
+//        }
+//        return nil
     }
 }
 
@@ -35,14 +34,80 @@ extension AnyComponentArray {
 
     /// Execute a closure with a read-only view of the "dense index -> SlotIndex" mapping.
     /// Useful to determine which entity slot is stored at a given dense position.
-    @inlinable @inline(__always)
-    func _withComponentsToSlots<C: Component, R>(
-        _ type: C.Type,
-        _ body: (ContiguousArray<SlotIndex>) throws -> R
-    ) rethrows -> R {
-        let typed = base as! ComponentArrayBox<C>
-        return try body(typed.componentsToEntites)
+//    @inlinable @inline(__always)
+//    func _withComponentsToSlots<C: Component, R>(
+//        _ type: C.Type,
+//        _ body: (ContiguousArray<SlotIndex>) throws -> R
+//    ) rethrows -> R {
+//        let typed = base as! ComponentArrayBox<C>
+//        return try body(typed.componentsToEntites)
+//    }
+}
+
+
+/** TODO:
+ ComponentPool need to own a list of all groups.
+ ComponentPool needs to forward add/remove events to every group, so that they can sort if needed.
+ I think I wouldn't need any more changes, the regular query iteration would just naturally gain an performance boost.
+
+ There are two iteration styles:
+ 1. Iterate over base list and check for a valid entity on each iteration (getArrays/baseAndOther, or getBaseSparseList/base for the signature check approach)
+ 2. Precompute and cache all valid entities beforehand and iterate that list (slots)
+
+ Compared to EnTT we would have:
+ - Fully owned group:
+ coordinator.group<Position, Velocity>()
+ Query { … }.performPreloaded { … } // `performPreloaded` just means that we will create and cache the list of entities beforehand and won't have checks inside the loop.
+ - View
+ Query { … }.perform { … } // This would still benefit from a groups sorting when using the same components.
+
+ How can I name these things better, considering I also have performParallel and fetchOne, fetchAll.
+
+ I might can pull off the Bevy iterator interface:
+ ```
+ func system(query1: Query<Write<Position>, Without<Velocity>>, query2: GroupQuery<Material, Position>) {
+    let fetchAll = Array(query1)
+    for (material, position) in query2 {
+        …
     }
+ }
+ ```
+ */
+
+protocol SystemParameter {
+    static func insert(into: inout SystemMetadata)
+    static func materialise(_ coordinator: Coordinator) -> Self
+}
+extension Query: SystemParameter {
+    static func insert(into: inout SystemMetadata) {
+        _ = Self.makeSignature(backstageComponents: [])
+    }
+    static func materialise(_ coordinator: Coordinator) -> Self {
+        Query<repeat each T>(
+            backstageComponents: [],
+            excludedComponents: [],
+            includeEntityID: false
+        )
+    }
+}
+func receive<each P: SystemParameter>(_ fn: @escaping (repeat each P) -> Void) {
+    var metadata: SystemMetadata!
+    for p in repeat (each P).self {
+        p.insert(into: &metadata)
+    }
+    let coordinator = Coordinator()
+    let callIt = {
+        fn(repeat (each P).materialise(coordinator))
+    }
+    callIt()
+}
+func test() {
+    struct Transform: Component {
+        static let componentTag = ComponentTag.makeTag()
+    }
+
+    func wow(_ query: Query<Write<Transform>>) {}
+    receive(wow)
 }
 
 // MARK: - Group
@@ -213,24 +278,24 @@ public final class OwnedGroup<Owned: Component> {
 
     /// Iterate over the tightly packed prefix of the primary component.
     /// Closure receives (Entity.ID, inout Owned). Other components can be accessed via `pool` as needed.
-    @inlinable
-    public func forEach(in pool: inout ComponentPool, _ body: (Entity.ID, inout Owned) -> Void) {
-        guard var ownedArray = pool.components[Owned.componentTag] else { return }
-        ownedArray._withMutableSparseSet(Owned.self) { set in
-            // We need `inout Owned` at each dense index and the corresponding Entity.ID.
-            // Entity.ID requires a generation, but underlying accessors index by slot only.
-            // We'll construct an ID with generation 0 (safe for component access).
-            for i in 0..<size {
-                let slot = set.keys[i]
-                var tmp = set[i]   // get component value
-                // Pass as inout by writing back after closure (copy-in/out pattern).
-                let id = Entity.ID(slot: slot, generation: 0)
-                body(id, &tmp)
-                set[i] = tmp
-            }
-        }
-//        pool.components[Owned.componentTag] = ownedArray
-    }
+//    @inlinable
+//    public func forEach(in pool: inout ComponentPool, _ body: (Entity.ID, inout Owned) -> Void) {
+//        guard var ownedArray = pool.components[Owned.componentTag] else { return }
+//        ownedArray._withMutableSparseSet(Owned.self) { set in
+//            // We need `inout Owned` at each dense index and the corresponding Entity.ID.
+//            // Entity.ID requires a generation, but underlying accessors index by slot only.
+//            // We'll construct an ID with generation 0 (safe for component access).
+//            for i in 0..<size {
+//                let slot = set.keys[i]
+//                var tmp = set[i]   // get component value
+//                // Pass as inout by writing back after closure (copy-in/out pattern).
+//                let id = Entity.ID(slot: slot, generation: 0)
+//                body(id, &tmp)
+//                set[i] = tmp
+//            }
+//        }
+////        pool.components[Owned.componentTag] = ownedArray
+//    }
 
     // MARK: - Helpers
 
