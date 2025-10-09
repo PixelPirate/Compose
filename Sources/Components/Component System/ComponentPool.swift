@@ -1,4 +1,5 @@
 public struct ComponentPool {
+    @usableFromInline
     private(set) var components: [ComponentTag: AnyComponentArray] = [:]
 
     public init(components: [ComponentTag : AnyComponentArray] = [:]) {
