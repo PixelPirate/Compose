@@ -42,6 +42,11 @@ public final class Coordinator {
     internal let sparseQueryCacheLock = OSAllocatedUnfairLock()
 
     @usableFromInline
+    var slotsQueryCache: [QueryHash: SlotsQueryPlan] = [:]
+    @usableFromInline
+    internal let slotsQueryCacheLock = OSAllocatedUnfairLock()
+
+    @usableFromInline
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline

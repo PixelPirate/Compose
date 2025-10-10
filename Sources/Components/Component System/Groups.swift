@@ -74,41 +74,7 @@ extension AnyComponentArray {
  ```
  */
 
-protocol SystemParameter {
-    static func insert(into: inout SystemMetadata)
-    static func materialise(_ coordinator: Coordinator) -> Self
-}
-extension Query: SystemParameter {
-    static func insert(into: inout SystemMetadata) {
-        _ = Self.makeSignature(backstageComponents: [])
-    }
-    static func materialise(_ coordinator: Coordinator) -> Self {
-        Query<repeat each T>(
-            backstageComponents: [],
-            excludedComponents: [],
-            includeEntityID: false
-        )
-    }
-}
-func receive<each P: SystemParameter>(_ fn: @escaping (repeat each P) -> Void) {
-    var metadata: SystemMetadata!
-    for p in repeat (each P).self {
-        p.insert(into: &metadata)
-    }
-    let coordinator = Coordinator()
-    let callIt = {
-        fn(repeat (each P).materialise(coordinator))
-    }
-    callIt()
-}
-func test() {
-    struct Transform: Component {
-        static let componentTag = ComponentTag.makeTag()
-    }
-
-    func wow(_ query: Query<Write<Transform>>) {}
-    receive(wow)
-}
+// TODO: EnTT groups can just use Array.partition(by:)?
 
 // MARK: - Group
 

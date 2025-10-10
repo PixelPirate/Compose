@@ -62,6 +62,60 @@ extension Tag {
         print(duration1, duration2, duration3)
     }
 
+    @Test func testPerformancePreloaded() throws {
+        let query = Query {
+            Write<Transform>.self
+            Gravity.self
+        }
+        let clock = ContinuousClock()
+
+        let coordinator = Coordinator()
+
+        let setup = clock.measure {
+            for _ in 0...500_000 {
+                coordinator.spawn(
+                     Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                )
+            }
+            for _ in 0...500_000 {
+                coordinator.spawn(
+                    Transform(position: .zero, rotation: .zero, scale: .zero),
+                    Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                )
+            }
+            for _ in 0...500_000 {
+                coordinator.spawn(
+                    Transform(position: .zero, rotation: .zero, scale: .zero)
+                )
+            }
+            for _ in 0...500_000 {
+                coordinator.spawn(
+                    Transform(position: .zero, rotation: .zero, scale: .zero),
+                    Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                )
+            }
+        }
+        print("Setup:", setup)
+
+        let duration1 = clock.measure {
+            query(preloaded: coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration2 = clock.measure {
+            query(preloaded: coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration3 = clock.measure {
+            query(preloaded: coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        //~0.012, 0.007, 0.007 seconds
+        print(duration1, duration2, duration3)
+    }
+
     @Test func testPerformanceSimple() throws {
         let query = Query {
             Write<Transform>.self

@@ -17,7 +17,31 @@ public extension Component {
     static var storage: ComponentStorage { .sparseSet }
 }
 
-public struct ComponentSignature: Hashable, CustomDebugStringConvertible {
+public protocol ComponentResolving {
+    associatedtype ResolvedType = Self
+    associatedtype ReadOnlyResolvedType = Self
+    associatedtype QueriedComponent: Component = Self
+
+    @inlinable @inline(__always)
+    static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> ResolvedType
+
+    @inlinable @inline(__always)
+    static func makeReadOnlyResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> ReadOnlyResolvedType
+}
+
+public extension ComponentResolving where Self: Component, ResolvedType == Self, QueriedComponent == Self, ReadOnlyResolvedType == Self {
+    @inlinable @inline(__always)
+    static func makeResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> Self {
+        access[entityID]
+    }
+
+    @inlinable @inline(__always)
+    static func makeReadOnlyResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> Self {
+        access[entityID]
+    }
+}
+
+public struct ComponentSignature: Hashable, Sendable, CustomDebugStringConvertible {
     @usableFromInline
     var rawHashValue: BitSet
 

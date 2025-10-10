@@ -57,22 +57,26 @@ extension ComponentPool {
             component.remove(entityID)
         }
     }
-
+    
+    /// Precomputes all valid slot indices. Has some upfront cost, but worth it for iterating large amounts of entities.
     @usableFromInline
     func slots<each C: Component>(
         _ components: repeat (each C).Type,
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
-    ) -> [SlotIndex] {
+    ) -> ContiguousArray<SlotIndex> {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
         var excludedArrays: [AnyComponentArray] = []
-        var queryingForEntityID = false
+        var isQueryingForEntityIDs = false
 
         for component in repeat each components {
+            if component is any OptionalQueriedComponent.Type {
+                continue // Optional components can be skipped here.
+            }
             let tag = component.QueriedComponent.componentTag
             if component == WithEntityID.self {
-                queryingForEntityID = true
+                isQueryingForEntityIDs = true
             }
             guard component.QueriedComponent.self != Never.self else {
                 continue
@@ -93,7 +97,7 @@ extension ComponentPool {
         }
 
         for tag in excluded {
-            // If any tag is missing or empty, there can be no matches.
+            // If any tag is missing or empty, we can skip this exclude.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
                 continue
             }
@@ -101,9 +105,17 @@ extension ComponentPool {
         }
 
         guard !arrays.isEmpty else {
-            if queryingForEntityID {
-                // TODO: Optimize
-                return Array(Set(self.components.values.flatMap { $0.componentsToEntites }))
+            if isQueryingForEntityIDs {
+                let candidates = ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites }))
+                if excluded.isEmpty {
+                    return candidates
+                } else {
+                    return candidates.filter { slot in
+                        excludedArrays.allSatisfy { componentArray in
+                            !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == nil
+                        }
+                    }
+                }
             }
             return []
         }
@@ -117,15 +129,12 @@ extension ComponentPool {
         let smallest = arrays[0]
         if arrays.count == 1 {
             if excluded.isEmpty {
-                return Array(smallest.componentsToEntites)
+                return ContiguousArray(smallest.componentsToEntites)
             } else {
                 return smallest.componentsToEntites.filter { slot in
                     excludedArrays.allSatisfy { componentArray in
                         !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == nil
                     }
-                }
-                .map {
-                    $0
                 }
             }
         }
@@ -134,7 +143,7 @@ extension ComponentPool {
         let others = arrays.dropFirst().map { $0.entityToComponents }
 
         // Filter candidate IDs by ensuring presence in all other component maps.
-        var result: [SlotIndex] = []
+        var result: ContiguousArray<SlotIndex> = []
         result.reserveCapacity(smallest.componentsToEntites.count)
         for slot in smallest.componentsToEntites {
             var presentInAll = true
@@ -154,14 +163,16 @@ extension ComponentPool {
         }
         return result
     }
-
+    
+    /// Returns the base slots to drive iteration and all other sparse arrays used to filter entities during iteration.
+    /// This requires some filtering during iteration but the up front cost of this call is negligible.
     @usableFromInline
     func baseAndOthers<each C: Component>(
         _ components: repeat (each C).Type,
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
     )
-    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index?>], excluded: [ContiguousArray<Array.Index?>])?
+    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index?>], excluded: [ContiguousArray<Array.Index?>])
     {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
@@ -181,7 +192,7 @@ extension ComponentPool {
             }
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return nil
+                return ([], [], [])
             }
             arrays.append(array)
         }
@@ -189,13 +200,13 @@ extension ComponentPool {
         for tag in included {
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return nil
+                return ([], [], [])
             }
             arrays.append(array)
         }
 
         for tag in excluded {
-            // If any tag is missing or empty, there can be no matches.
+            // If any tag is missing or empty, we can skip this exclude.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
                 continue
             }
@@ -209,8 +220,9 @@ extension ComponentPool {
                     [],
                     excludedArrays.map(\.entityToComponents)
                 )
+            } else {
+                return ([], [], [])
             }
-            return ([], [], excludedArrays.map(\.entityToComponents))
         }
 
         guard arrays.count > 1 else {
@@ -236,22 +248,31 @@ extension ComponentPool {
         )
     }
 
+    /// Returns the base slots to drive iteration.
+    /// This requires some filtering during iteration but the up front cost of this call is negligible.
     @usableFromInline
     func base<each C: Component>(
         _ components: repeat (each C).Type,
         included: Set<ComponentTag> = []
-    ) -> ContiguousArray<SlotIndex>? {
+    ) -> ContiguousArray<SlotIndex> {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
+        var isQueryingForEntityIDs = false
 
         for component in repeat each components {
-            let tag = component.componentTag
+            if component is any OptionalQueriedComponent.Type {
+                continue // Optional components can be skipped here.
+            }
+            let tag = component.QueriedComponent.componentTag
+            if component == WithEntityID.self {
+                isQueryingForEntityIDs = true
+            }
             guard component.QueriedComponent.self != Never.self else {
                 continue
             }
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return nil
+                return []
             }
             arrays.append(array)
         }
@@ -259,14 +280,26 @@ extension ComponentPool {
         for tag in included {
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return nil
+                return []
             }
             arrays.append(array)
         }
 
+        guard !arrays.isEmpty else {
+            if isQueryingForEntityIDs {
+                return ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites }))
+            } else {
+                return []
+            }
+        }
+
+        guard arrays.count > 1 else {
+            return arrays[0].componentsToEntites
+        }
+
         return arrays.min { lhs, rhs in
             lhs.componentsToEntites.count < rhs.componentsToEntites.count
-        }?.componentsToEntites
+        }?.componentsToEntites ?? []
     }
 
     subscript<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) -> C {
@@ -283,4 +316,37 @@ extension ComponentPool {
             yield &components[componentTag]![entityID: entityID]
         }
     }
+}
+
+@discardableResult
+@usableFromInline
+func withTypedBuffers<each C: ComponentResolving, R>(
+    _ pool: inout ComponentPool,
+    _ body: (repeat TypedAccess<each C>) throws -> R
+) rethrows -> R? {
+    func buildTuple() -> (repeat TypedAccess<each C>) {
+        return (repeat tryMakeAccess((each C).self))
+    }
+
+    func tryMakeAccess<D: ComponentResolving>(_ type: D.Type) -> TypedAccess<D> {
+        guard D.QueriedComponent.self != Never.self else { return TypedAccess<D>.empty }
+        guard let anyArray = pool.components[D.QueriedComponent.componentTag] else {
+            guard D.self is any OptionalQueriedComponent.Type else {
+                fatalError("Unknown component.")
+            }
+            return TypedAccess<D>.empty
+        }
+        var result: TypedAccess<D>? = nil
+        anyArray.withBuffer(D.QueriedComponent.self) { buffer, entitiesToIndices in
+            result = TypedAccess(buffer: buffer, indices: entitiesToIndices)
+            // Escaping the buffer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
+            // The solution would be a recursive function which would recursively call `withBuffer` on the head until the pack is empty, and then call `body` with all the buffers.
+            // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12
+            // See: https://forums.swift.org/t/passing-a-parameter-pack-to-a-function-call-fails-to-compile/72243/15
+        }
+        return result.unsafelyUnwrapped
+    }
+
+    let built = buildTuple()
+    return try body(repeat each built)
 }

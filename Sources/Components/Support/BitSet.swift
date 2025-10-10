@@ -4,7 +4,7 @@ import Darwin
 import Glibc
 #endif
 
-public struct BitSet: Hashable {
+public struct BitSet: Hashable, Sendable {
     /// Reflects the highest set bit + 1.
     @usableFromInline @inline(__always)
     internal var bitCount: Int = 0
