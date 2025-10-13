@@ -323,11 +323,13 @@ extension ComponentPool {
 func withTypedBuffers<each C: ComponentResolving, R>(
     _ pool: inout ComponentPool,
     _ body: (repeat TypedAccess<each C>) throws -> R
-) rethrows -> R? {
+) rethrows -> R {
+    @inline(__always)
     func buildTuple() -> (repeat TypedAccess<each C>) {
         return (repeat tryMakeAccess((each C).self))
     }
 
+    @inline(__always)
     func tryMakeAccess<D: ComponentResolving>(_ type: D.Type) -> TypedAccess<D> {
         guard D.QueriedComponent.self != Never.self else { return TypedAccess<D>.empty }
         guard let anyArray = pool.components[D.QueriedComponent.componentTag] else {

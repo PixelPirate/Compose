@@ -65,6 +65,13 @@ public struct ComponentSignature: Hashable, Sendable, CustomDebugStringConvertib
     }
 
     @inlinable @inline(__always)
+    public init(_ tags: some Sequence<ComponentTag>) {
+        var bits = BitSet()
+        bits.insert(tags.map(\.rawValue))
+        rawHashValue = bits
+    }
+
+    @inlinable @inline(__always)
     public mutating func append(_ tag: ComponentTag) {
         rawHashValue.insert(tag.rawValue)
     }
@@ -84,6 +91,11 @@ public struct ComponentSignature: Hashable, Sendable, CustomDebugStringConvertib
     @inlinable @inline(__always)
     public mutating func remove(_ tag: ComponentTag) {
         rawHashValue.remove(tag.rawValue)
+    }
+
+    @inlinable @inline(__always)
+    public mutating func remove(_ signature: ComponentSignature) {
+        rawHashValue.subtract(signature.rawHashValue)
     }
 
     @inlinable @inline(__always)

@@ -81,7 +81,7 @@ public final class Coordinator {
     @discardableResult
     public func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
         defer {
-            worldVersion += 1
+            worldVersion &+= 1
         }
         let newEntity = indices.allocateID()
 
@@ -133,7 +133,7 @@ public final class Coordinator {
     public func add<C: Component>(_ component: C, to entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
-            worldVersion += 1
+            worldVersion &+= 1
         }
         pool.append(component, for: entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].appending(C.componentTag)
@@ -144,7 +144,7 @@ public final class Coordinator {
     public func remove(_ componentTag: ComponentTag, from entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
-            worldVersion += 1
+            worldVersion &+= 1
         }
         pool.remove(componentTag, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(componentTag)
@@ -155,7 +155,7 @@ public final class Coordinator {
     public func remove<C: Component>(_ componentType: C.Type = C.self, from entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
-            worldVersion += 1
+            worldVersion &+= 1
         }
         pool.remove(componentType, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(C.componentTag)
@@ -166,7 +166,7 @@ public final class Coordinator {
     public func destroy(_ entityID: Entity.ID) {
         guard isAlive(entityID) else { return }
         defer {
-            worldVersion += 1
+            worldVersion &+= 1
         }
         indices.free(id: entityID)
         pool.remove(entityID)

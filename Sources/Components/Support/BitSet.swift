@@ -85,6 +85,15 @@ public struct BitSet: Hashable, Sendable {
         bitCount = maxBitCount
     }
 
+    @inlinable @inline(__always)
+    public mutating func subtract(_ other: BitSet) {
+        for i in 0..<words.count {
+            let a = words[i]
+            let b = i < other.words.count ? other.words[i] : 0
+            words[i] = a & ~b
+        }
+        _shrinkToFitUsedBits()
+    }
     /// Ensure capacity for a specific bit index (0-based). Grows storage.
     @usableFromInline @inline(__always)
     internal mutating func ensureCapacity(forBit bit: Int) {
@@ -157,6 +166,11 @@ public struct BitSet: Hashable, Sendable {
             }
         }
         _maskTail()
+    }
+
+    @inlinable @inline(__always)
+    public mutating func remove(_ bits: some Sequence<Int>) {
+        for bit in bits { remove(bit) }
     }
 
     @inlinable @inline(__always)
