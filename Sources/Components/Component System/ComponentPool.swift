@@ -163,7 +163,49 @@ extension ComponentPool {
         }
         return result
     }
-    
+
+    @usableFromInline
+    func matches<each C: Component>(slot: SlotIndex, query: Query<repeat each C>) -> Bool {
+        for component in repeat (each C).self {
+            if component is any OptionalQueriedComponent.Type {
+                continue // Optional components can be skipped here.
+            }
+            if component == WithEntityID.self {
+                continue
+            }
+            guard component.QueriedComponent.self != Never.self else {
+                continue
+            }
+            // If any tag is missing or empty, there can be no matches.
+            let tag = component.QueriedComponent.componentTag
+            guard
+                let array = self.components[tag],
+                array.entityToComponents[slot.rawValue] != nil
+            else {
+                return false
+            }
+        }
+
+        for tag in query.backstageComponents {
+            // If any tag is missing or empty, there can be no matches.
+            guard let array = self.components[tag], array.entityToComponents[slot.rawValue] != nil else {
+                return false
+            }
+        }
+
+        for tag in query.excludedComponents {
+            // If any tag is missing or empty, we can skip this exclude.
+            guard let array = self.components[tag] else {
+                continue
+            }
+            guard array.entityToComponents[slot.rawValue] == nil else {
+                return false
+            }
+        }
+
+        return true
+    }
+
     /// Returns the base slots to drive iteration and all other sparse arrays used to filter entities during iteration.
     /// This requires some filtering during iteration but the up front cost of this call is negligible.
     @usableFromInline
