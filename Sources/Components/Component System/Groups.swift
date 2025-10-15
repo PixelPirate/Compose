@@ -146,8 +146,8 @@ public final class Group<each Owned: Component> {
         excludedComponents = query.excludedComponents
     }
     
-    public init(@QueryBuilder query: () -> BuiltQuery<repeat each T>) {
-        self.init(query().composite)
+    public convenience init(@QueryBuilder query: () -> BuiltQuery<repeat each Owned>) {
+        self.init(query: query().composite)
     }
 
     func acquire() throws(AcquireError) {
@@ -203,19 +203,19 @@ public final class Group<each Owned: Component> {
                         }
                         if let j = foundIndex {
                             // Capture entity slots before swapping in primary
-                            let a = primarySet.keys[write]
-                            let b = primarySet.keys[j]
+                            let bSlot = primarySet.keys[j]
 
                             // Swap in primary
                             primarySet.swapDenseAt(write, j)
 
-                            // Mirror to all other owned storages
+                            // Mirror to all other owned storages using packed-prefix target index
                             for otherOwnedType in repeat (each Owned).self {
                                 if otherOwnedType.componentTag == self.primary { continue }
                                 guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
                                 otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                                    if let ai = otherSet.denseIndex(for: a), let bi = otherSet.denseIndex(for: b) {
-                                        otherSet.swapDenseAt(ai, bi)
+                                    // Move the matching entity `b` into the packed position `write`
+                                    if let bi = otherSet.denseIndex(for: bSlot) {
+                                        otherSet.swapDenseAt(bi, write)
                                     }
                                 }
                             }
@@ -246,19 +246,19 @@ public final class Group<each Owned: Component> {
                 guard let idx = primarySet.denseIndex(for: entity.slot) else { return }
                 if pool.matches(slot: entity.slot, query: query) && idx >= size {
                     // Capture slots before swap in primary
-                    let a = primarySet.keys[idx]
-                    let b = primarySet.keys[size]
+                    let bSlot = primarySet.keys[size]
 
                     // Swap in primary
                     primarySet.swapDenseAt(idx, size)
 
-                    // Mirror to other owned storages
+                    // Mirror to other owned storages using packed-prefix target index
                     for otherOwnedType in repeat (each Owned).self {
                         if otherOwnedType.componentTag == self.primary { continue }
                         guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
                         otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                            if let ai = otherSet.denseIndex(for: a), let bi = otherSet.denseIndex(for: b) {
-                                otherSet.swapDenseAt(ai, bi)
+                            // Move the added matching entity (slot `b`) into the packed position `size`
+                            if let bi = otherSet.denseIndex(for: bSlot) {
+                                otherSet.swapDenseAt(bi, size)
                             }
                         }
                     }
@@ -284,19 +284,19 @@ public final class Group<each Owned: Component> {
                 if idx < size && !pool.matches(slot: entity.slot, query: query) {
                     let last = size &- 1
                     // Capture slots before swap in primary
-                    let a = primarySet.keys[idx]
-                    let b = primarySet.keys[last]
+                    let aSlot = primarySet.keys[idx]
 
                     // Swap in primary
                     primarySet.swapDenseAt(idx, last)
 
-                    // Mirror to other owned storages
+                    // Mirror to other owned storages using packed-prefix target index
                     for otherOwnedType in repeat (each Owned).self {
                         if otherOwnedType.componentTag == self.primary { continue }
                         guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
                         otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                            if let ai = otherSet.denseIndex(for: a), let bi = otherSet.denseIndex(for: b) {
-                                otherSet.swapDenseAt(ai, bi)
+                            // Move the removed entity (slot `a`) out of the packed prefix by swapping with `last`
+                            if let ai = otherSet.denseIndex(for: aSlot) {
+                                otherSet.swapDenseAt(ai, last)
                             }
                         }
                     }

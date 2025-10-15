@@ -344,6 +344,12 @@ extension ComponentPool {
         }?.componentsToEntites ?? []
     }
 
+    subscript<C: Component>(_ componentType: C.Type = C.self) -> ComponentArrayBox<C> {
+        _read {
+            yield components[C.componentTag]!.typedBox(C.self)
+        }
+    }
+
     subscript<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) -> C {
         _read {
             yield components[C.componentTag]![entityID: entityID] as! C

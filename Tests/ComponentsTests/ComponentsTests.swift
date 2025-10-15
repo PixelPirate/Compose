@@ -850,24 +850,23 @@ public struct Material: Component {
 }
 
 @Test func group_rebuild_mirrors_primary_permutation() throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     // Create entities with various component combos
     let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material()) // match
     let _  = coordinator.spawn(Gravity(force: .zero)) // non-match
     let _  = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero)) // non-match
-    let _  = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), RigidBody(velocity: .zero, acceleration: .zero)) // excluded
+    let _  = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), RigidBody(velocity: .zero, acceleration: .zero), Material()) // excluded
     let e5 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material()) // match
-    let e6 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero)) // lacks Material
+    let _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero)) // lacks Material
 
     // Build a group that owns Transform + Gravity, requires Material, excludes RigidBody
-    let query = Query {
+    let group = Group {
         Transform.self
         Gravity.self
         With<Material>.self
         Without<RigidBody>.self
     }
-    let group = Group<Transform, Gravity>(query: query)
 
     // Rebuild group: only e1 and e5 should be packed in front, in the order dictated by primary (Transform)
     group.rebuild(in: &coordinator.pool)
@@ -875,40 +874,33 @@ public struct Material: Component {
     #expect(group.size == 2)
 
     // Verify primary (Transform) packed prefix order == [e1, e5]
-    if var primaryArray = coordinator.pool.components[Transform.componentTag] {
-        let keys = primaryArray.typedBox(Transform.self).componentsToEntites
-        #expect(keys.count >= 2)
-        #expect(keys[0] == e1.slot)
-        #expect(keys[1] == e5.slot)
-    } else {
-        Issue.record("Missing Transform storage")
-    }
+    let primaryArray = coordinator.pool[Transform.self]
+    let primaryKeys = primaryArray.componentsToEntites
+    #expect(primaryKeys.count == 5)
+    #expect(primaryKeys[0] == e1.slot)
+    #expect(primaryKeys[1] == e5.slot)
 
     // Verify mirrored order in Gravity storage == [e1, e5]
-    if var gravityArray = coordinator.pool.components[Gravity.componentTag] {
-        let keys = gravityArray.typedBox(Gravity.self).componentsToEntites
-        #expect(keys.count >= 2)
-        #expect(keys[0] == e1.slot)
-        #expect(keys[1] == e5.slot)
-    } else {
-        Issue.record("Missing Gravity storage")
-    }
+    let gravityArray = coordinator.pool[Gravity.self]
+    let gravityKeys = gravityArray.componentsToEntites
+    #expect(gravityKeys.count == 5)
+    #expect(gravityKeys[0] == e1.slot)
+    #expect(gravityKeys[1] == e5.slot)
 }
 
 @Test func group_incremental_add_owned_swaps_in_and_mirrors() throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     // Prepare an entity that will become a match when we add an OWNED component (Transform)
     let eA = coordinator.spawn(Gravity(force: .zero), Material()) // has Gravity+Material
     let eB = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material()) // existing match
 
-    let query = Query {
+    let group = Group {
         Transform.self
         Gravity.self
         With<Material>.self
         Without<RigidBody>.self
     }
-    let group = Group<Transform, Gravity>(query: query)
 
     group.rebuild(in: &coordinator.pool)
     #expect(group.size == 1)
@@ -920,37 +912,34 @@ public struct Material: Component {
     #expect(group.size == 2)
 
     // Check primary order contains eB then eA (based on existing primary order and swap)
-    if var primaryArray = coordinator.pool.components[Transform.componentTag] {
-        let keys = primaryArray.typedBox(Transform.self).componentsToEntites
-        #expect(keys.count >= 2)
-        // eB was first match after rebuild
-        #expect(keys[0] == eB.slot)
-        #expect(keys[1] == eA.slot)
-    }
+    let primaryArray = coordinator.pool[Transform.self]
+    let primaryKeys = primaryArray.componentsToEntites
+    #expect(primaryKeys.count >= 2)
+    // eB was first match after rebuild
+    #expect(primaryKeys[0] == eB.slot)
+    #expect(primaryKeys[1] == eA.slot)
 
     // Check mirrored order in Gravity
-    if var gravityArray = coordinator.pool.components[Gravity.componentTag] {
-        let keys = gravityArray.typedBox(Gravity.self).componentsToEntites
-        #expect(keys.count >= 2)
-        #expect(keys[0] == eB.slot)
-        #expect(keys[1] == eA.slot)
-    }
+    let gravityArray = coordinator.pool[Gravity.self]
+    let gravityKeys = gravityArray.componentsToEntites
+    #expect(gravityKeys.count >= 2)
+    #expect(gravityKeys[0] == eB.slot)
+    #expect(gravityKeys[1] == eA.slot)
 }
 
 @Test func group_incremental_remove_swaps_out_and_mirrors() throws {
-    var coordinator = Coordinator()
+    let coordinator = Coordinator()
 
     // Two matching entities
     let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material())
     let e2 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material())
 
-    let query = Query {
+    let group = Group {
         Transform.self
         Gravity.self
         With<Material>.self
         Without<RigidBody>.self
     }
-    let group = Group<Transform, Gravity>(query: query)
 
     group.rebuild(in: &coordinator.pool)
     #expect(group.size == 2)
@@ -962,14 +951,13 @@ public struct Material: Component {
     #expect(group.size == 1)
 
     // After removal, e2 should occupy index 0 in both storages
-    if var primaryArray = coordinator.pool.components[Transform.componentTag] {
-        let keys = primaryArray.typedBox(Transform.self).componentsToEntites
-        #expect(keys.count >= 1)
-        #expect(keys[0] == e2.slot)
-    }
-    if var gravityArray = coordinator.pool.components[Gravity.componentTag] {
-        let keys = gravityArray.typedBox(Gravity.self).componentsToEntites
-        #expect(keys.count >= 1)
-        #expect(keys[0] == e2.slot)
-    }
+    let primaryArray = coordinator.pool[Transform.self]
+    let primaryKeys = primaryArray.componentsToEntites
+    #expect(primaryKeys.count >= 1)
+    #expect(primaryKeys[0] == e2.slot)
+
+    let gravityArray = coordinator.pool[Gravity.self]
+    let gravityKeys = gravityArray.componentsToEntites
+    #expect(gravityKeys.count >= 1)
+    #expect(gravityKeys[0] == e2.slot)
 }
