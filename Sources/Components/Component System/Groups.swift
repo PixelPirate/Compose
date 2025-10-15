@@ -82,14 +82,12 @@ extension AnyComponentArray {
  How can I name these things better, considering I also have performParallel and fetchOne, fetchAll.
 
  I might can pull off the Bevy iterator interface:
- ```
  func system(query1: Query<Write<Position>, Without<Velocity>>, query2: GroupQuery<Material, Position>) {
     let fetchAll = Array(query1)
     for (material, position) in query2 {
         …
     }
  }
- ```
  */
 
 // EnTT overview:
@@ -173,26 +171,26 @@ public final class Group<each Owned: Component> {
     /// Build (or rebuild) the contiguous partition for this group.
     /// This partitions the primary component's dense storage so that all matching entities are in [0 ..< size).
     public func rebuild(in pool: inout ComponentPool) {
-        for ownedComponentType in repeat (each Owned).self {
-            guard var ownedArray = pool.components[ownedComponentType.componentTag] else { return }
+        // Operate on primary storage only; mirror swaps to others
+        guard var primaryArray = pool.components[primary] else { return }
 
-            // Partition the Owned sparse set.
-            ownedArray._withMutableSparseSet(ownedComponentType) { set in
+        // Find the concrete primary owned type
+        var handledPrimary = false
+        for ownedComponentType in repeat (each Owned).self {
+            if ownedComponentType.componentTag != self.primary { continue }
+            handledPrimary = true
+            primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
                 var write = 0
-                // Iterate dense indices and swap qualifying entities forward.
-                let total = set.count
+                let total = primarySet.count
                 while write < total {
-                    // Get slot for entity currently at `write` (after previous swaps).
-                    let slotAtWrite = set.keys[write]
+                    let slotAtWrite = primarySet.keys[write]
                     if pool.matches(slot: slotAtWrite, query: query) {
-                        // Already matches and in place; advance write.
                         write &+= 1
                     } else {
-                        // Find the next matching entity after `write`.
                         var read = write &+ 1
                         var foundIndex: Int? = nil
                         while read < total {
-                            let slot = set.keys[read]
+                            let slot = primarySet.keys[read]
                             if pool.matches(slot: slot, query: query) {
                                 foundIndex = read
                                 break
@@ -200,58 +198,109 @@ public final class Group<each Owned: Component> {
                             read &+= 1
                         }
                         if let j = foundIndex {
-                            // Swap the found match into position `write`.
-                            set.swapDenseAt(write, j)
+                            // Capture entity slots before swapping in primary
+                            let a = primarySet.keys[write]
+                            let b = primarySet.keys[j]
+
+                            // Swap in primary
+                            primarySet.swapDenseAt(write, j)
+
+                            // Mirror to all other owned storages
+                            for otherOwnedType in repeat (each Owned).self {
+                                if otherOwnedType.componentTag == self.primary { continue }
+                                guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
+                                otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
+                                    if let ai = otherSet.denseIndex(for: a), let bi = otherSet.denseIndex(for: b) {
+                                        otherSet.swapDenseAt(ai, bi)
+                                    }
+                                }
+                            }
+
                             write &+= 1
                         } else {
-                            // No more matches.
                             break
                         }
                     }
                 }
                 self.size = write
             }
+            break
         }
+        if !handledPrimary { return }
     }
 
     /// Incremental hook to be called when a component is **added** to an entity.
     /// If the entity now matches the group, it is swapped into the packed prefix.
     public func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
-        // Quick filter: only care if the added tag is required by this group.
-        guard
-            owned.contains(tag),
-            var ownedArray = pool.components[primary]
-        else {
-            return
-        }
+        // Only proceed if the added tag is part of this group's owned set and primary exists
+        guard owned.contains(tag), var primaryArray = pool.components[primary] else { return }
 
+        // Find the concrete primary owned type
         for ownedComponentType in repeat (each Owned).self {
-            ownedArray._withMutableSparseSet(ownedComponentType) { set in
-                guard let idx = set.denseIndex(for: entity.slot) else { return }
+            if ownedComponentType.componentTag != self.primary { continue }
+            primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
+                guard let idx = primarySet.denseIndex(for: entity.slot) else { return }
                 if pool.matches(slot: entity.slot, query: query) && idx >= size {
-                    set.swapDenseAt(idx, size)
+                    // Capture slots before swap in primary
+                    let a = primarySet.keys[idx]
+                    let b = primarySet.keys[size]
+
+                    // Swap in primary
+                    primarySet.swapDenseAt(idx, size)
+
+                    // Mirror to other owned storages
+                    for otherOwnedType in repeat (each Owned).self {
+                        if otherOwnedType.componentTag == self.primary { continue }
+                        guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
+                        otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
+                            if let ai = otherSet.denseIndex(for: a), let bi = otherSet.denseIndex(for: b) {
+                                otherSet.swapDenseAt(ai, bi)
+                            }
+                        }
+                    }
+
                     size &+= 1
                 }
             }
+            break
         }
     }
 
     /// Incremental hook to be called when a component is **removed** from an entity.
     /// If the entity was part of the group, it is swapped out of the packed prefix.
     public func onComponentRemoved(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
-        // If the removed tag is not required, the entity may still be in the group; quick check needed anyway.
-        guard var ownedArray = pool.components[primary] else { return }
+        // Primary must exist to reorder
+        guard var primaryArray = pool.components[primary] else { return }
 
+        // Find the concrete primary owned type
         for ownedComponentType in repeat (each Owned).self {
-            ownedArray._withMutableSparseSet(ownedComponentType) { set in
-                guard let idx = set.denseIndex(for: entity.slot) else { return }
-                // If `idx` is inside the packed region and the entity no longer matches, swap it out.
+            if ownedComponentType.componentTag != self.primary { continue }
+            primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
+                guard let idx = primarySet.denseIndex(for: entity.slot) else { return }
                 if idx < size && !pool.matches(slot: entity.slot, query: query) {
                     let last = size &- 1
-                    set.swapDenseAt(idx, last)
+                    // Capture slots before swap in primary
+                    let a = primarySet.keys[idx]
+                    let b = primarySet.keys[last]
+
+                    // Swap in primary
+                    primarySet.swapDenseAt(idx, last)
+
+                    // Mirror to other owned storages
+                    for otherOwnedType in repeat (each Owned).self {
+                        if otherOwnedType.componentTag == self.primary { continue }
+                        guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
+                        otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
+                            if let ai = otherSet.denseIndex(for: a), let bi = otherSet.denseIndex(for: b) {
+                                otherSet.swapDenseAt(ai, bi)
+                            }
+                        }
+                    }
+
                     size = last
                 }
             }
+            break
         }
     }
 
