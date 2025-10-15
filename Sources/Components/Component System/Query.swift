@@ -205,8 +205,8 @@ extension Query {
     @inlinable @inline(__always)
     public func fetchOne(_ context: some QueryContextConvertible) -> (repeat (each T).ReadOnlyResolvedType)? {
         let context = context.queryContext
+        let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
         return withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
             for slot in baseSlots where Self.passes(
                 slot: slot,
                 otherComponents: otherComponents,
@@ -245,9 +245,8 @@ extension Query {
     @inlinable @inline(__always)
     public func performPreloadedParallel(_ context: some QueryContextConvertible, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
         let context = context.queryContext
-
+        let slots = getCachedPreFilteredSlots(context.coordinator)
         withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            let slots = getCachedPreFilteredSlots(context.coordinator)
             let cores = ProcessInfo.processInfo.processorCount
             let chunkSize = max(1, (slots.count + cores - 1) / cores) // ceil division
             let chunks = (slots.count + chunkSize - 1) / chunkSize // ceil number of chunks
@@ -275,9 +274,8 @@ extension Query {
     @inlinable @inline(__always)
     public func performParallel(_ context: some QueryContextConvertible, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
         let context = context.queryContext
-
+        let slots = getCachedBaseSlots(context.coordinator)
         withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            let slots = getCachedBaseSlots(context.coordinator)
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
             let cores = ProcessInfo.processInfo.processorCount
@@ -318,9 +316,8 @@ extension Query {
     @inlinable @inline(__always)
     public func performWithSignature(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
-
+        let baseSlots = getCachedBaseSlots(context.coordinator)
         withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            let baseSlots = getCachedBaseSlots(context.coordinator)
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
 
@@ -354,9 +351,8 @@ extension Query {
         _ handler: (CombinationPack<repeat (each T).ResolvedType>, CombinationPack<repeat (each T).ResolvedType>) -> Void
     ) {
         let context = context.queryContext
-
+        let filteredSlots = getCachedPreFilteredSlots(context.coordinator)
         withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            let filteredSlots = getCachedPreFilteredSlots(context.coordinator)
             let resolved = filteredSlots.map { [indices = context.coordinator.indices] slot in
                 let id = Entity.ID(
                     slot: slot,
@@ -401,8 +397,8 @@ extension Query {
     @inlinable @inline(__always)
     public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
+        let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
         withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
             for slot in baseSlots where Self.passes(
                 slot: slot,
                 otherComponents: otherComponents,
@@ -422,9 +418,8 @@ extension Query {
     @inlinable @inline(__always)
     public func performPreloaded(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
-
+        let slots = getCachedPreFilteredSlots(context.coordinator) // TODO: Allow custom order.
         withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            let slots = getCachedPreFilteredSlots(context.coordinator) // TODO: Allow custom order.
             for slot in slots {
                 let id = Entity.ID(
                     slot: SlotIndex(rawValue: slot.rawValue),
