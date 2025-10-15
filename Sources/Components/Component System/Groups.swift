@@ -147,6 +147,10 @@ public final class Group<each Owned: Component> {
         backstageComponents = query.backstageComponents
         excludedComponents = query.excludedComponents
     }
+    
+    public init(@QueryBuilder query: () -> BuiltQuery<repeat each T>) {
+        self.init(query().composite)
+    }
 
     func acquire() throws(AcquireError) {
         guard _ownedTags.isDisjoint(with: ownedSignature) else {
