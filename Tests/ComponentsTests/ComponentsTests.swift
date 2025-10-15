@@ -436,7 +436,7 @@ import Synchronization
     let transforms = Query {
         Write<Transform>.self
     }
-    .iterAll(coordinator)
+    .unsafeFetchAllWritable(coordinator)
 
     func elementTypeIsWriteTransform<S>(_: S) where S: Sequence, S.Element == Write<Transform> {}
     elementTypeIsWriteTransform(transforms)
@@ -447,7 +447,7 @@ import Synchronization
         Write<Transform>.self
         Gravity.self
     }
-    .iterAll(coordinator)
+    .unsafeFetchAllWritable(coordinator)
 
     func elementTypeIsWriteTransformGravity<S>(_: S) where S: Sequence, S.Element == (Write<Transform>, Gravity) {}
     elementTypeIsWriteTransformGravity(multiComponents)
@@ -470,7 +470,7 @@ import Synchronization
         Gravity.self
     }
 
-    let transforms = query.iterAll(coordinator)
+    let transforms = query.unsafeFetchAllWritable(coordinator)
 
     var iterCount = 0
     for (transform, gravity) in transforms {

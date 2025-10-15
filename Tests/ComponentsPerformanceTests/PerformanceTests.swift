@@ -442,7 +442,7 @@ extension Tag {
         let clock = ContinuousClock()
 
         let iterDuration = clock.measure {
-            let transforms = query.iterAll(coordinator)
+            let transforms = query.unsafeFetchAllWritable(coordinator)
 
             for (transform, gravity) in transforms {
                 transform.position.x += gravity.force.x
@@ -541,7 +541,7 @@ extension Tag {
         }
 
         _ = measure("Query-IterAll Move") {
-            let seq = qMove.iterAll(coordinator)
+            let seq = qMove.unsafeFetchAllWritable(coordinator)
             for (t, g) in seq { t.position.x += g.force.x }
         }
 
