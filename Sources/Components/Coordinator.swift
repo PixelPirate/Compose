@@ -144,6 +144,28 @@ public final class Coordinator {
         groups.onComponentAdded(C.componentTag, entity: entityID, in: &pool)
     }
 
+    @inlinable @inline(__always) @discardableResult
+    public func addGroup<each Owned: Component>(@QueryBuilder build: () -> BuiltQuery<repeat each Owned>) -> GroupSignature {
+        let query = build().composite
+        groups.add(Group(query: query), in: &pool)
+        return GroupSignature(query.querySignature)
+    }
+
+    @inlinable @inline(__always)
+    public func groupSize<each Owned: Component>(@QueryBuilder query: () -> BuiltQuery<repeat each Owned>) -> Int? {
+        groups.groupSize(GroupSignature(query().composite.querySignature))
+    }
+
+    @inlinable @inline(__always)
+    public func groupSize(_ signature: GroupSignature) -> Int? {
+        groups.groupSize(signature)
+    }
+
+    @inlinable @inline(__always)
+    public func removeGroup<each Owned: Component>(@QueryBuilder query: () -> BuiltQuery<repeat each Owned>) {
+        groups.remove(query().composite.querySignature)
+    }
+
     @inlinable @inline(__always)
     public func remove(_ componentTag: ComponentTag, from entityID: Entity.ID) {
         guard isAlive(entityID) else { return }

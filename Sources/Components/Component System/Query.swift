@@ -15,7 +15,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     /// Includes all components where this query reads from their storage. This excludes writes.
     @inline(__always)
-    public let readSignature: ComponentSignature
+    public let readOnlySignature: ComponentSignature
 
     /// Includes all components where this query writes to their storage.
     @inline(__always)
@@ -24,6 +24,9 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     /// Includes all components where this query ignores contained entities.
     @inline(__always)
     public let excludedSignature: ComponentSignature
+
+    @inline(__always)
+    public let querySignature: QuerySignature
 
     @inline(__always)
     let hash: QueryHash
@@ -36,9 +39,14 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         self.backstageComponents = backstageComponents
         self.excludedComponents = excludedComponents
         self.signature = Self.makeSignature(backstageComponents: backstageComponents)
-        self.readSignature = Self.makeReadSignature(backstageComponents: backstageComponents)
+        self.readOnlySignature = Self.makeReadSignature(backstageComponents: backstageComponents)
         self.writeSignature = Self.makeWriteSignature()
         self.excludedSignature = Self.makeExcludedSignature(excludedComponents)
+        self.querySignature = QuerySignature(
+            write: writeSignature,
+            readOnly: readOnlySignature,
+            excluded: excludedSignature
+        )
         self.hash = QueryHash(include: signature, exclude: excludedSignature)
     }
 

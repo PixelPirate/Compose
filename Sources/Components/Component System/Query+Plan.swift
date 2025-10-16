@@ -25,7 +25,7 @@ extension Query {
     public var metadata: QueryMetadata {
         QueryMetadata(
             signature: signature,
-            readSignature: readSignature,
+            readSignature: readOnlySignature,
             writeSignature: writeSignature,
             excludedSignature: excludedSignature
         )

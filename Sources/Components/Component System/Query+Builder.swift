@@ -6,6 +6,7 @@
 //
 
 public struct BuiltQuery<each T: Component & ComponentResolving> {
+    @usableFromInline
     let composite: Query<repeat each T>
 }
 

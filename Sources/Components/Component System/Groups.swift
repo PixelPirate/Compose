@@ -16,12 +16,29 @@ struct Groups {
 
     private var storage = Storage()
 
+    @usableFromInline
     mutating func add(_ group: some GroupProtocol, in pool: inout ComponentPool) {
         if !isKnownUniquelyReferenced(&storage) {
             storage = storage.copy()
         }
         storage.groups.append(group)
         group.rebuild(in: &pool)
+    }
+
+    @usableFromInline
+    func groupSize(_ signature: GroupSignature) -> Int? {
+        return storage.groups.first(where: { $0.signature == signature })?.size
+    }
+
+    @usableFromInline
+    mutating func remove(_ signature: QuerySignature) {
+        if !isKnownUniquelyReferenced(&storage) {
+            storage = storage.copy()
+        }
+        let groupSignature = GroupSignature(signature)
+        storage.groups.removeAll {
+            $0.signature == groupSignature
+        }
     }
 
     @usableFromInline
@@ -138,10 +155,15 @@ extension AnyComponentArray {
 
 // MARK: - Group
 
+@usableFromInline
 protocol GroupProtocol {
     func rebuild(in pool: inout ComponentPool)
     func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool)
     func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool)
+
+    var signature: GroupSignature { get }
+
+    var size: Int { get }
 }
 
 /// Global registry of which component is already owned by which group (to avoid conflicting orderings).
@@ -154,9 +176,10 @@ public final class Group<each Owned: Component>: GroupProtocol {
     private let primary: ComponentTag
     private let owned: Set<ComponentTag>
     public let ownedSignature: ComponentSignature
+    public let signature: GroupSignature
 
     /// Contains owned, backstage and excluded components.
-    public let fullSignature: ComponentSignature
+    public let fullSignature: ComponentSignature // TODO: This is incorrect. E.g.: "Own A, B, Exclude X, Y" and "Own X, Y, Exclude A, B" must both be supported.
 
     // Membership filter (derived from a Query or passed explicitly)
     private let backstageSignature: ComponentSignature
@@ -196,6 +219,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
         backstageComponents = query.backstageComponents
         excludedComponents = query.excludedComponents
         fullSignature = query.signature.union(query.excludedSignature)
+        signature = GroupSignature(query.querySignature)
     }
     
     public convenience init(@QueryBuilder query: () -> BuiltQuery<repeat each Owned>) {

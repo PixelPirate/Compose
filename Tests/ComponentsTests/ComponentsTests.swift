@@ -861,17 +861,15 @@ public struct Material: Component {
     let _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero)) // lacks Material
 
     // Build a group that owns Transform + Gravity, requires Material, excludes RigidBody
-    let group = Group {
+    // Rebuild group: only e1 and e5 should be packed in front, in the order dictated by primary (Transform)
+    let signature = coordinator.addGroup {
         Transform.self
         Gravity.self
         With<Material>.self
         Without<RigidBody>.self
     }
 
-    // Rebuild group: only e1 and e5 should be packed in front, in the order dictated by primary (Transform)
-    group.rebuild(in: &coordinator.pool)
-
-    #expect(group.size == 2)
+    #expect(coordinator.groupSize(signature) == 2)
 
     // Verify primary (Transform) packed prefix order == [e1, e5]
     let primaryArray = coordinator.pool[Transform.self]
@@ -895,20 +893,17 @@ public struct Material: Component {
     let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
 
     // Build a group that owns Transform + Gravity, requires Material, excludes RigidBody
-    let group = Group {
+    // Rebuild group: only e1 and e5 should be packed in front, in the order dictated by primary (Transform)
+    let signature = coordinator.addGroup {
         Transform.self
         With<Material>.self
     }
 
-    // Rebuild group: only e1 and e5 should be packed in front, in the order dictated by primary (Transform)
-    group.rebuild(in: &coordinator.pool)
-
-    #expect(group.size == 0)
+    #expect(coordinator.groupSize(signature) == 0)
 
     coordinator.add(Material(), to: e1)
-    group.onComponentAdded(Material.componentTag, entity: e1, in: &coordinator.pool)
 
-    #expect(group.size == 1)
+    #expect(coordinator.groupSize(signature) == 1)
 }
 
 @Test func groupRebuildOnExcludeAdded() throws {
@@ -918,20 +913,17 @@ public struct Material: Component {
     let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
 
     // Build a group that owns Transform + Gravity, requires Material, excludes RigidBody
-    let group = Group {
+    // Rebuild group: only e1 and e5 should be packed in front, in the order dictated by primary (Transform)
+    let signature = coordinator.addGroup {
         Transform.self
         Without<Material>.self
     }
 
-    // Rebuild group: only e1 and e5 should be packed in front, in the order dictated by primary (Transform)
-    group.rebuild(in: &coordinator.pool)
-
-    #expect(group.size == 1)
+    #expect(coordinator.groupSize(signature) == 1)
 
     coordinator.add(Material(), to: e1)
-    group.onComponentAdded(Material.componentTag, entity: e1, in: &coordinator.pool)
 
-    #expect(group.size == 0)
+    #expect(coordinator.groupSize(signature) == 0)
 }
 
 @Test func groupAddOwnedSwapsInAndMirrors() throws {
@@ -941,21 +933,19 @@ public struct Material: Component {
     let eA = coordinator.spawn(Gravity(force: .zero), Material()) // has Gravity+Material
     let eB = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material()) // existing match
 
-    let group = Group {
+    let signature = coordinator.addGroup {
         Transform.self
         Gravity.self
         With<Material>.self
         Without<RigidBody>.self
     }
 
-    group.rebuild(in: &coordinator.pool)
-    #expect(group.size == 1)
+    #expect(coordinator.groupSize(signature) == 1)
 
     // Add Transform (owned) to eA -> should swap into packed prefix at index 1 in primary and mirror to Gravity
     coordinator.add(Transform(position: .zero, rotation: .zero, scale: .zero), to: eA)
-    group.onComponentAdded(Transform.componentTag, entity: eA, in: &coordinator.pool)
 
-    #expect(group.size == 2)
+    #expect(coordinator.groupSize(signature) == 2)
 
     // Check primary order contains eB then eA (based on existing primary order and swap)
     let primaryArray = coordinator.pool[Transform.self]
@@ -980,21 +970,19 @@ public struct Material: Component {
     let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material())
     let e2 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material())
 
-    let group = Group {
+    let signature = coordinator.addGroup {
         Transform.self
         Gravity.self
         With<Material>.self
         Without<RigidBody>.self
     }
 
-    group.rebuild(in: &coordinator.pool)
-    #expect(group.size == 2)
+    #expect(coordinator.groupSize(signature) == 2)
 
     // Remove an OWNED component (Gravity) from e1 -> should be swapped out of packed prefix
-    group.onWillRemoveComponent(Gravity.componentTag, entity: e1, in: &coordinator.pool)
     coordinator.remove(Gravity.self, from: e1)
 
-    #expect(group.size == 1)
+    #expect(coordinator.groupSize(signature) == 1)
 
     // After removal, e2 should occupy index 0 in both storages
     let primaryArray = coordinator.pool[Transform.self]
@@ -1015,21 +1003,19 @@ public struct Material: Component {
     let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material())
     let e2 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material())
 
-    let group = Group {
+    let signature = coordinator.addGroup {
         Transform.self
         Gravity.self
         With<Material>.self
         Without<RigidBody>.self
     }
 
-    group.rebuild(in: &coordinator.pool)
-    #expect(group.size == 2)
+    #expect(coordinator.groupSize(signature) == 2)
 
     // Remove an OWNED component (Gravity) from e1 -> should be swapped out of packed prefix
-    group.onWillRemoveComponent(Transform.componentTag, entity: e1, in: &coordinator.pool)
     coordinator.remove(Transform.self, from: e1)
 
-    #expect(group.size == 1)
+    #expect(coordinator.groupSize(signature) == 1)
 
     // After removal, e2 should occupy index 0 in both storages
     let primaryArray = coordinator.pool[Transform.self]

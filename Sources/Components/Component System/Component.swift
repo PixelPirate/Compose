@@ -41,6 +41,41 @@ public extension ComponentResolving where Self: Component, ResolvedType == Self,
     }
 }
 
+public struct QuerySignature: Hashable, Sendable {
+    @usableFromInline
+    let write: ComponentSignature
+    @usableFromInline
+    let readOnly: ComponentSignature
+    @usableFromInline
+    let excluded: ComponentSignature
+
+    @inlinable
+    public init(write: ComponentSignature, readOnly: ComponentSignature, excluded: ComponentSignature) {
+        self.write = write
+        self.readOnly = readOnly
+        self.excluded = excluded
+    }
+}
+
+public struct GroupSignature: Hashable, Sendable {
+    @usableFromInline
+    let contained: ComponentSignature
+    @usableFromInline
+    let excluded: ComponentSignature
+
+    @inlinable
+    public init(contained: ComponentSignature, excluded: ComponentSignature) {
+        self.contained = contained
+        self.excluded = excluded
+    }
+
+    @inlinable
+    public init(_ querySignature: QuerySignature) {
+        contained = querySignature.write.union(querySignature.readOnly)
+        excluded = querySignature.excluded
+    }
+}
+
 public struct ComponentSignature: Hashable, Sendable, CustomDebugStringConvertible {
     @usableFromInline
     var rawHashValue: BitSet
