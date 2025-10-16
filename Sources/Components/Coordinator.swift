@@ -150,7 +150,7 @@ public final class Coordinator {
         defer {
             worldVersion &+= 1
         }
-        groups.onComponentRemoved(componentTag, entity: entityID, in: &pool)
+        groups.onWillRemoveComponent(componentTag, entity: entityID, in: &pool)
         pool.remove(componentTag, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
@@ -162,7 +162,7 @@ public final class Coordinator {
         defer {
             worldVersion &+= 1
         }
-        groups.onComponentRemoved(C.componentTag, entity: entityID, in: &pool)
+        groups.onWillRemoveComponent(C.componentTag, entity: entityID, in: &pool)
         pool.remove(componentType, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
@@ -176,8 +176,7 @@ public final class Coordinator {
         }
         indices.free(id: entityID)
         for componentTag in self[signatureFor: entityID.slot].tags {
-            // TODO: Check if before or after pool.remove
-            groups.onComponentRemoved(componentTag, entity: entityID, in: &pool)
+            groups.onWillRemoveComponent(componentTag, entity: entityID, in: &pool)
         }
         pool.remove(entityID)
         entitySignatures[entityID.slot.rawValue] = ComponentSignature()

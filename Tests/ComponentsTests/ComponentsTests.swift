@@ -849,7 +849,7 @@ public struct Material: Component {
     }
 }
 
-@Test func group_rebuild_mirrors_primary_permutation() throws {
+@Test func groupRebuildMirrorsPrimary() throws {
     let coordinator = Coordinator()
 
     // Create entities with various component combos
@@ -888,7 +888,7 @@ public struct Material: Component {
     #expect(gravityKeys[1] == e5.slot)
 }
 
-@Test func group_rebuild_on_backstage_added() throws {
+@Test func groupRebuildOnBackstageAdded() throws {
     let coordinator = Coordinator()
 
     // Create entities with various component combos
@@ -911,7 +911,7 @@ public struct Material: Component {
     #expect(group.size == 1)
 }
 
-@Test func group_rebuild_on_exclude_added() throws {
+@Test func groupRebuildOnExcludeAdded() throws {
     let coordinator = Coordinator()
 
     // Create entities with various component combos
@@ -934,7 +934,7 @@ public struct Material: Component {
     #expect(group.size == 0)
 }
 
-@Test func group_incremental_add_owned_swaps_in_and_mirrors() throws {
+@Test func groupAddOwnedSwapsInAndMirrors() throws {
     let coordinator = Coordinator()
 
     // Prepare an entity that will become a match when we add an OWNED component (Transform)
@@ -973,7 +973,7 @@ public struct Material: Component {
     #expect(gravityKeys[1] == eA.slot)
 }
 
-@Test func group_incremental_remove_swaps_out_and_mirrors() throws {
+@Test func groupRemoveSwapsOutAndMirrors() throws {
     let coordinator = Coordinator()
 
     // Two matching entities
@@ -991,8 +991,8 @@ public struct Material: Component {
     #expect(group.size == 2)
 
     // Remove an OWNED component (Gravity) from e1 -> should be swapped out of packed prefix
+    group.onWillRemoveComponent(Gravity.componentTag, entity: e1, in: &coordinator.pool)
     coordinator.remove(Gravity.self, from: e1)
-    group.onComponentRemoved(Gravity.componentTag, entity: e1, in: &coordinator.pool)
 
     #expect(group.size == 1)
 
@@ -1008,7 +1008,7 @@ public struct Material: Component {
     #expect(gravityKeys[0] == e2.slot)
 }
 
-@Test func group_incremental_remove_primary_swaps_out_and_mirrors() throws {
+@Test func groupRemovePrimarySwapsOutAndMirrors() throws {
     let coordinator = Coordinator()
 
     // Two matching entities
@@ -1026,8 +1026,8 @@ public struct Material: Component {
     #expect(group.size == 2)
 
     // Remove an OWNED component (Gravity) from e1 -> should be swapped out of packed prefix
+    group.onWillRemoveComponent(Transform.componentTag, entity: e1, in: &coordinator.pool)
     coordinator.remove(Transform.self, from: e1)
-    group.onComponentRemoved(Transform.componentTag, entity: e1, in: &coordinator.pool)
 
     #expect(group.size == 1)
 
