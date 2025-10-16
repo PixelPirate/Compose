@@ -3,13 +3,13 @@ import Foundation
 @usableFromInline
 struct Groups {
     final class Storage {
-        var groups: [any GroupProtocol]
+        var groups: [GroupSignature: any GroupProtocol]
 
         func copy() -> Storage {
             Storage(groups: groups)
         }
 
-        init(groups: [any GroupProtocol] = []) {
+        init(groups: [GroupSignature: any GroupProtocol] = [:]) {
             self.groups = groups
         }
     }
@@ -21,13 +21,21 @@ struct Groups {
         if !isKnownUniquelyReferenced(&storage) {
             storage = storage.copy()
         }
-        storage.groups.append(group)
+        storage.groups[group.signature] = group
         group.rebuild(in: &pool)
     }
 
     @usableFromInline
     func groupSize(_ signature: GroupSignature) -> Int? {
-        return storage.groups.first(where: { $0.signature == signature })?.size
+        storage.groups[signature]?.size
+    }
+
+    @usableFromInline
+    func groupSlots(_ signature: GroupSignature, in pool: inout ComponentPool) -> ContiguousArray<SlotIndex>? {
+        guard let primary = storage.groups[signature]?.primary else {
+            return nil
+        }
+        return pool.components[primary]?.componentsToEntites
     }
 
     @usableFromInline
@@ -36,21 +44,19 @@ struct Groups {
             storage = storage.copy()
         }
         let groupSignature = GroupSignature(signature)
-        storage.groups.removeAll {
-            $0.signature == groupSignature
-        }
+        storage.groups.removeValue(forKey: groupSignature)
     }
 
     @usableFromInline
     func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
-        for group in storage.groups {
+        for group in storage.groups.values {
             group.onComponentAdded(tag, entity: entity, in: &pool)
         }
     }
 
     @usableFromInline
     func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
-        for group in storage.groups {
+        for group in storage.groups.values {
             group.onWillRemoveComponent(tag, entity: entity, in: &pool)
         }
     }
@@ -164,6 +170,7 @@ protocol GroupProtocol {
     var signature: GroupSignature { get }
 
     var size: Int { get }
+    var primary: ComponentTag { get }
 }
 
 /// Global registry of which component is already owned by which group (to avoid conflicting orderings).
@@ -173,7 +180,7 @@ nonisolated(unsafe) private var _ownedTags = ComponentSignature()
 /// into a contiguous prefix of the primary component's dense storage.
 public final class Group<each Owned: Component>: GroupProtocol {
     // All owned tags, including Primary and the rest of the pack
-    private let primary: ComponentTag
+    public let primary: ComponentTag
     private let owned: Set<ComponentTag>
     public let ownedSignature: ComponentSignature
     public let signature: GroupSignature
@@ -272,7 +279,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
         // Find the concrete primary owned type
         var handledPrimary = false
-        for ownedComponentType in repeat (each Owned).self {
+        for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
             handledPrimary = true
             primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
@@ -301,7 +308,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
                             primarySet.swapDenseAt(write, j)
 
                             // Mirror to all other owned storages using packed-prefix target index
-                            for otherOwnedType in repeat (each Owned).self {
+                            for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                                 if otherOwnedType.componentTag == self.primary { continue }
                                 guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
                                 otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
@@ -332,7 +339,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
         guard fullSignature.contains(tag), var primaryArray = pool.components[primary] else { return }
 
         // Find the concrete primary owned type
-        for ownedComponentType in repeat (each Owned).self {
+        for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
             primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
                 guard let idx = primarySet.denseIndex(for: entity.slot) else { return }
@@ -345,7 +352,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
                         primarySet.swapDenseAt(idx, last)
 
-                        for otherOwnedType in repeat (each Owned).self {
+                        for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                             if otherOwnedType.componentTag == self.primary { continue }
                             guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
                             otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
@@ -365,7 +372,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
                         primarySet.swapDenseAt(idx, insertIndex)
 
-                        for otherOwnedType in repeat (each Owned).self {
+                        for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                             if otherOwnedType.componentTag == self.primary { continue }
                             guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
                             otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
@@ -391,7 +398,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
         guard var primaryArray = pool.components[primary] else { return }
 
         // Find the concrete primary owned type
-        for ownedComponentType in repeat (each Owned).self {
+        for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
             primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
                 guard let idx = primarySet.denseIndex(for: entity.slot) else { return }
@@ -406,7 +413,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
                             primarySet.swapDenseAt(idx, insertIndex)
 
-                            for otherOwnedType in repeat (each Owned).self {
+                            for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                                 if otherOwnedType.componentTag == self.primary { continue }
                                 guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
                                 otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
@@ -428,7 +435,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
                         primarySet.swapDenseAt(idx, last)
 
-                        for otherOwnedType in repeat (each Owned).self {
+                        for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                             if otherOwnedType.componentTag == self.primary { continue }
                             guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
                             otherArray._withMutableSparseSet(otherOwnedType) { otherSet in

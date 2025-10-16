@@ -70,6 +70,12 @@ extension Query {
 
     @usableFromInline @inline(__always)
     internal func getCachedPreFilteredSlots(_ coordinator: Coordinator) -> ContiguousArray<SlotIndex> {
+        // If there is a group matching this query, then the slots are just the entities of the primary component
+        let groupSignature = GroupSignature(querySignature)
+        if let slots = coordinator.groupSlots(groupSignature) {
+            return slots
+        }
+
         coordinator.slotsQueryCacheLock.lock()
         if
             let cached = coordinator.slotsQueryCache[hash],

@@ -162,6 +162,11 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
+    public func groupSlots(_ signature: GroupSignature) -> ContiguousArray<SlotIndex>? {
+        groups.groupSlots(signature, in: &pool)
+    }
+
+    @inlinable @inline(__always)
     public func removeGroup<each Owned: Component>(@QueryBuilder query: () -> BuiltQuery<repeat each Owned>) {
         groups.remove(query().composite.querySignature)
     }

@@ -112,8 +112,34 @@ extension Tag {
                 transform.position.x += gravity.force.x
             }
         }
+
+        let groupDuration = clock.measure {
+            coordinator.addGroup {
+                Write<Transform>.self
+                Gravity.self
+            }
+        }
+
+        let duration2_1 = clock.measure {
+            query(preloaded: coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration2_2 = clock.measure {
+            query(preloaded: coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration2_3 = clock.measure {
+            query(preloaded: coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+
         //~0.012, 0.007, 0.007 seconds
-        print(duration1, duration2, duration3)
+        print("Pre-Group:", duration1, duration2, duration3)
+        print("Group-Build:", groupDuration)
+        print("Post-Group:", duration2_1, duration2_2, duration2_3)
     }
 
     @Test func testPerformanceSimple() throws {
