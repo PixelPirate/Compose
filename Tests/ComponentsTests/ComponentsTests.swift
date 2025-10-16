@@ -961,3 +961,7 @@ public struct Material: Component {
     #expect(gravityKeys.count >= 1)
     #expect(gravityKeys[0] == e2.slot)
 }
+@Test func testBitSetIteration() {
+    let components = ComponentSignature(Transform.componentTag, Material.componentTag, Gravity.componentTag)
+    #expect(Set(components.tags) == Set([Transform.componentTag, Material.componentTag, Gravity.componentTag]))
+}

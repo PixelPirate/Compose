@@ -133,6 +133,14 @@ public struct ComponentSignature: Hashable, Sendable, CustomDebugStringConvertib
     public var debugDescription: String {
         "ComponentSignature(bitCount: \(rawHashValue.bitCount), words: \(rawHashValue.words)"
     }
+
+    @usableFromInline
+    var tags: AnyIterator<ComponentTag> {
+        let numberIterator = rawHashValue.numbers
+        return AnyIterator {
+            numberIterator.next().map(ComponentTag.init(rawValue:))
+        }
+    }
 }
 
 public struct ComponentTag: Hashable, Sendable {

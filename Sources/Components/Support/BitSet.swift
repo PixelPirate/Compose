@@ -60,6 +60,48 @@ public struct BitSet: Hashable, Sendable {
     }
 
     @inlinable @inline(__always)
+    public var numbers: AnyIterator<Int> {
+        var wordIndex = 0
+        var base = 0 // base bit index for the current word
+        let words = self.words // capture a snapshot
+        let wordCount = words.count
+        let limit = self.bitCount // logical number of bits in use
+        var currentWord: UInt64 = 0
+        return AnyIterator {
+            while true {
+                if currentWord != 0 {
+                    // Extract the lowest set bit
+                    let tz = currentWord.trailingZeroBitCount
+                    let bit = base + tz
+                    // Clear the extracted bit
+                    currentWord &= currentWord &- 1
+                    return bit
+                }
+                // Move to the next word
+                if wordIndex >= wordCount { return nil }
+                base = wordIndex << 6 // multiply by 64
+                // If we've passed the logical limit, we're done
+                if base >= limit { return nil }
+
+                currentWord = words[wordIndex]
+                wordIndex &+= 1
+
+                // Mask off bits beyond `limit` in the (potential) last word
+                let remaining = limit - base
+                if remaining < 64 {
+                    if remaining <= 0 {
+                        currentWord = 0
+                    } else {
+                        let mask: UInt64 = (1 &<< remaining) &- 1
+                        currentWord &= mask
+                    }
+                }
+                // Loop back to emit bits from currentWord (if any)
+            }
+        }
+    }
+
+    @inlinable @inline(__always)
     public func union(_ other: BitSet) -> BitSet {
         let maxWords = max(self.words.count, other.words.count)
         var newWords = ContiguousArray<UInt64>(repeating: 0, count: maxWords)
