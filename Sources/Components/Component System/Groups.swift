@@ -1,5 +1,44 @@
 import Foundation
 
+@usableFromInline
+struct Groups {
+    final class Storage {
+        var groups: [any GroupProtocol]
+
+        func copy() -> Storage {
+            Storage(groups: groups)
+        }
+
+        init(groups: [any GroupProtocol] = []) {
+            self.groups = groups
+        }
+    }
+
+    private var storage = Storage()
+
+    mutating func add(_ group: some GroupProtocol, in pool: inout ComponentPool) {
+        if !isKnownUniquelyReferenced(&storage) {
+            storage = storage.copy()
+        }
+        storage.groups.append(group)
+        group.rebuild(in: &pool)
+    }
+
+    @usableFromInline
+    func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
+        for group in storage.groups {
+            group.onComponentAdded(tag, entity: entity, in: &pool)
+        }
+    }
+
+    @usableFromInline
+    func onComponentRemoved(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
+        for group in storage.groups {
+            group.onComponentRemoved(tag, entity: entity, in: &pool)
+        }
+    }
+}
+
 // MARK: - SparseSet helpers for grouping (swap & index helpers)
 
 extension SparseSet {
@@ -99,16 +138,25 @@ extension AnyComponentArray {
 
 // MARK: - Group
 
+protocol GroupProtocol {
+    func rebuild(in pool: inout ComponentPool)
+    func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool)
+    func onComponentRemoved(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool)
+}
+
 /// Global registry of which component is already owned by which group (to avoid conflicting orderings).
 nonisolated(unsafe) private var _ownedTags = ComponentSignature()
 
 /// A high-performance "owned group" that packs all entities matching the required signature
 /// into a contiguous prefix of the primary component's dense storage.
-public final class Group<each Owned: Component> {
+public final class Group<each Owned: Component>: GroupProtocol {
     // All owned tags, including Primary and the rest of the pack
     private let primary: ComponentTag
     private let owned: Set<ComponentTag>
     public let ownedSignature: ComponentSignature
+
+    /// Contains owned, backstage and excluded components.
+    public let fullSignature: ComponentSignature
 
     // Membership filter (derived from a Query or passed explicitly)
     private let backstageSignature: ComponentSignature
@@ -144,6 +192,7 @@ public final class Group<each Owned: Component> {
         excludeSignature = query.excludedSignature
         backstageComponents = query.backstageComponents
         excludedComponents = query.excludedComponents
+        fullSignature = query.signature.union(query.excludedSignature)
     }
     
     public convenience init(@QueryBuilder query: () -> BuiltQuery<repeat each Owned>) {
@@ -237,7 +286,7 @@ public final class Group<each Owned: Component> {
     /// If the entity now matches the group, it is swapped into the packed prefix.
     public func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
         // Only proceed if the added tag is part of this group's owned set and primary exists
-        guard owned.contains(tag), var primaryArray = pool.components[primary] else { return }
+        guard fullSignature.contains(tag), var primaryArray = pool.components[primary] else { return }
 
         // Find the concrete primary owned type
         for ownedComponentType in repeat (each Owned).self {
@@ -273,6 +322,7 @@ public final class Group<each Owned: Component> {
     /// Incremental hook to be called when a component is **removed** from an entity.
     /// If the entity was part of the group, it is swapped out of the packed prefix.
     public func onComponentRemoved(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
+        guard self.fullSignature.contains(tag) else { return }
         // Primary must exist to reorder
         guard var primaryArray = pool.components[primary] else { return }
 

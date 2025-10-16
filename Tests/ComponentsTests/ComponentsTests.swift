@@ -888,6 +888,52 @@ public struct Material: Component {
     #expect(gravityKeys[1] == e5.slot)
 }
 
+@Test func group_rebuild_on_backstage_added() throws {
+    let coordinator = Coordinator()
+
+    // Create entities with various component combos
+    let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+
+    // Build a group that owns Transform + Gravity, requires Material, excludes RigidBody
+    let group = Group {
+        Transform.self
+        With<Material>.self
+    }
+
+    // Rebuild group: only e1 and e5 should be packed in front, in the order dictated by primary (Transform)
+    group.rebuild(in: &coordinator.pool)
+
+    #expect(group.size == 0)
+
+    coordinator.add(Material(), to: e1)
+    group.onComponentAdded(Material.componentTag, entity: e1, in: &coordinator.pool)
+
+    #expect(group.size == 1)
+}
+
+@Test func group_rebuild_on_exclude_added() throws {
+    let coordinator = Coordinator()
+
+    // Create entities with various component combos
+    let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+
+    // Build a group that owns Transform + Gravity, requires Material, excludes RigidBody
+    let group = Group {
+        Transform.self
+        Without<Material>.self
+    }
+
+    // Rebuild group: only e1 and e5 should be packed in front, in the order dictated by primary (Transform)
+    group.rebuild(in: &coordinator.pool)
+
+    #expect(group.size == 1)
+
+    coordinator.add(Material(), to: e1)
+    group.onComponentAdded(Material.componentTag, entity: e1, in: &coordinator.pool)
+
+    #expect(group.size == 0)
+}
+
 @Test func group_incremental_add_owned_swaps_in_and_mirrors() throws {
     let coordinator = Coordinator()
 
@@ -961,6 +1007,42 @@ public struct Material: Component {
     #expect(gravityKeys.count >= 1)
     #expect(gravityKeys[0] == e2.slot)
 }
+
+@Test func group_incremental_remove_primary_swaps_out_and_mirrors() throws {
+    let coordinator = Coordinator()
+
+    // Two matching entities
+    let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material())
+    let e2 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Material())
+
+    let group = Group {
+        Transform.self
+        Gravity.self
+        With<Material>.self
+        Without<RigidBody>.self
+    }
+
+    group.rebuild(in: &coordinator.pool)
+    #expect(group.size == 2)
+
+    // Remove an OWNED component (Gravity) from e1 -> should be swapped out of packed prefix
+    coordinator.remove(Transform.self, from: e1)
+    group.onComponentRemoved(Transform.componentTag, entity: e1, in: &coordinator.pool)
+
+    #expect(group.size == 1)
+
+    // After removal, e2 should occupy index 0 in both storages
+    let primaryArray = coordinator.pool[Transform.self]
+    let primaryKeys = primaryArray.componentsToEntites
+    #expect(primaryKeys.count >= 1)
+    #expect(primaryKeys[0] == e2.slot)
+
+    let gravityArray = coordinator.pool[Gravity.self]
+    let gravityKeys = gravityArray.componentsToEntites
+    #expect(gravityKeys.count >= 1)
+    #expect(gravityKeys[0] == e2.slot)
+}
+
 @Test func testBitSetIteration() {
     let components = ComponentSignature(Transform.componentTag, Material.componentTag, Gravity.componentTag)
     #expect(Set(components.tags) == Set([Transform.componentTag, Material.componentTag, Gravity.componentTag]))

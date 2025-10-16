@@ -47,6 +47,9 @@ public final class Coordinator {
     internal let slotsQueryCacheLock = OSAllocatedUnfairLock()
 
     @usableFromInline
+    var groups = Groups()
+
+    @usableFromInline
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline
@@ -138,6 +141,7 @@ public final class Coordinator {
         pool.append(component, for: entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].appending(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
+        groups.onComponentAdded(C.componentTag, entity: entityID, in: &pool)
     }
 
     @inlinable @inline(__always)
@@ -146,6 +150,7 @@ public final class Coordinator {
         defer {
             worldVersion &+= 1
         }
+        groups.onComponentRemoved(componentTag, entity: entityID, in: &pool)
         pool.remove(componentTag, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
@@ -157,6 +162,7 @@ public final class Coordinator {
         defer {
             worldVersion &+= 1
         }
+        groups.onComponentRemoved(C.componentTag, entity: entityID, in: &pool)
         pool.remove(componentType, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
@@ -169,6 +175,10 @@ public final class Coordinator {
             worldVersion &+= 1
         }
         indices.free(id: entityID)
+        for componentTag in self[signatureFor: entityID.slot].tags {
+            // TODO: Check if before or after pool.remove
+            groups.onComponentRemoved(componentTag, entity: entityID, in: &pool)
+        }
         pool.remove(entityID)
         entitySignatures[entityID.slot.rawValue] = ComponentSignature()
     }
