@@ -72,27 +72,24 @@ extension Tag {
         let coordinator = Coordinator()
 
         let setup = clock.measure {
-            for _ in 0...500_000 {
-                coordinator.spawn(
-                     Gravity(force: Vector3(x: 1, y: 1, z: 1))
-                )
-            }
-            for _ in 0...500_000 {
-                coordinator.spawn(
-                    Transform(position: .zero, rotation: .zero, scale: .zero),
-                    Gravity(force: Vector3(x: 1, y: 1, z: 1))
-                )
-            }
-            for _ in 0...500_000 {
-                coordinator.spawn(
-                    Transform(position: .zero, rotation: .zero, scale: .zero)
-                )
-            }
-            for _ in 0...500_000 {
-                coordinator.spawn(
-                    Transform(position: .zero, rotation: .zero, scale: .zero),
-                    Gravity(force: Vector3(x: 1, y: 1, z: 1))
-                )
+            for _ in 0..<2_000_000 {
+                switch Int.random(in: 0...2) {
+                case 0:
+                    coordinator.spawn(
+                        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                    )
+                case 1:
+                    coordinator.spawn(
+                        Transform(position: .zero, rotation: .zero, scale: .zero),
+                        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                    )
+                case 2:
+                    coordinator.spawn(
+                        Transform(position: .zero, rotation: .zero, scale: .zero)
+                    )
+                default:
+                    break
+                }
             }
         }
         print("Setup:", setup)
@@ -109,6 +106,22 @@ extension Tag {
         }
         let duration3 = clock.measure {
             query(preloaded: coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+
+        let duration3_1 = clock.measure {
+            query(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration3_2 = clock.measure {
+            query(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration3_3 = clock.measure {
+            query(coordinator) { transform, gravity in
                 transform.position.x += gravity.force.x
             }
         }
@@ -136,10 +149,69 @@ extension Tag {
             }
         }
 
+        let duration5_1 = clock.measure {
+            query.performGroup(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration5_2 = clock.measure {
+            query.performGroup(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration5_3 = clock.measure {
+            query.performGroup(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+
+        let duration4_1 = clock.measure {
+            query(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration4_2 = clock.measure {
+            query(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+        let duration4_3 = clock.measure {
+            query(coordinator) { transform, gravity in
+                transform.position.x += gravity.force.x
+            }
+        }
+
+        let setup2 = clock.measure {
+            for _ in 0..<2_000_000 {
+                switch Int.random(in: 0...2) {
+                case 0:
+                    coordinator.spawn(
+                        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                    )
+                case 1:
+                    coordinator.spawn(
+                        Transform(position: .zero, rotation: .zero, scale: .zero),
+                        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                    )
+                case 2:
+                    coordinator.spawn(
+                        Transform(position: .zero, rotation: .zero, scale: .zero)
+                    )
+                default:
+                    break
+                }
+            }
+        }
+        print("Setup:", setup)
+        print("Post-Group Setup:", setup2)
+
         //~0.012, 0.007, 0.007 seconds
+        print("Pre-Group Perform:", duration3_1, duration3_2, duration3_3)
         print("Pre-Group:", duration1, duration2, duration3)
         print("Group-Build:", groupDuration)
         print("Post-Group:", duration2_1, duration2_2, duration2_3)
+        print("Post-Group Specialised:", duration5_1, duration5_2, duration5_3)
+        print("Post-Group Perform:", duration4_1, duration4_2, duration4_3)
     }
 
     @Test func testPerformanceSimple() throws {

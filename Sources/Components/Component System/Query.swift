@@ -437,6 +437,30 @@ extension Query {
             }
         }
     }
+
+    @inlinable @inline(__always)
+    public func performGroup(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        let context = context.queryContext
+        let groupSignature = GroupSignature(querySignature)
+        guard let slots = context.coordinator.groupSlots(groupSignature) else {
+            return
+        }
+        withUnsafePointer(to: context.coordinator.indices) { indices in
+            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                for slot in slots {
+                    let id = Entity.ID(
+                        slot: SlotIndex(rawValue: slot.rawValue),
+                        generation: indices.pointee[generationFor: slot]
+                    )
+                    // TODO: This needs a specialised `makeResolved`, we cant to avoid the
+                    //       buffer[indices[id.slot.rawValue] dance for groups, we would like
+                    //       to just run over the dense storage and synthesise the EntityID
+                    //       during the iteration.
+                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                }
+            }
+        }
+    }
 }
 
 extension Query {

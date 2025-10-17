@@ -162,7 +162,7 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
-    public func groupSlots(_ signature: GroupSignature) -> ContiguousArray<SlotIndex>? {
+    public func groupSlots(_ signature: GroupSignature) -> ArraySlice<SlotIndex>? {
         groups.groupSlots(signature, in: &pool)
     }
 

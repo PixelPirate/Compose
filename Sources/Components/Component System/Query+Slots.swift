@@ -72,9 +72,8 @@ extension Query {
     internal func getCachedPreFilteredSlots(_ coordinator: Coordinator) -> ArraySlice<SlotIndex> {
         // If there is a group matching this query, then the slots are just the entities of the primary component
         let groupSignature = GroupSignature(querySignature)
-        // TODO: Only one lookup
-        if let slots = coordinator.groupSlots(groupSignature), let groupSize = coordinator.groupSize(groupSignature) {
-            return slots[..<groupSize]
+        if let slots = coordinator.groupSlots(groupSignature) {
+            return slots
         }
 
         coordinator.slotsQueryCacheLock.lock()

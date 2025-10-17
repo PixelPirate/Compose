@@ -31,11 +31,11 @@ struct Groups {
     }
 
     @usableFromInline
-    func groupSlots(_ signature: GroupSignature, in pool: inout ComponentPool) -> ContiguousArray<SlotIndex>? {
-        guard let primary = storage.groups[signature]?.primary else {
+    func groupSlots(_ signature: GroupSignature, in pool: inout ComponentPool) -> ArraySlice<SlotIndex>? {
+        guard let group = storage.groups[signature] else {
             return nil
         }
-        return pool.components[primary]?.componentsToEntites
+        return pool.components[group.primary]?.componentsToEntites[..<group.size]
     }
 
     @usableFromInline
@@ -86,11 +86,8 @@ extension AnyComponentArray {
         _ body: (inout ComponentArray<C>) throws -> R
     ) rethrows -> R {
         // This mirrors how withBuffer is implemented internally.
-        let typed = base as! ComponentArrayBox<C>
-        var ref = typed.base
-        let result = try body(&ref)
-        typed.base = ref
-        return result
+        let box = Unmanaged.passUnretained(base as! ComponentArrayBox<C>)
+        return try body(&box.takeUnretainedValue().base)
     }
 
     /// Execute a closure with a read-only view of the "dense index -> SlotIndex" mapping.
