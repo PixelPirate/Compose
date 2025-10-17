@@ -274,61 +274,65 @@ public final class Group<each Owned: Component>: GroupProtocol {
     /// Build (or rebuild) the contiguous partition for this group.
     /// This partitions the primary component's dense storage so that all matching entities are in [0 ..< size).
     public func rebuild(in pool: inout ComponentPool) {
-        // Operate on primary storage only; mirror swaps to others
+        // Access primary storage
         guard var primaryArray = pool.components[primary] else { return }
 
-        // Find the concrete primary owned type
+        // Find the concrete primary owned type and run the partition on it
         var handledPrimary = false
         for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
             handledPrimary = true
+
+            // 1) Partition primary in a single pass and record swaps
+            var swapLog: [(from: Int, to: Int, slotAtFrom: SlotIndex)] = []
+
             primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
-                var write = 0
                 let total = primarySet.count
-                while write < total {
-                    let slotAtWrite = primarySet.keys[write]
-                    if pool.matches(slot: slotAtWrite, query: query) {
+                var write = 0
+
+                // Single-pass partition
+                var read = 0
+                while read < total {
+                    let slot = primarySet.keys[read]
+                    if pool.matches(slot: slot, query: query) {
+                        if read != write {
+                            // Record the slot at 'read' before swapping, so we can mirror the move
+                            let slotAtFrom = primarySet.keys[read]
+                            primarySet.swapDenseAt(read, write)
+                            swapLog.append((from: read, to: write, slotAtFrom: slotAtFrom))
+                        }
                         write &+= 1
-                    } else {
-                        var read = write &+ 1
-                        var foundIndex: Int? = nil
-                        while read < total {
-                            let slot = primarySet.keys[read]
-                            if pool.matches(slot: slot, query: query) {
-                                foundIndex = read
-                                break
-                            }
-                            read &+= 1
-                        }
-                        if let j = foundIndex {
-                            // Capture entity slots before swapping in primary
-                            let bSlot = primarySet.keys[j]
-
-                            // Swap in primary
-                            primarySet.swapDenseAt(write, j)
-
-                            // Mirror to all other owned storages using packed-prefix target index
-                            for otherOwnedType in repeat (each Owned).QueriedComponent.self {
-                                if otherOwnedType.componentTag == self.primary { continue }
-                                guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
-                                otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                                    // Move the matching entity `b` into the packed position `write`
-                                    if let bi = otherSet.denseIndex(for: bSlot) {
-                                        otherSet.swapDenseAt(bi, write)
-                                    }
-                                }
-                            }
-
-                            write &+= 1
-                        } else {
-                            break
-                        }
                     }
+                    read &+= 1
                 }
                 self.size = write
             }
-            break
+
+            // 2) Mirror the same swaps to all other owned storages in a separate pass
+            if !swapLog.isEmpty {
+                for otherOwnedType in repeat (each Owned).QueriedComponent.self {
+                    let tag = otherOwnedType.componentTag
+                    if tag == self.primary { continue }
+                    guard var otherArray = pool.components[tag] else { continue }
+
+                    otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
+                        // Replay the swaps on the other set
+                        for (from, to, slotAtFrom) in swapLog {
+                            // Find where the entity at 'slotAtFrom' currently is in 'otherSet'
+                            if let denseIndex = otherSet.denseIndex(for: slotAtFrom) {
+                                // Move it to 'to' to mirror primary
+                                if denseIndex != to {
+                                    otherSet.swapDenseAt(denseIndex, to)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            break // We handled the primary
         }
+
         if !handledPrimary { return }
     }
 
