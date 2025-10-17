@@ -27,6 +27,12 @@ public protocol ComponentResolving {
 
     @inlinable @inline(__always)
     static func makeReadOnlyResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> ReadOnlyResolvedType
+
+    @inlinable @inline(__always)
+    static func makeResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> ResolvedType
+
+    @inlinable @inline(__always)
+    static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> ReadOnlyResolvedType
 }
 
 public extension ComponentResolving where Self: Component, ResolvedType == Self, QueriedComponent == Self, ReadOnlyResolvedType == Self {
@@ -38,6 +44,16 @@ public extension ComponentResolving where Self: Component, ResolvedType == Self,
     @inlinable @inline(__always)
     static func makeReadOnlyResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> Self {
         access[entityID]
+    }
+
+    @inlinable @inline(__always)
+    static func makeResolvedDense(access: TypedAccess<QueriedComponent>, denseIndex: Int, entityID: Entity.ID) -> Self {
+        access[dense: denseIndex]
+    }
+
+    @inlinable @inline(__always)
+    static func makeReadOnlyResolvedDense(access: TypedAccess<QueriedComponent>, denseIndex: Int, entityID: Entity.ID) -> Self {
+        access[dense: denseIndex]
     }
 }
 

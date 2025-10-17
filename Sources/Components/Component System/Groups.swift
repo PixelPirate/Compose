@@ -2,7 +2,9 @@ import Foundation
 
 @usableFromInline
 struct Groups {
+    @usableFromInline
     final class Storage {
+        @usableFromInline
         var groups: [GroupSignature: any GroupProtocol]
 
         func copy() -> Storage {
@@ -14,7 +16,8 @@ struct Groups {
         }
     }
 
-    private var storage = Storage()
+    @usableFromInline
+    private(set) var storage = Storage()
 
     @usableFromInline
     mutating func add(_ group: some GroupProtocol, in pool: inout ComponentPool) {
@@ -59,6 +62,15 @@ struct Groups {
         for group in storage.groups.values {
             group.onWillRemoveComponent(tag, entity: entity, in: &pool)
         }
+    }
+}
+
+extension Groups {
+    /// Returns the primary tag and current size for a group signature if present.
+    @inlinable @inline(__always)
+    func primaryAndSize(_ signature: GroupSignature) -> (primary: ComponentTag, size: Int)? {
+        guard let group = storage.groups[signature] else { return nil }
+        return (group.primary, group.size)
     }
 }
 
@@ -177,7 +189,7 @@ nonisolated(unsafe) private var _ownedTags = ComponentSignature()
 /// into a contiguous prefix of the primary component's dense storage.
 public final class Group<each Owned: Component>: GroupProtocol {
     // All owned tags, including Primary and the rest of the pack
-    public let primary: ComponentTag
+    public private(set) var primary: ComponentTag
     private let owned: Set<ComponentTag>
     public let ownedSignature: ComponentSignature
     public let signature: GroupSignature
@@ -271,6 +283,51 @@ public final class Group<each Owned: Component>: GroupProtocol {
     /// Build (or rebuild) the contiguous partition for this group.
     /// This partitions the primary component's dense storage so that all matching entities are in [0 ..< size).
     public func rebuild(in pool: inout ComponentPool) {
+        // Dynamically select the primary as the smallest owned storage to minimize scan/swaps
+        var selectedPrimary: ComponentTag? = nil
+        var minCount: Int = .max
+        for tag in owned {
+            if let arr = pool.components[tag] {
+                let c = arr.componentsToEntites.count
+                if c < minCount {
+                    minCount = c
+                    selectedPrimary = tag
+                }
+            }
+        }
+        if let sp = selectedPrimary, sp != self.primary {
+            self.primary = sp
+        }
+
+        // Pre-resolve membership maps for required (owned + backstage) and excluded components
+        var requiredMaps: [ContiguousArray<Array.Index?>] = []
+        var excludedMaps: [ContiguousArray<Array.Index?>] = []
+
+        // Collect maps for all owned components (must be present)
+        for tag in owned {
+            guard let arr = pool.components[tag] else { return }
+            requiredMaps.append(arr.entityToComponents)
+        }
+        // Collect maps for all backstage components (also required)
+        for tag in backstageComponents {
+            guard let arr = pool.components[tag] else { return }
+            requiredMaps.append(arr.entityToComponents)
+        }
+        // Collect maps for all excluded components (optional presence; if present, entity is excluded)
+        for tag in excludedComponents {
+            if let arr = pool.components[tag] {
+                excludedMaps.append(arr.entityToComponents)
+            }
+        }
+
+        @inline(__always)
+        func passes(_ slot: SlotIndex) -> Bool {
+            let raw = slot.rawValue
+            for map in requiredMaps { if map[raw] == nil { return false } }
+            for map in excludedMaps { if map[raw] != nil { return false } }
+            return true
+        }
+
         // Access primary storage
         guard var primaryArray = pool.components[primary] else { return }
 
@@ -291,7 +348,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
                 var read = 0
                 while read < total {
                     let slot = primarySet.keys[read]
-                    if pool.matches(slot: slot, query: query) {
+                    if passes(slot) {
                         if read != write {
                             // Record the slot at 'read' before swapping, so we can mirror the move
                             let slotAtFrom = primarySet.keys[read]
@@ -466,3 +523,4 @@ public final class Group<each Owned: Component>: GroupProtocol {
         onWillRemoveComponent(C.componentTag, entity: entity, in: &pool)
     }
 }
+

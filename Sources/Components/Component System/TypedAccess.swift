@@ -54,12 +54,24 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     }
 
     @inlinable @inline(__always)
+    public subscript(dense denseIndex: Int) -> C.QueriedComponent {
+        _read { yield buffer[denseIndex] }
+        nonmutating _modify { yield &buffer[denseIndex] }
+    }
+
+    @inlinable @inline(__always)
+    public func accessDense(_ denseIndex: Int) -> SingleTypedAccess<C.QueriedComponent> {
+        SingleTypedAccess(buffer: buffer.baseAddress!.advanced(by: denseIndex))
+    }
+
+    @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
         SingleTypedAccess(buffer: buffer.baseAddress.unsafelyUnwrapped.advanced(by: indices[id.slot.rawValue].unsafelyUnwrapped))
     }
 
     @inlinable @inline(__always)
     public func optionalAccess(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent>? {
+        // TODO: Fix warning.
         guard id.slot.rawValue < indices.count, let index = indices[id.slot.rawValue] else {
             return nil
         }

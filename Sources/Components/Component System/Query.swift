@@ -461,6 +461,29 @@ extension Query {
             }
         }
     }
+
+    @inlinable @inline(__always)
+    public func performGroupDense(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
+        let context = context.queryContext
+        let groupSignature = GroupSignature(querySignature)
+        // Get the packed prefix slice of the primary dense keys
+        guard let slotsSlice = context.coordinator.groupSlots(groupSignature) else {
+            return
+        }
+        withUnsafePointer(to: context.coordinator.indices) { indices in
+            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                // Enumerate dense indices directly: 0..<size aligned across all owned storages
+                for (denseIndex, slot) in slotsSlice.enumerated() {
+                    let id = Entity.ID(
+                        slot: SlotIndex(rawValue: slot.rawValue),
+                        generation: 0
+                            //indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
+                    )
+                    handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
+                }
+            }
+        }
+    }
 }
 
 extension Query {

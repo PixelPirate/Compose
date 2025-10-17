@@ -92,7 +92,6 @@ extension Tag {
                 }
             }
         }
-        print("Setup:", setup)
 
         let duration1 = clock.measure {
             query(preloaded: coordinator) { transform, gravity in
@@ -150,17 +149,17 @@ extension Tag {
         }
 
         let duration5_1 = clock.measure {
-            query.performGroup(coordinator) { transform, gravity in
+            query.performGroupDense(coordinator) { transform, gravity in
                 transform.position.x += gravity.force.x
             }
         }
         let duration5_2 = clock.measure {
-            query.performGroup(coordinator) { transform, gravity in
+            query.performGroupDense(coordinator) { transform, gravity in
                 transform.position.x += gravity.force.x
             }
         }
         let duration5_3 = clock.measure {
-            query.performGroup(coordinator) { transform, gravity in
+            query.performGroupDense(coordinator) { transform, gravity in
                 transform.position.x += gravity.force.x
             }
         }
