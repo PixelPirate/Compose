@@ -313,10 +313,12 @@ public final class Group<each Owned: Component>: GroupProtocol {
             guard let arr = pool.components[tag] else { return }
             requiredMaps.append(arr.entityToComponents)
         }
-        // Collect maps for all excluded components (optional presence; if present, entity is excluded)
-        for tag in excludedComponents {
-            if let arr = pool.components[tag] {
-                excludedMaps.append(arr.entityToComponents)
+        // Collect maps for excluded components only if we actually exclude something
+        if !excludedComponents.isEmpty {
+            for tag in excludedComponents {
+                if let arr = pool.components[tag] {
+                    excludedMaps.append(arr.entityToComponents)
+                }
             }
         }
 
@@ -337,9 +339,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
             if ownedComponentType.componentTag != self.primary { continue }
             handledPrimary = true
 
-            // 1) Partition primary in a single pass and record swaps
-            var swapLog: [(from: Int, to: Int, slotAtFrom: SlotIndex)] = []
-
+            // 1) Partition primary in a single pass (no swap log needed)
             primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
                 let total = primarySet.count
                 var write = 0
@@ -350,10 +350,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
                     let slot = primarySet.keys[read]
                     if passes(slot) {
                         if read != write {
-                            // Record the slot at 'read' before swapping, so we can mirror the move
-                            let slotAtFrom = primarySet.keys[read]
                             primarySet.swapDenseAt(read, write)
-                            swapLog.append((from: read, to: write, slotAtFrom: slotAtFrom))
                         }
                         write &+= 1
                     }
@@ -362,23 +359,33 @@ public final class Group<each Owned: Component>: GroupProtocol {
                 self.size = write
             }
 
-            // 2) Mirror the same swaps to all other owned storages in a separate pass
-            if !swapLog.isEmpty {
+            // 2) Mirror the primary permutation to all other owned storages with a single-pass placement
+            if self.size > 0 {
+                // Capture the packed primary order for indices 0..<size
+                var primaryPacked: [SlotIndex] = []
+                primaryPacked.reserveCapacity(self.size)
+                primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
+                    var i = 0
+                    while i < self.size {
+                        primaryPacked.append(primarySet.keys[i])
+                        i &+= 1
+                    }
+                }
+
                 for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                     let tag = otherOwnedType.componentTag
                     if tag == self.primary { continue }
                     guard var otherArray = pool.components[tag] else { continue }
 
                     otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                        // Replay the swaps on the other set
-                        for (from, to, slotAtFrom) in swapLog {
-                            // Find where the entity at 'slotAtFrom' currently is in 'otherSet'
-                            if let denseIndex = otherSet.denseIndex(for: slotAtFrom) {
-                                // Move it to 'to' to mirror primary
-                                if denseIndex != to {
-                                    otherSet.swapDenseAt(denseIndex, to)
-                                }
+                        // For each desired position j, ensure the desired slot is at j if present
+                        var j = 0
+                        while j < self.size {
+                            let desiredSlot = primaryPacked[j]
+                            if let currentIndex = otherSet.denseIndex(for: desiredSlot), currentIndex != j {
+                                otherSet.swapDenseAt(currentIndex, j)
                             }
+                            j &+= 1
                         }
                     }
                 }
@@ -393,10 +400,28 @@ public final class Group<each Owned: Component>: GroupProtocol {
     /// Incremental hook to be called when a component is **added** to an entity.
     /// If the entity now matches the group, it is swapped into the packed prefix.
     public func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
-        // Only proceed if the added tag is part of this group's owned set and primary exists
+        // Only proceed if the added tag touches this group's signature and primary exists
         guard fullSignature.contains(tag), var primaryArray = pool.components[primary] else { return }
 
-        // Find the concrete primary owned type
+        // Pre-resolve membership maps as in rebuild (avoid simultaneous access to pool inside closure)
+        var requiredMaps: [ContiguousArray<Array.Index?>] = []
+        var excludedMaps: [ContiguousArray<Array.Index?>] = []
+        for t in owned { if let arr = pool.components[t] { requiredMaps.append(arr.entityToComponents) } }
+        for t in backstageComponents { if let arr = pool.components[t] { requiredMaps.append(arr.entityToComponents) } }
+        if !excludedComponents.isEmpty {
+            for t in excludedComponents { if let arr = pool.components[t] { excludedMaps.append(arr.entityToComponents) } }
+        }
+        @inline(__always)
+        func passes(_ slot: SlotIndex) -> Bool {
+            let raw = slot.rawValue
+            for m in requiredMaps { if m[raw] == nil { return false } }
+            for m in excludedMaps { if m[raw] != nil { return false } }
+            return true
+        }
+
+        // Defer mirroring swap to other owned storages until after we release primarySet
+        var pending: (slot: SlotIndex, targetIndex: Int)? = nil
+
         for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
             primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
@@ -407,44 +432,36 @@ public final class Group<each Owned: Component>: GroupProtocol {
                     if idx < size {
                         let last = size &- 1
                         let aSlot = primarySet.keys[idx]
-
                         primarySet.swapDenseAt(idx, last)
-
-                        for otherOwnedType in repeat (each Owned).QueriedComponent.self {
-                            if otherOwnedType.componentTag == self.primary { continue }
-                            guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
-                            otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                                if let ai = otherSet.denseIndex(for: aSlot) {
-                                    otherSet.swapDenseAt(ai, last)
-                                }
-                            }
-                        }
-
                         size = last
+                        pending = (slot: aSlot, targetIndex: last)
                     }
                 } else {
                     // If entity matches after addition and is not in packed prefix, swap it in
-                    if pool.matches(slot: entity.slot, query: query), idx >= size {
+                    if idx >= size, passes(entity.slot) {
                         let insertIndex = size
                         let aSlot = entity.slot
-
                         primarySet.swapDenseAt(idx, insertIndex)
-
-                        for otherOwnedType in repeat (each Owned).QueriedComponent.self {
-                            if otherOwnedType.componentTag == self.primary { continue }
-                            guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
-                            otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                                if let ai = otherSet.denseIndex(for: aSlot) {
-                                    otherSet.swapDenseAt(ai, insertIndex)
-                                }
-                            }
-                        }
-
                         size &+= 1
+                        pending = (slot: aSlot, targetIndex: insertIndex)
                     }
                 }
             }
             break
+        }
+
+        // Mirror the swap to all other owned storages outside the primary closure
+        if let p = pending {
+            for otherOwnedType in repeat (each Owned).QueriedComponent.self {
+                let tag = otherOwnedType.componentTag
+                if tag == self.primary { continue }
+                guard var otherArray = pool.components[tag] else { continue }
+                otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
+                    if let ci = otherSet.denseIndex(for: p.slot), ci != p.targetIndex {
+                        otherSet.swapDenseAt(ci, p.targetIndex)
+                    }
+                }
+            }
         }
     }
 
@@ -452,62 +469,60 @@ public final class Group<each Owned: Component>: GroupProtocol {
     /// If the entity was part of the group, it is swapped out of the packed prefix.
     public func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
         guard self.fullSignature.contains(tag) else { return }
-        // Primary must exist to reorder
         guard var primaryArray = pool.components[primary] else { return }
 
-        // Find the concrete primary owned type
+        // Pre-resolve required maps (for inclusion after excluded removal)
+        var requiredMaps: [ContiguousArray<Array.Index?>] = []
+        for t in owned { if let arr = pool.components[t] { requiredMaps.append(arr.entityToComponents) } }
+        for t in backstageComponents { if let arr = pool.components[t] { requiredMaps.append(arr.entityToComponents) } }
+        @inline(__always)
+        func hasAllRequired(_ slot: SlotIndex) -> Bool {
+            let raw = slot.rawValue
+            for m in requiredMaps { if m[raw] == nil { return false } }
+            return true
+        }
+
+        var pending: (slot: SlotIndex, targetIndex: Int)? = nil
+
         for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
             primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
                 guard let idx = primarySet.denseIndex(for: entity.slot) else { return }
 
                 if excludedComponents.contains(tag) {
-                    // If tag is excluded and entity is outside packed prefix,
-                    // check if it becomes valid now and swap in if so
-                    if idx >= size {
-                        if hasRequired(slot: entity.slot, in: pool) {
-                            let insertIndex = size
-                            let aSlot = entity.slot
-
-                            primarySet.swapDenseAt(idx, insertIndex)
-
-                            for otherOwnedType in repeat (each Owned).QueriedComponent.self {
-                                if otherOwnedType.componentTag == self.primary { continue }
-                                guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
-                                otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                                    if let ai = otherSet.denseIndex(for: aSlot) {
-                                        otherSet.swapDenseAt(ai, insertIndex)
-                                    }
-                                }
-                            }
-
-                            size &+= 1
-                        }
+                    // If excluded tag removed and entity is outside packed prefix, include if now valid
+                    if idx >= size, hasAllRequired(entity.slot) {
+                        let insertIndex = size
+                        let aSlot = entity.slot
+                        primarySet.swapDenseAt(idx, insertIndex)
+                        size &+= 1
+                        pending = (slot: aSlot, targetIndex: insertIndex)
                     }
                 } else if owned.contains(tag) || backstageComponents.contains(tag) {
-                    // If tag is owned or backstage and entity is inside packed prefix,
-                    // it will no longer match, so swap it out
+                    // If owned/backstage removed and entity is inside packed prefix, swap it out
                     if idx < size {
                         let last = size &- 1
                         let aSlot = primarySet.keys[idx]
-
                         primarySet.swapDenseAt(idx, last)
-
-                        for otherOwnedType in repeat (each Owned).QueriedComponent.self {
-                            if otherOwnedType.componentTag == self.primary { continue }
-                            guard var otherArray = pool.components[otherOwnedType.componentTag] else { continue }
-                            otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                                if let ai = otherSet.denseIndex(for: aSlot) {
-                                    otherSet.swapDenseAt(ai, last)
-                                }
-                            }
-                        }
-
                         size = last
+                        pending = (slot: aSlot, targetIndex: last)
                     }
                 }
             }
             break
+        }
+
+        if let p = pending {
+            for otherOwnedType in repeat (each Owned).QueriedComponent.self {
+                let tag = otherOwnedType.componentTag
+                if tag == self.primary { continue }
+                guard var otherArray = pool.components[tag] else { continue }
+                otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
+                    if let ci = otherSet.denseIndex(for: p.slot), ci != p.targetIndex {
+                        otherSet.swapDenseAt(ci, p.targetIndex)
+                    }
+                }
+            }
         }
     }
 

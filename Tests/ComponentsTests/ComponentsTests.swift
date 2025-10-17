@@ -783,6 +783,18 @@ public struct Downward: Component, Sendable {
         print("called readonly", entityID, access.access(entityID).value.position.y)
         return Downward(isDownward: access.access(entityID).value.position.y < 0)
     }
+
+    @inlinable @inline(__always)
+    public static func makeResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Downward {
+        print("called")
+        return Downward(isDownward: access.accessDense(denseIndex).value.position.y < 0)
+    }
+
+    @inlinable @inline(__always)
+    public static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Downward {
+        print("called readonly", entityID, access.accessDense(denseIndex).value.position.y)
+        return Downward(isDownward: access.accessDense(denseIndex).value.position.y < 0)
+    }
 }
 
 public struct Vector3: Hashable, Sendable {
