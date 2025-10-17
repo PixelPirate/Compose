@@ -69,11 +69,12 @@ extension Query {
     }
 
     @usableFromInline @inline(__always)
-    internal func getCachedPreFilteredSlots(_ coordinator: Coordinator) -> ContiguousArray<SlotIndex> {
+    internal func getCachedPreFilteredSlots(_ coordinator: Coordinator) -> ArraySlice<SlotIndex> {
         // If there is a group matching this query, then the slots are just the entities of the primary component
         let groupSignature = GroupSignature(querySignature)
-        if let slots = coordinator.groupSlots(groupSignature) {
-            return slots
+        // TODO: Only one lookup
+        if let slots = coordinator.groupSlots(groupSignature), let groupSize = coordinator.groupSize(groupSignature) {
+            return slots[..<groupSize]
         }
 
         coordinator.slotsQueryCacheLock.lock()
@@ -82,7 +83,7 @@ extension Query {
             cached.version == coordinator.worldVersion
         {
             coordinator.slotsQueryCacheLock.unlock()
-            return cached.base
+            return cached.base[...]
         } else {
             coordinator.slotsQueryCacheLock.unlock()
             let new = coordinator.pool.slots(
@@ -97,7 +98,7 @@ extension Query {
             coordinator.slotsQueryCacheLock.lock()
             coordinator.slotsQueryCache[hash] = newCache
             coordinator.slotsQueryCacheLock.unlock()
-            return new
+            return new[...]
         }
     }
 }
