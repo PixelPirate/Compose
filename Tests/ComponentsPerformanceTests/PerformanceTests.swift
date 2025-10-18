@@ -268,6 +268,130 @@ extension Tag {
         print("Post-Group Perform:", duration4_1, duration4_2, duration4_3)
     }
 
+    @Test func testPerformancePreloadedFragmented() throws {
+        struct ComponentA: Component, Sendable { static let componentTag = ComponentTag.makeTag(); var v: SIMD4<Float> }
+        struct ComponentB: Component, Sendable { static let componentTag = ComponentTag.makeTag(); var v: SIMD4<Float> }
+        struct ComponentC: Component, Sendable { static let componentTag = ComponentTag.makeTag(); var v: SIMD4<Float> }
+
+        func seconds(_ d: Duration) -> Double {
+            let c = d.components
+            return Double(c.seconds) + Double(c.attoseconds) / 1e18
+        }
+
+        let clock = ContinuousClock()
+        let coordinator = Coordinator()
+
+        let N = 1_000_000
+
+        // Deterministic, biased distribution with high match ratio and interleaving
+        let setup = clock.measure {
+            for i in 0..<N {
+                switch i & 7 {
+                case 0:
+                    _ = coordinator.spawn(ComponentA(v: .init(repeating: 0)))
+                case 1:
+                    _ = coordinator.spawn(ComponentB(v: .init(repeating: 0)))
+                case 2:
+                    _ = coordinator.spawn(ComponentC(v: .init(repeating: 0)))
+                case 3:
+                    _ = coordinator.spawn(ComponentA(v: .init(1,2,3,4)), ComponentB(v: .init(5,6,7,8)))
+                case 4:
+                    _ = coordinator.spawn(ComponentB(v: .init(1,1,1,1)), ComponentC(v: .init(2,2,2,2)))
+                case 5:
+                    _ = coordinator.spawn(ComponentA(v: .init(3,3,3,3)), ComponentC(v: .init(4,4,4,4)))
+                default:
+                    // Majority case: A+B+C
+                    _ = coordinator.spawn(
+                        ComponentA(v: .init(1, 2, 3, 4)),
+                        ComponentB(v: .init(5, 6, 7, 8)),
+                        ComponentC(v: .init(9, 10, 11, 12))
+                    )
+                }
+            }
+        }
+
+        // Churn: remove+add different owned components across a deterministic subset to desynchronize dense arrays
+        let churn = clock.measure {
+            let idQuery = Query { WithEntityID.self; ComponentA.self; ComponentB.self; ComponentC.self }
+            let ids = Array(idQuery.fetchAll(coordinator)).map { $0.0 }
+            for (idx, id) in ids.enumerated() {
+                if (idx & 1) == 0 {
+                    coordinator.remove(ComponentB.self, from: id)
+                    coordinator.add(ComponentB(v: .init(13,14,15,16)), to: id)
+                } else if (idx % 3) == 0 {
+                    coordinator.remove(ComponentA.self, from: id)
+                    coordinator.add(ComponentA(v: .init(17,18,19,20)), to: id)
+                } else if (idx % 5) == 0 {
+                    coordinator.remove(ComponentC.self, from: id)
+                    coordinator.add(ComponentC(v: .init(21,22,23,24)), to: id)
+                }
+            }
+        }
+
+        let query = Query {
+            Write<ComponentA>.self
+            Write<ComponentB>.self
+            Write<ComponentC>.self
+        }
+
+        _ = clock.measure {
+            query(preloaded: coordinator) { a, b, c in
+                b.v += a.v * 0.25
+                c.v += b.v * 0.125
+                a.v *= 0.99
+            }
+        }
+        let preloadedPasses = 200
+        let preloadedTotal = clock.measure {
+            for _ in 0..<preloadedPasses {
+                query(preloaded: coordinator) { a, b, c in
+                    b.v += a.v * 0.25
+                    c.v += b.v * 0.125
+                    a.v *= 0.99
+                }
+            }
+        }
+
+        // Build group and warm a dense pass
+        let build = clock.measure {
+            _ = coordinator.addGroup {
+                Write<ComponentA>.self
+                Write<ComponentB>.self
+                Write<ComponentC>.self
+            }
+        }
+
+//        _ = clock.measure {
+//            query.performGroupDense(coordinator) { a, b, c in
+//                b.v += a.v * 0.25
+//                c.v += b.v * 0.125
+//                a.v *= 0.99
+//            }
+//        }
+
+        let densePasses = preloadedPasses
+        let denseTotal = clock.measure {
+            for _ in 0..<densePasses {
+                query.performGroupDense(coordinator) { a, b, c in
+                    b.v += a.v * 0.25
+                    c.v += b.v * 0.125
+                    a.v *= 0.99
+                }
+            }
+        }
+
+        let preloadedPerIter = seconds(preloadedTotal) / Double(preloadedPasses)
+        let densePerIter = seconds(denseTotal) / Double(densePasses)
+        let speedup = preloadedPerIter / densePerIter
+
+        print("Fragmented Setup:", setup)
+        print("Churn:", churn)
+        print("Pre-Group Preloaded x\(preloadedPasses):", preloadedTotal, "(per-iter ~", preloadedPerIter, ")")
+        print("Group-Build:", build)
+        print("Post-Group Dense x\(densePasses):", denseTotal, "(per-iter ~", densePerIter, ")")
+        print(String(format: "Dense vs Preloaded per-iter speedup: %.2fx", speedup))
+    }
+
     @Test func testPerformanceGroupAmortized() throws {
         struct Velocity: Component, Sendable {
             static let componentTag = ComponentTag.makeTag()
