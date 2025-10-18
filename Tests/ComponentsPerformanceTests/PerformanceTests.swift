@@ -361,14 +361,6 @@ extension Tag {
             }
         }
 
-//        _ = clock.measure {
-//            query.performGroupDense(coordinator) { a, b, c in
-//                b.v += a.v * 0.25
-//                c.v += b.v * 0.125
-//                a.v *= 0.99
-//            }
-//        }
-
         let densePasses = preloadedPasses
         let denseTotal = clock.measure {
             for _ in 0..<densePasses {

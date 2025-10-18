@@ -166,6 +166,27 @@ public final class Coordinator {
         groups.groupSlots(signature, in: &pool)
     }
 
+    public struct BestGroupResult {
+        @inlinable @inline(__always)
+        public init(slots: ArraySlice<SlotIndex>, exact: Bool) {
+            self.slots = slots
+            self.exact = exact
+        }
+        public let slots: ArraySlice<SlotIndex>
+        public let exact: Bool
+    }
+
+    /// Returns the best available group for a given signature.
+    /// Currently returns an exact match if present; otherwise nil.
+    /// This is intentionally minimal scaffolding to allow future superset reuse without changing call sites.
+    @inlinable @inline(__always)
+    public func bestGroup(for signature: GroupSignature) -> BestGroupResult? {
+        if let slots = groupSlots(signature) {
+            return BestGroupResult(slots: slots, exact: true)
+        }
+        return nil
+    }
+
     @inlinable @inline(__always)
     public func removeGroup<each Owned: Component>(@QueryBuilder query: () -> BuiltQuery<repeat each Owned>) {
         groups.remove(query().composite.querySignature)

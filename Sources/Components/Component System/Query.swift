@@ -467,26 +467,60 @@ extension Query {
         let context = context.queryContext
         let groupSignature = GroupSignature(querySignature)
 
-        // Get the packed prefix slice of the primary dense keys
-        let slotsSlice = context.coordinator.groupSlots(groupSignature) ?? {
-            print("No group found for query, falling back to precomputed slots.")
-            return context.coordinator.pool.slots(
+        // Prefer a best-fitting group if available; otherwise fall back to cached slots.
+        let best = context.coordinator.bestGroup(for: groupSignature)
+        let slotsSlice: ArraySlice<SlotIndex>
+        let exactGroupMatch: Bool
+        if let best {
+            slotsSlice = best.slots
+            exactGroupMatch = best.exact
+        } else {
+            // No group found for query, fall back to precomputed slots.
+            slotsSlice = context.coordinator.pool.slots(
                 repeat (each T).self,
                 included: backstageComponents,
                 excluded: excludedComponents
             )[...]
-        }()
+            exactGroupMatch = false
+        }
 
-        withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                for (denseIndex, slot) in slotsSlice.enumerated() {
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: 0
-                            //indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
-                    )
-                    handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
+        // If we didn't get an exact group, prepare other/excluded arrays for per-entity filtering.
+        var otherComponents: [ContiguousArray<Int?>] = []
+        var excludedComponents: [ContiguousArray<Int?>] = []
+        if !exactGroupMatch {
+            let cached = getCachedArrays(context.coordinator)
+            otherComponents = cached.others
+            excludedComponents = cached.excluded
+        }
+
+        if exactGroupMatch {
+            withUnsafePointer(to: context.coordinator.indices) { indices in
+                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
+                    for (denseIndex, slot) in slotsSlice.enumerated() {
+                        let id = Entity.ID(
+                            slot: SlotIndex(rawValue: slot.rawValue),
+                            generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
+                        )
+                        handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
+                    }
+                }
+            }
+        } else {
+            withUnsafePointer(to: context.coordinator.indices) { indices in
+                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
+                    for (denseIndex, slot) in slotsSlice.enumerated() {
+                        // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
+                        if !Self.passes(slot: slot, otherComponents: otherComponents, excludedComponents: excludedComponents) {
+                            continue
+                        }
+                        let id = Entity.ID(
+                            slot: SlotIndex(rawValue: slot.rawValue),
+                            generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
+                        )
+                        handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
+                    }
                 }
             }
         }
