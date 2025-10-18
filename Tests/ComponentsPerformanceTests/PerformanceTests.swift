@@ -63,9 +63,23 @@ extension Tag {
     }
 
     @Test func testPerformancePreloaded() throws {
+        struct ComponentA: Component {
+            static let componentTag = ComponentTag.makeTag()
+            var v: SIMD16<Double>
+        }
+        struct ComponentB: Component {
+            static let componentTag = ComponentTag.makeTag()
+            var v: SIMD16<Double>
+        }
+        struct ComponentC: Component {
+            static let componentTag = ComponentTag.makeTag()
+            var v: SIMD16<Double>
+        }
+
         let query = Query {
-            Write<Transform>.self
-            Gravity.self
+            Write<ComponentA>.self
+            Write<ComponentB>.self
+            Write<ComponentC>.self
         }
         let clock = ContinuousClock()
 
@@ -73,19 +87,24 @@ extension Tag {
 
         let setup = clock.measure {
             for _ in 0..<2_000_000 {
-                switch Int.random(in: 0...2) {
+                switch Int.random(in: 0...3) {
                 case 0:
                     coordinator.spawn(
-                        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                        ComponentA(v: SIMD16<Double>(repeating: 0))
                     )
                 case 1:
                     coordinator.spawn(
-                        Transform(position: .zero, rotation: .zero, scale: .zero),
-                        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                        ComponentB(v: SIMD16<Double>(repeating: 0))
                     )
                 case 2:
                     coordinator.spawn(
-                        Transform(position: .zero, rotation: .zero, scale: .zero)
+                        ComponentC(v: SIMD16<Double>(repeating: 0))
+                    )
+                case 3:
+                    coordinator.spawn(
+                        ComponentA(v: SIMD16<Double>(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
+                        ComponentB(v: SIMD16<Double>(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
+                        ComponentC(v: SIMD16<Double>(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16))
                     )
                 default:
                     break
@@ -94,107 +113,143 @@ extension Tag {
         }
 
         let duration1 = clock.measure {
-            query(preloaded: coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(preloaded: coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration2 = clock.measure {
-            query(preloaded: coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(preloaded: coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration3 = clock.measure {
-            query(preloaded: coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(preloaded: coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
 
         let duration3_1 = clock.measure {
-            query(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration3_2 = clock.measure {
-            query(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration3_3 = clock.measure {
-            query(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
 
         let groupDuration = clock.measure {
             coordinator.addGroup {
-                Write<Transform>.self
-                Gravity.self
+                Write<ComponentA>.self
+                Write<ComponentB>.self
+                Write<ComponentC>.self
             }
         }
 
         let duration2_1 = clock.measure {
-            query(preloaded: coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(preloaded: coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration2_2 = clock.measure {
-            query(preloaded: coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(preloaded: coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration2_3 = clock.measure {
-            query(preloaded: coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(preloaded: coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
 
         let duration5_1 = clock.measure {
-            query.performGroupDense(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query.performGroupDense(coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration5_2 = clock.measure {
-            query.performGroupDense(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query.performGroupDense(coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration5_3 = clock.measure {
-            query.performGroupDense(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query.performGroupDense(coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
 
         let duration4_1 = clock.measure {
-            query(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration4_2 = clock.measure {
-            query(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
         let duration4_3 = clock.measure {
-            query(coordinator) { transform, gravity in
-                transform.position.x += gravity.force.x
+            query(coordinator) { a, b, c in
+                b.v += 0.5 * a.v
+                c.v += 0.25 * b.v
+                a.v *= 0.99
             }
         }
 
         let setup2 = clock.measure {
             for _ in 0..<2_000_000 {
-                switch Int.random(in: 0...2) {
+                switch Int.random(in: 0...3) {
                 case 0:
                     coordinator.spawn(
-                        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                        ComponentA(v: SIMD16<Double>(repeating: 0))
                     )
                 case 1:
                     coordinator.spawn(
-                        Transform(position: .zero, rotation: .zero, scale: .zero),
-                        Gravity(force: Vector3(x: 1, y: 1, z: 1))
+                        ComponentB(v: SIMD16<Double>(repeating: 0))
                     )
                 case 2:
                     coordinator.spawn(
-                        Transform(position: .zero, rotation: .zero, scale: .zero)
+                        ComponentC(v: SIMD16<Double>(repeating: 0))
+                    )
+                case 3:
+                    coordinator.spawn(
+                        ComponentA(v: SIMD16<Double>(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
+                        ComponentB(v: SIMD16<Double>(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
+                        ComponentC(v: SIMD16<Double>(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16))
                     )
                 default:
                     break
@@ -212,6 +267,121 @@ extension Tag {
         print("Post-Group Specialised:", duration5_1, duration5_2, duration5_3)
         print("Post-Group Perform:", duration4_1, duration4_2, duration4_3)
     }
+
+    @Test func testPerformanceGroupAmortized() throws {
+        struct Velocity: Component, Sendable {
+            static let componentTag = ComponentTag.makeTag()
+            var v: Vector3
+            init(v: Vector3) { self.v = v }
+        }
+
+        // Query: write two owned components, read one more to increase per-entity work
+        let groupQuery = Query {
+            Write<Transform>.self
+            Write<Velocity>.self
+            With<Gravity>.self
+        }
+
+        let clock = ContinuousClock()
+        let coordinator = Coordinator()
+
+        // Tunables to make group benefits apparent
+        let N = 1_500_000              // world size (matches ~50% for the query)
+        let densePasses = 200          // many dense passes to amortize build and emphasize traversal
+        let preloadedPasses = 200      // same number of passes for fair comparison
+
+        // World setup: high match ratio for the group (most entities have Transform & Velocity & Gravity)
+        let setup = clock.measure {
+            for i in 0..<N {
+                switch i & 7 {
+                case 0:
+                    _ = coordinator.spawn() // empty
+                case 1:
+                    _ = coordinator.spawn(Gravity(force: .zero))
+                case 2:
+                    _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+                case 3:
+                    _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+                default:
+                    // Majority case: has all three; order randomized by spawn patterns
+                    _ = coordinator.spawn(
+                        Transform(position: .zero, rotation: .zero, scale: .zero),
+                        Velocity(v: .zero),
+                        Gravity(force: .zero)
+                    )
+                }
+            }
+        }
+
+        // Baselines before group (cache warm-up and steady-state cost)
+        let preloadedWarm1 = clock.measure {
+            groupQuery(preloaded: coordinator) { t, v in
+                // keep per-entity work minimal to highlight traversal/layout
+                t.position.x += 1
+                v.v.x += 1
+            }
+        }
+        let preloadedWarm2 = clock.measure {
+            groupQuery(preloaded: coordinator) { t, v in
+                t.position.y += 1
+                v.v.y += 1
+            }
+        }
+
+        // Build the group (owned: Transform, Velocity)
+        let build = clock.measure {
+            coordinator.addGroup {
+                Write<Transform>.self
+                Write<Velocity>.self
+                With<Gravity>.self
+            }
+        }
+
+        // Warm a dense pass to ensure any one-time effects are out of the way
+        _ = clock.measure {
+            groupQuery.performGroupDense(coordinator) { t, v in
+                t.position.z += 1
+                v.v.z += 1
+            }
+        }
+
+        // Amortize rebuild: many dense iterations after group build
+        let denseTotal = clock.measure {
+            for _ in 0..<densePasses {
+                groupQuery.performGroupDense(coordinator) { t, v in
+                    t.position.x += 1
+                    v.v.x += 1
+                }
+            }
+        }
+
+        // Repeat preloaded iterations to compare amortized cost without reordering
+        let preloadedTotal = clock.measure {
+            for _ in 0..<preloadedPasses {
+                groupQuery(preloaded: coordinator) { t, v in
+                    t.position.z += 1
+                    v.v.z += 1
+                }
+            }
+        }
+
+        // Helpers to compute seconds and per-iteration metrics
+        func seconds(_ d: Duration) -> Double {
+            let c = d.components
+            return Double(c.seconds) + Double(c.attoseconds) / 1e18
+        }
+        let densePerIter = seconds(denseTotal) / Double(densePasses)
+        let preloadedPerIter = seconds(preloadedTotal) / Double(preloadedPasses)
+        let speedup = preloadedPerIter / densePerIter
+
+        print("Group-Amortized Setup:", setup)
+        print("Preloaded warm-up:", preloadedWarm1, preloadedWarm2)
+        print("Group-Build (owned Transform+Velocity, with Gravity):", build)
+        print("Group-Dense x\(densePasses):", denseTotal, "(per-iter ~", densePerIter, ")")
+        print("Preloaded x\(preloadedPasses) (no reorder):", preloadedTotal, "(per-iter ~", preloadedPerIter, ")")
+        print(String(format: "Group vs Preloaded per-iter speedup: %.2fx", speedup))
+    }
+
 
     @Test func testPerformanceSimple() throws {
         let query = Query {
