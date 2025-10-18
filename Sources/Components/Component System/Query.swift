@@ -466,10 +466,17 @@ extension Query {
     public func performGroupDense(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let groupSignature = GroupSignature(querySignature)
+
         // Get the packed prefix slice of the primary dense keys
-        guard let slotsSlice = context.coordinator.groupSlots(groupSignature) else {
-            return
-        }
+        let slotsSlice = context.coordinator.groupSlots(groupSignature) ?? {
+            print("No group found for query, falling back to precomputed slots.")
+            return context.coordinator.pool.slots(
+                repeat (each T).self,
+                included: backstageComponents,
+                excluded: excludedComponents
+            )[...]
+        }()
+
         withUnsafePointer(to: context.coordinator.indices) { indices in
             withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
                 // Enumerate dense indices directly: 0..<size aligned across all owned storages
