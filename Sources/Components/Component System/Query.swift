@@ -38,13 +38,14 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     ) {
         self.backstageComponents = backstageComponents
         self.excludedComponents = excludedComponents
-        self.signature = Self.makeSignature(backstageComponents: backstageComponents)
+        self.signature = Self.makeSignature(backstageComponents: backstageComponents) // TODO: Why does this include backstage components?
         self.readOnlySignature = Self.makeReadSignature(backstageComponents: backstageComponents)
         self.writeSignature = Self.makeWriteSignature()
-        self.excludedSignature = Self.makeExcludedSignature(excludedComponents)
+        self.excludedSignature = ComponentSignature(excludedComponents)
         self.querySignature = QuerySignature(
             write: writeSignature,
             readOnly: readOnlySignature,
+            backstage: ComponentSignature(backstageComponents),
             excluded: excludedSignature
         )
         self.hash = QueryHash(include: signature, exclude: excludedSignature)
@@ -173,17 +174,6 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         for tagType in repeat (each T).self {
             guard tagType.QueriedComponent != Never.self, tagType is any WritableComponent.Type else { continue } // TODO: Test this
             signature = signature.appending(tagType.componentTag)
-        }
-
-        return signature
-    }
-
-    @inlinable @inline(__always)
-    static func makeExcludedSignature(_ excludedComponents: Set<ComponentTag>) -> ComponentSignature {
-        var signature = ComponentSignature()
-
-        for tag in excludedComponents {
-            signature = signature.appending(tag)
         }
 
         return signature
@@ -468,7 +458,11 @@ extension Query {
         let groupSignature = GroupSignature(querySignature)
 
         // Prefer a best-fitting group if available; otherwise fall back to cached slots.
-        let best = context.coordinator.bestGroup(for: groupSignature)
+        let best = context.coordinator.bestGroup(
+            forQueryAccessed: writeSignature + readOnlySignature,
+            backstage: self.backstageComponents,
+            excluded: self.excludedComponents
+        )
         let slotsSlice: ArraySlice<SlotIndex>
         let exactGroupMatch: Bool
         if let best {
@@ -482,6 +476,7 @@ extension Query {
                 excluded: excludedComponents
             )[...]
             exactGroupMatch = false
+            print("No group found for query, falling back to precomputed slots. Consider adding a group matching this query.")
         }
 
         // If we didn't get an exact group, prepare other/excluded arrays for per-entity filtering.
@@ -543,3 +538,4 @@ extension Query {
         )
     }
 }
+

@@ -63,17 +63,30 @@ public struct QuerySignature: Hashable, Sendable {
     @usableFromInline
     let readOnly: ComponentSignature
     @usableFromInline
+    let backstage: ComponentSignature
+    @usableFromInline
     let excluded: ComponentSignature
 
     @inlinable
-    public init(write: ComponentSignature, readOnly: ComponentSignature, excluded: ComponentSignature) {
+    public init(write: ComponentSignature, readOnly: ComponentSignature, backstage: ComponentSignature, excluded: ComponentSignature) {
         self.write = write
         self.readOnly = readOnly
+        self.backstage = backstage
         self.excluded = excluded
     }
 }
 
+// TODO: I think I can make a single signature will owned, non-owned and excluded components, and just check if a querys full signature is a superset of that. this should be correct.
+// Correction 1: I need to separate the owned components.
+//               E.g.: G1: Transform; Without<Gravity>   G2: Gravity; Without<Person>
+//               Query: Gravity, With<Person>, Without<Transform>
+//               Here both G1 and G2 would be a subset, but none of the two has the required entities in their dense prefix.
+//
+//               E.g.: G1: Transform, With<Gravity>   G2: Gravity, Person
+//               Query: Transform; Gravity, Person
+//               Here both G1 and G2 would be valid subsets, but only G2 would be the better dense prefix
 public struct GroupSignature: Hashable, Sendable {
+    /// An entity is part of this group if it contains all these
     @usableFromInline
     let contained: ComponentSignature
     @usableFromInline
@@ -87,8 +100,24 @@ public struct GroupSignature: Hashable, Sendable {
 
     @inlinable
     public init(_ querySignature: QuerySignature) {
-        contained = querySignature.write.union(querySignature.readOnly)
+        contained = querySignature.write.union(querySignature.readOnly).union(querySignature.backstage)
         excluded = querySignature.excluded
+    }
+}
+
+@usableFromInline
+struct GroupMetadata {
+    @usableFromInline let owned: ComponentSignature
+    @usableFromInline let backstage: ComponentSignature
+    @usableFromInline let excluded: ComponentSignature
+    @usableFromInline let contained: ComponentSignature
+
+    @usableFromInline
+    init(owned: ComponentSignature, backstage: ComponentSignature, excluded: ComponentSignature) {
+        self.owned = owned
+        self.backstage = backstage
+        self.excluded = excluded
+        self.contained = owned.union(backstage)
     }
 }
 
@@ -174,6 +203,11 @@ public struct ComponentSignature: Hashable, Sendable, CustomDebugStringConvertib
     @inlinable @inline(__always)
     public func isDisjoint(with other: ComponentSignature) -> Bool {
         rawHashValue.isDisjoint(with: other.rawHashValue)
+    }
+
+    @inlinable @inline(__always)
+    public func isSubset(of other: ComponentSignature) -> Bool {
+        rawHashValue.isSubset(of: other.rawHashValue)
     }
 
     @inlinable @inline(__always)

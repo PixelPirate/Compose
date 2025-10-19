@@ -50,6 +50,12 @@ public final class Coordinator {
     var groups = Groups()
 
     @usableFromInline
+    var knownGroupsMeta: [GroupSignature: GroupMetadata] = [:]
+    
+    @usableFromInline
+    var groupsByOwned: [ComponentSignature: GroupSignature] = [:]
+
+    @usableFromInline
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline
@@ -148,7 +154,18 @@ public final class Coordinator {
     public func addGroup<each Owned: Component>(@QueryBuilder build: () -> BuiltQuery<repeat each Owned>) -> GroupSignature {
         let query = build().composite
         groups.add(Group(query: query), in: &pool)
-        return GroupSignature(query.querySignature)
+        let signature = GroupSignature(query.querySignature)
+        let owned = query.writeSignature + query.readOnlySignature
+        let backstage = ComponentSignature(query.backstageComponents)
+        let excluded = ComponentSignature(query.excludedComponents)
+        let meta = GroupMetadata(
+            owned: owned,
+            backstage: backstage,
+            excluded: excluded
+        )
+        knownGroupsMeta[signature] = meta
+        groupsByOwned[meta.contained] = signature
+        return signature
     }
 
     @inlinable @inline(__always)
@@ -181,15 +198,88 @@ public final class Coordinator {
     /// This is intentionally minimal scaffolding to allow future superset reuse without changing call sites.
     @inlinable @inline(__always)
     public func bestGroup(for signature: GroupSignature) -> BestGroupResult? {
+        // Exact match fast path
         if let slots = groupSlots(signature) {
             return BestGroupResult(slots: slots, exact: true)
+        }
+        // TODO: Superset reuse: iterate knownGroupsMeta to find a compatible group
+        // whose owned set is a superset of the query's writes and whose filters are compatible.
+        // This requires the caller to provide the query's write/read/backstage/excluded sets or
+        // for GroupSignature to expose them. For now, we conservatively return nil.
+        return nil
+    }
+
+    @inlinable @inline(__always)
+    public func bestGroup(forContained contained: ComponentSignature, backstage: ComponentSignature, excluded: ComponentSignature) -> BestGroupResult? {
+        // Try exact group by (contained, excluded)
+        let exactSig = GroupSignature(contained: contained, excluded: excluded)
+        if let slots = groupSlots(exactSig) {
+            return BestGroupResult(slots: slots, exact: true)
+        }
+        // Try owned-exact fallback + weaker filters reuse
+        if let sig = groupsByOwned[contained],
+           let slots = groupSlots(sig),
+           let meta = knownGroupsMeta[sig] {
+            // Exact filters: no per-entity checks required
+            if meta.backstage == backstage && meta.excluded == excluded {
+                return BestGroupResult(slots: slots, exact: true)
+            }
+            // Weaker filters reuse: group's filters must be subsets of the query's filters
+            if meta.backstage.isSubset(of: backstage) && meta.excluded.isSubset(of: excluded) {
+                return BestGroupResult(slots: slots, exact: false)
+            }
         }
         return nil
     }
 
     @inlinable @inline(__always)
+    public func bestGroup(for query: QuerySignature, accessed: ComponentSignature) -> BestGroupResult? {
+        let queryContained = query.write.union(query.readOnly).union(query.backstage)
+        let queryExcluded = query.excluded
+        // Exact fast path
+        if let exact = bestGroup(for: GroupSignature(contained: queryContained, excluded: queryExcluded)) {
+            return exact
+        }
+        // Scan known groups for reusable candidates and score by owned overlap
+        var best: (slots: ArraySlice<SlotIndex>, score: Int)? = nil
+        for (sig, meta) in knownGroupsMeta {
+            // Polarity-aware subset checks
+            if !meta.contained.isSubset(of: queryContained) { continue }
+            if !meta.excluded.isSubset(of: queryExcluded) { continue }
+            guard let slots = groupSlots(sig) else { continue }
+            // Score by owned ∩ accessed
+            var score = 0
+            let it = accessed.tags
+            while let tag = it.next() {
+                if meta.owned.contains(tag) { score &+= 1 }
+            }
+            if let current = best {
+                if score > current.score {
+                    best = (slots, score)
+                }
+            } else {
+                best = (slots, score)
+            }
+        }
+        if let b = best { return BestGroupResult(slots: b.slots, exact: false) }
+        return nil
+    }
+
+    @inlinable @inline(__always)
+    public func bestGroup(forQueryAccessed accessed: ComponentSignature, backstage: Set<ComponentTag>, excluded: Set<ComponentTag>) -> BestGroupResult? {
+        let backstageSig = ComponentSignature(backstage)
+        let excludedSig = ComponentSignature(excluded)
+        return bestGroup(forContained: accessed, backstage: backstageSig, excluded: excludedSig)
+    }
+
+    @inlinable @inline(__always)
     public func removeGroup<each Owned: Component>(@QueryBuilder query: () -> BuiltQuery<repeat each Owned>) {
-        groups.remove(query().composite.querySignature)
+        let built = query().composite
+        let signature = GroupSignature(built.querySignature)
+        groups.remove(built.querySignature)
+        knownGroupsMeta.removeValue(forKey: signature)
+        let contained = built.writeSignature.union(built.readOnlySignature).union(ComponentSignature(built.backstageComponents))
+        groupsByOwned.removeValue(forKey: contained)
     }
 
     @inlinable @inline(__always)
