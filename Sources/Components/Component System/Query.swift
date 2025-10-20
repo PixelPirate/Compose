@@ -458,11 +458,7 @@ extension Query {
         let groupSignature = GroupSignature(querySignature)
 
         // Prefer a best-fitting group if available; otherwise fall back to cached slots.
-        let best = context.coordinator.bestGroup(
-            forQueryAccessed: writeSignature + readOnlySignature,
-            backstage: self.backstageComponents,
-            excluded: self.excludedComponents
-        )
+        let best = context.coordinator.bestGroup(for: querySignature)
         let slotsSlice: ArraySlice<SlotIndex>
         let exactGroupMatch: Bool
         if let best {
@@ -538,4 +534,3 @@ extension Query {
         )
     }
 }
-

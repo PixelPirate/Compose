@@ -193,22 +193,6 @@ public final class Coordinator {
         public let exact: Bool
     }
 
-    /// Returns the best available group for a given signature.
-    /// Currently returns an exact match if present; otherwise nil.
-    /// This is intentionally minimal scaffolding to allow future superset reuse without changing call sites.
-    @inlinable @inline(__always)
-    public func bestGroup(for signature: GroupSignature) -> BestGroupResult? {
-        // Exact match fast path
-        if let slots = groupSlots(signature) {
-            return BestGroupResult(slots: slots, exact: true)
-        }
-        // TODO: Superset reuse: iterate knownGroupsMeta to find a compatible group
-        // whose owned set is a superset of the query's writes and whose filters are compatible.
-        // This requires the caller to provide the query's write/read/backstage/excluded sets or
-        // for GroupSignature to expose them. For now, we conservatively return nil.
-        return nil
-    }
-
     @inlinable @inline(__always)
     public func bestGroup(forContained contained: ComponentSignature, backstage: ComponentSignature, excluded: ComponentSignature) -> BestGroupResult? {
         // Try exact group by (contained, excluded)
@@ -233,17 +217,17 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
-    public func bestGroup(for query: QuerySignature, accessed: ComponentSignature) -> BestGroupResult? {
+    public func bestGroup(for query: QuerySignature) -> BestGroupResult? {
         let queryContained = query.write.union(query.readOnly).union(query.backstage)
+        let accessed = query.write + query.readOnly
         let queryExcluded = query.excluded
         // Exact fast path
-        if let exact = bestGroup(for: GroupSignature(contained: queryContained, excluded: queryExcluded)) {
-            return exact
+        if let slots = groupSlots(GroupSignature(contained: queryContained, excluded: queryExcluded)) {
+            return BestGroupResult(slots: slots, exact: true)
         }
         // Scan known groups for reusable candidates and score by owned overlap
-        var best: (slots: ArraySlice<SlotIndex>, score: Int)? = nil
+        var best: (slots: ArraySlice<SlotIndex>, score: Int, size: Int, primaryRaw: Int)? = nil
         for (sig, meta) in knownGroupsMeta {
-            // Polarity-aware subset checks
             if !meta.contained.isSubset(of: queryContained) { continue }
             if !meta.excluded.isSubset(of: queryExcluded) { continue }
             guard let slots = groupSlots(sig) else { continue }
@@ -253,23 +237,23 @@ public final class Coordinator {
             while let tag = it.next() {
                 if meta.owned.contains(tag) { score &+= 1 }
             }
+            // Tie-breaker 1: prefer smaller current packed size to reduce extra per-entity checks when not exact
+            let ps = groups.primaryAndSize(sig)?.size ?? Int.max
+            // Tie-breaker 2: deterministic: prefer lower primary tag rawValue
+            let pr = groups.primaryAndSize(sig)?.primary.rawValue ?? Int.max
+
             if let current = best {
-                if score > current.score {
-                    best = (slots, score)
+                if score > current.score ||
+                   (score == current.score && ps < current.size) ||
+                   (score == current.score && ps == current.size && pr < current.primaryRaw) {
+                    best = (slots, score, ps, pr)
                 }
             } else {
-                best = (slots, score)
+                best = (slots, score, ps, pr)
             }
         }
         if let b = best { return BestGroupResult(slots: b.slots, exact: false) }
         return nil
-    }
-
-    @inlinable @inline(__always)
-    public func bestGroup(forQueryAccessed accessed: ComponentSignature, backstage: Set<ComponentTag>, excluded: Set<ComponentTag>) -> BestGroupResult? {
-        let backstageSig = ComponentSignature(backstage)
-        let excludedSig = ComponentSignature(excluded)
-        return bestGroup(forContained: accessed, backstage: backstageSig, excluded: excludedSig)
     }
 
     @inlinable @inline(__always)
@@ -385,3 +369,4 @@ public final class Coordinator {
         systemManager.update(scheduleLabel, update: update)
     }
 }
+
