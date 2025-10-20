@@ -4,13 +4,32 @@ import Darwin
 import Glibc
 #endif
 
+#if BITSET_USE_DYNAMIC_ARRAY
+@usableFromInline typealias Word = UInt64
+@usableFromInline typealias WordsStorage = ContiguousArray<Word>
+@usableFromInline let wordMax: Int = 63
+@usableFromInline let wordTop: Int = 64
+#else
+@usableFromInline typealias Word = UInt128
+@usableFromInline typealias WordsStorage = InlineArray<2, Word>
+@usableFromInline let kInlineWordCapacity: Int = 2
+@usableFromInline let wordMax: Int = 127
+@usableFromInline let wordTop: Int = 128
+#endif
+
+@usableFromInline
+struct Storage {
+    @usableFromInline
+    var words: WordsStorage
+}
+
 public struct BitSet: Hashable, Sendable {
     /// Reflects the highest set bit + 1.
     @usableFromInline @inline(__always)
     internal var bitCount: Int = 0
 
     @usableFromInline
-    var words: ContiguousArray<UInt64>
+    var words: WordsStorage
 
     @inlinable @inline(__always)
     public static func == (lhs: BitSet, rhs: BitSet) -> Bool {
@@ -19,14 +38,14 @@ public struct BitSet: Hashable, Sendable {
 
     @inlinable @inline(__always)
     public func hash(into hasher: inout Hasher) {
-        // `words` is always updated when inserting/removing, so currently there cannot be the case where
-        // a BitSet has a leading zero word.
-        hasher.combine(words)
+        for i in 0..<words.count {
+            hasher.combine(words[i])
+        }
     }
 
     @inlinable @inline(__always)
     public init() {
-        self.words = []
+        self.words = WordsStorage()
         self.bitCount = 0
     }
 
@@ -34,21 +53,40 @@ public struct BitSet: Hashable, Sendable {
     @inlinable @inline(__always)
     public init(bitCount: Int) {
         precondition(bitCount >= 0)
+        #if BITSET_USE_INLINEARRAY
+        precondition(bitCount <= kInlineWordCapacity * 128, "InlineArray BitSet has fixed capacity; increase capacity or disable BITSET_USE_INLINEARRAY")
+        self.words = WordsStorage()
+        self.bitCount = 0
+        #else
         self.bitCount = 0 // actual used range starts at 0; we only grow when bits are set
-        let n = (bitCount + 63) >> 6
+        let n = (bitCount + wordMax) >> 6
         self.words = ContiguousArray(repeating: 0, count: n)
+        #endif
     }
 
     @inlinable @inline(__always)
     public init(fullBitCount: Int) {
-        precondition(bitCount >= 0)
+        precondition(fullBitCount >= 0)
+        #if BITSET_USE_INLINEARRAY
+        precondition(fullBitCount <= kInlineWordCapacity * 128, "InlineArray BitSet has fixed capacity; increase capacity or disable BITSET_USE_INLINEARRAY")
+        self.words = WordsStorage()
+        self.bitCount = fullBitCount
+        let n = (fullBitCount + wordMax) >> 7
+        for i in 0..<n {
+            words[i] = .max
+        }
+        _maskTail()
+        #else
         self.bitCount = 0 // actual used range starts at 0; we only grow when bits are set
-        let n = (bitCount + 63) >> 6
+        let n = (fullBitCount + wordMax) >> 6
         self.words = ContiguousArray(repeating: .max, count: n)
+        self.bitCount = fullBitCount
+        _maskTail()
+        #endif
     }
 
     @usableFromInline
-    internal init(words: ContiguousArray<UInt64>, bitCount: Int) {
+    internal init(words: WordsStorage, bitCount: Int) {
         self.words = words
         self.bitCount = bitCount
         self._maskTail()
@@ -66,7 +104,7 @@ public struct BitSet: Hashable, Sendable {
         let words = self.words // capture a snapshot
         let wordCount = words.count
         let limit = self.bitCount // logical number of bits in use
-        var currentWord: UInt64 = 0
+        var currentWord: Word = 0
         return AnyIterator {
             while true {
                 if currentWord != 0 {
@@ -88,11 +126,11 @@ public struct BitSet: Hashable, Sendable {
 
                 // Mask off bits beyond `limit` in the (potential) last word
                 let remaining = limit - base
-                if remaining < 64 {
+                if remaining < wordTop {
                     if remaining <= 0 {
                         currentWord = 0
                     } else {
-                        let mask: UInt64 = (1 &<< remaining) &- 1
+                        let mask: Word = (1 &<< remaining) &- 1
                         currentWord &= mask
                     }
                 }
@@ -104,12 +142,20 @@ public struct BitSet: Hashable, Sendable {
     @inlinable @inline(__always)
     public func union(_ other: BitSet) -> BitSet {
         let maxWords = max(self.words.count, other.words.count)
-        var newWords = ContiguousArray<UInt64>(repeating: 0, count: maxWords)
+        var newWords = WordsStorage()
+        #if BITSET_USE_INLINEARRAY
+        precondition(maxWords <= kInlineWordCapacity, "InlineArray BitSet has fixed capacity; increase capacity or disable BITSET_USE_INLINEARRAY")
+        for i in 0..<maxWords {
+            newWords[i] = (i < self.words.count ? self.words[i] : 0) | (i < other.words.count ? other.words[i] : 0)
+        }
+        #else
+        newWords = ContiguousArray(repeating: 0, count: maxWords)
         for i in 0..<maxWords {
             let a = i < self.words.count ? self.words[i] : 0
             let b = i < other.words.count ? other.words[i] : 0
             newWords[i] = a | b
         }
+        #endif
         let maxBitCount = max(self.bitCount, other.bitCount)
         return BitSet(words: newWords, bitCount: maxBitCount)
     }
@@ -136,24 +182,30 @@ public struct BitSet: Hashable, Sendable {
         }
         _shrinkToFitUsedBits()
     }
+
     /// Ensure capacity for a specific bit index (0-based). Grows storage.
     @usableFromInline @inline(__always)
     internal mutating func ensureCapacity(forBit bit: Int) {
         precondition(bit >= 0, "bit index must be non-negative")
         let requiredBits = bit &+ 1
-        let requiredWords = (requiredBits + 63) >> 6
+        let requiredWords = (requiredBits + wordMax) >> 6
+        #if BITSET_USE_INLINEARRAY
+        precondition(requiredWords <= words.count, "InlineArray BitSet has fixed capacity; increase capacity or disable BITSET_USE_INLINEARRAY")
+        #else
         if requiredWords > words.count {
             words.append(contentsOf: repeatElement(0, count: requiredWords - words.count))
         }
+        #endif
     }
 
     /// Call after any mutating change to keep a canonical tail (clears bits beyond bitCount in last word).
     @usableFromInline @inline(__always)
     internal mutating func _maskTail() {
-        guard bitCount > 0, let lastIdx = words.indices.last else { return }
-        let bitsInLast = bitCount & 63
+        guard bitCount > 0, words.count > 0 else { return }
+        let lastIdx = words.count - 1
+        let bitsInLast = bitCount & wordMax
         if bitsInLast != 0 {
-            let mask: UInt64 = bitsInLast == 64 ? ~0 : ((1 &<< bitsInLast) &- 1)
+            let mask: Word = bitsInLast == wordTop ? ~0 : ((1 &<< bitsInLast) &- 1)
             words[lastIdx] &= mask
         }
     }
@@ -161,16 +213,32 @@ public struct BitSet: Hashable, Sendable {
     /// Shrinks trailing zero words and adjusts bitCount to highest set bit + 1.
     @usableFromInline @inline(__always)
     internal mutating func _shrinkToFitUsedBits() {
-        // Drop trailing zero words
-        while let last = words.last, last == 0 { words.removeLast() }
-        if let last = words.last {
-            let lastIdx = words.count - 1
-            // Highest set bit position in last word
-            let usedInLast = 64 - last.leadingZeroBitCount
-            bitCount = lastIdx * 64 + usedInLast
+        #if BITSET_USE_INLINEARRAY
+        var lastNonZero: Int? = nil
+        for i in stride(from: words.count - 1, through: 0, by: -1) {
+            if words[i] != 0 {
+                lastNonZero = i
+                break
+            }
+        }
+        if let last = lastNonZero {
+            let lastWord = words[last]
+            let usedInLast = wordTop - lastWord.leadingZeroBitCount
+            bitCount = last * wordTop + usedInLast
         } else {
             bitCount = 0
         }
+        // InlineArray does not resize or remove elements
+        #else
+        while let last = words.last, last == 0 { words.removeLast() }
+        if let last = words.last {
+            let lastIdx = words.count - 1
+            let usedInLast = wordTop - last.leadingZeroBitCount
+            bitCount = lastIdx * wordTop + usedInLast
+        } else {
+            bitCount = 0
+        }
+        #endif
         _maskTail()
     }
 
@@ -178,7 +246,7 @@ public struct BitSet: Hashable, Sendable {
     public mutating func insert(_ bit: Int) {
         ensureCapacity(forBit: bit)
         let wordIndex = bit >> 6
-        let mask: UInt64 = 1 &<< (bit & 63)
+        let mask: Word = 1 &<< (bit & wordMax)
         words[wordIndex] |= mask
         let requiredBits = bit &+ 1
         bitCount = max(bitCount, requiredBits)
@@ -201,7 +269,7 @@ public struct BitSet: Hashable, Sendable {
         if bit >= bitCount { return }
         let wordIndex = bit >> 6
         if wordIndex < words.count {
-            let mask: UInt64 = 1 &<< (bit & 63)
+            let mask: Word = 1 &<< (bit & wordMax)
             words[wordIndex] &= ~mask
             if bit == bitCount - 1 {
                 _shrinkToFitUsedBits()
@@ -221,7 +289,7 @@ public struct BitSet: Hashable, Sendable {
         if bit >= bitCount { return false }
         let wordIndex = bit >> 6
         if wordIndex < words.count {
-            let mask: UInt64 = 1 &<< (bit & 63)
+            let mask: Word = 1 &<< (bit & wordMax)
             return words[wordIndex] & mask != 0
         }
         return false
