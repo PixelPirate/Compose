@@ -25,7 +25,8 @@ let package = Package(
             dependencies: [
 //                .product(name: "BitCollections", package: "swift-collections"),
                 .product(name: "Atomics", package: "swift-atomics"),
-            ]
+            ],
+//            swiftSettings: [.define("BITSET_USE_DYNAMIC_ARRAY")]
         ),
         .testTarget(
             name: "ComponentsTests",
