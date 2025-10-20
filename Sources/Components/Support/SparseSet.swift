@@ -1,3 +1,5 @@
+// TODO: Support paging for sparse array and also for dense storage.
+
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
     @usableFromInline
     private(set) var components: ContiguousArray<Component> = []

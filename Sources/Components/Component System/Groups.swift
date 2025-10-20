@@ -6,6 +6,8 @@ struct Groups {
     final class Storage {
         @usableFromInline
         var groups: [GroupSignature: any GroupProtocol]
+        /// Registry of which component is already owned by which group (to avoid conflicting orderings).
+        var ownedTags = ComponentSignature()
 
         func copy() -> Storage {
             Storage(groups: groups)
@@ -20,13 +22,13 @@ struct Groups {
     private(set) var storage = Storage()
 
     @usableFromInline
-    mutating func add(_ group: some GroupProtocol, in pool: inout ComponentPool) {
-        try! group.acquire()
+    mutating func add(_ group: some GroupProtocol, in coordinator: Coordinator) {
         if !isKnownUniquelyReferenced(&storage) {
             storage = storage.copy()
         }
+        try! group.acquire(in: &storage.ownedTags)
         storage.groups[group.signature] = group
-        group.rebuild(in: &pool)
+        group.rebuild(in: coordinator)
     }
 
     @usableFromInline
@@ -47,21 +49,25 @@ struct Groups {
         if !isKnownUniquelyReferenced(&storage) {
             storage = storage.copy()
         }
+
         let groupSignature = GroupSignature(signature)
-        storage.groups.removeValue(forKey: groupSignature)
+        guard let group = storage.groups.removeValue(forKey: groupSignature) else {
+            return
+        }
+        group.release(from: &storage.ownedTags)
     }
 
     @usableFromInline
-    func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
+    func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in coordinator: Coordinator) {
         for group in storage.groups.values {
-            group.onComponentAdded(tag, entity: entity, in: &pool)
+            group.onComponentAdded(tag, entity: entity, in: coordinator)
         }
     }
 
     @usableFromInline
-    func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
+    func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in coordinator: Coordinator) {
         for group in storage.groups.values {
-            group.onWillRemoveComponent(tag, entity: entity, in: &pool)
+            group.onWillRemoveComponent(tag, entity: entity, in: coordinator)
         }
     }
 }
@@ -81,6 +87,7 @@ extension SparseSet {
     /// Returns the dense index for the given slot if present.
     @inlinable @inline(__always)
     internal func denseIndex(for slot: SlotIndex) -> Int? {
+        assert(slots.indices.contains(slot))
 //        if slots.contains(index: slot) {
             return slots[slot]
 //        }
@@ -173,11 +180,12 @@ extension AnyComponentArray {
 
 @usableFromInline
 protocol GroupProtocol {
-    func rebuild(in pool: inout ComponentPool)
-    func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool)
-    func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool)
+    func rebuild(in coordinator: Coordinator)
+    func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in coordinator: Coordinator)
+    func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in coordinator: Coordinator)
 
-    func acquire() throws(GroupAcquireError)
+    func acquire(in signature: inout ComponentSignature) throws(GroupAcquireError)
+    func release(from signature: inout ComponentSignature)
 
     var signature: GroupSignature { get }
 
@@ -185,26 +193,26 @@ protocol GroupProtocol {
     var primary: ComponentTag { get }
 }
 
-/// Global registry of which component is already owned by which group (to avoid conflicting orderings).
-nonisolated(unsafe) private var _ownedTags = ComponentSignature()
-
 struct GroupAcquireError: Error {}
 
 /// A high-performance "owned group" that packs all entities matching the required signature
 /// into a contiguous prefix of the primary component's dense storage.
 public final class Group<each Owned: Component>: GroupProtocol {
     // All owned tags, including Primary and the rest of the pack
+    /// The primary owned component. Can change during rebuilds.
     public private(set) var primary: ComponentTag
     private let owned: Set<ComponentTag>
     public let ownedSignature: ComponentSignature
     public let signature: GroupSignature
 
     /// Contains owned, backstage and excluded components.
-    public let fullSignature: ComponentSignature // TODO: This is incorrect. E.g.: "Own A, B, Exclude X, Y" and "Own X, Y, Exclude A, B" must both be supported.
+    /// - Attention: Only use this to quickly filter if component changes are relevant to this group. Don't use this for membership tests.
+    ///              "Own A, B, Exclude X, Y" and "Own X, Y, Exclude A, B" must both be supported for membership tests.
+    public let fullSignature: ComponentSignature
 
     // Membership filter (derived from a Query or passed explicitly)
-    private let backstageSignature: ComponentSignature
-    private let excludeSignature: ComponentSignature
+    @usableFromInline let backstageSignature: ComponentSignature
+    @usableFromInline let excludeSignature: ComponentSignature
     private let backstageComponents: Set<ComponentTag>
     private let excludedComponents: Set<ComponentTag>
     private let query: Query<repeat each Owned>
@@ -228,11 +236,12 @@ public final class Group<each Owned: Component>: GroupProtocol {
             }
         }
         self.query = query
+        // TODO: Add non-owning groups! addGroup { With<X>.self }
         precondition(prim != nil, "Group must have at least one owning component.")
         primary = prim.unsafelyUnwrapped
         owned = result
         ownedSignature = ComponentSignature(owned)
-        backstageSignature = query.signature
+        backstageSignature = query.backstageSignature
         excludeSignature = query.excludedSignature
         backstageComponents = query.backstageComponents
         excludedComponents = query.excludedComponents
@@ -245,15 +254,16 @@ public final class Group<each Owned: Component>: GroupProtocol {
     }
 
     @usableFromInline
-    func acquire() throws(GroupAcquireError) {
-        guard _ownedTags.isDisjoint(with: ownedSignature) else {
+    func acquire(in signature: inout ComponentSignature) throws(GroupAcquireError) {
+        guard signature.isDisjoint(with: ownedSignature) else {
             throw GroupAcquireError()
         }
-        _ownedTags.formUnion(ownedSignature)
+        signature.formUnion(ownedSignature)
     }
 
-    deinit {
-        _ownedTags.remove(ownedSignature)
+    @usableFromInline
+    func release(from signature: inout ComponentSignature) {
+        signature.remove(ownedSignature)
     }
 
     // TODO: Give this an Query in the init. We need the included/excluded beside the owned.
@@ -269,12 +279,12 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
     /// Build (or rebuild) the contiguous partition for this group.
     /// This partitions the primary component's dense storage so that all matching entities are in [0 ..< size).
-    public func rebuild(in pool: inout ComponentPool) {
+    public func rebuild(in coordinator: Coordinator) {
         // Dynamically select the primary as the smallest owned storage to minimize scan/swaps
         var selectedPrimary: ComponentTag? = nil
         var minCount: Int = .max
         for tag in owned {
-            if let arr = pool.components[tag] {
+            if let arr = coordinator.pool.components[tag] {
                 let c = arr.componentsToEntites.count
                 if c < minCount {
                     minCount = c
@@ -286,39 +296,24 @@ public final class Group<each Owned: Component>: GroupProtocol {
             self.primary = sp
         }
 
-        // Pre-resolve membership maps for required (owned + backstage) and excluded components
-        var requiredMaps: [ContiguousArray<Array.Index?>] = []
-        var excludedMaps: [ContiguousArray<Array.Index?>] = []
-
-        // Collect maps for all owned components (must be present)
-        for tag in owned {
-            guard let arr = pool.components[tag] else { return }
-            requiredMaps.append(arr.entityToComponents)
+        var requiredSignature = query.signature
+        var excludeSignature = self.excludeSignature
+        guard !requiredSignature.isEmpty else {
+            size = 0
+            return
         }
-        // Collect maps for all backstage components (also required)
-        for tag in backstageComponents {
-            guard let arr = pool.components[tag] else { return }
-            requiredMaps.append(arr.entityToComponents)
-        }
-        // Collect maps for excluded components only if we actually exclude something
-        if !excludedComponents.isEmpty {
-            for tag in excludedComponents {
-                if let arr = pool.components[tag] {
-                    excludedMaps.append(arr.entityToComponents)
-                }
-            }
-        }
-
         @inline(__always)
         func passes(_ slot: SlotIndex) -> Bool {
-            let raw = slot.rawValue
-            for map in requiredMaps { if map[raw] == nil { return false } }
-            for map in excludedMaps { if map[raw] != nil { return false } }
-            return true
+            let signature = coordinator.entitySignatures[slot.index]
+            return requiredSignature.isSubset(of: signature)
+                && excludeSignature.isDisjoint(with: signature)
         }
 
         // Access primary storage
-        guard var primaryArray = pool.components[primary] else { return }
+        guard var primaryArray = coordinator.pool.components[primary] else {
+            size = 0
+            return
+        }
 
         // Find the concrete primary owned type and run the partition on it
         var handledPrimary = false
@@ -349,20 +344,12 @@ public final class Group<each Owned: Component>: GroupProtocol {
             // 2) Mirror the primary permutation to all other owned storages with a single-pass placement
             if self.size > 0 {
                 // Capture the packed primary order for indices 0..<size
-                var primaryPacked: [SlotIndex] = []
-                primaryPacked.reserveCapacity(self.size)
-                primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
-                    var i = 0
-                    while i < self.size {
-                        primaryPacked.append(primarySet.keys[i])
-                        i &+= 1
-                    }
-                }
+                var primaryPacked = primaryArray.componentsToEntites[..<self.size]
 
                 for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                     let tag = otherOwnedType.componentTag
                     if tag == self.primary { continue }
-                    guard var otherArray = pool.components[tag] else { continue }
+                    guard var otherArray = coordinator.pool.components[tag] else { continue }
 
                     otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
                         // For each desired position j, ensure the desired slot is at j if present
@@ -386,24 +373,21 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
     /// Incremental hook to be called when a component is **added** to an entity.
     /// If the entity now matches the group, it is swapped into the packed prefix.
-    public func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
+    public func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in coordinator: Coordinator) {
         // Only proceed if the added tag touches this group's signature and primary exists
-        guard fullSignature.contains(tag), var primaryArray = pool.components[primary] else { return }
+        guard fullSignature.contains(tag), var primaryArray = coordinator.pool.components[primary] else { return }
 
-        // Pre-resolve membership maps as in rebuild (avoid simultaneous access to pool inside closure)
-        var requiredMaps: [ContiguousArray<Array.Index?>] = []
-        var excludedMaps: [ContiguousArray<Array.Index?>] = []
-        for t in owned { if let arr = pool.components[t] { requiredMaps.append(arr.entityToComponents) } }
-        for t in backstageComponents { if let arr = pool.components[t] { requiredMaps.append(arr.entityToComponents) } }
-        if !excludedComponents.isEmpty {
-            for t in excludedComponents { if let arr = pool.components[t] { excludedMaps.append(arr.entityToComponents) } }
+        var requiredSignature = query.signature
+        var excludeSignature = self.excludeSignature
+        guard !requiredSignature.isEmpty else {
+            size = 0
+            return
         }
         @inline(__always)
         func passes(_ slot: SlotIndex) -> Bool {
-            let raw = slot.rawValue
-            for m in requiredMaps { if m[raw] == nil { return false } }
-            for m in excludedMaps { if m[raw] != nil { return false } }
-            return true
+            let signature = coordinator.entitySignatures[slot.index]
+            return requiredSignature.isSubset(of: signature)
+            && excludeSignature.isDisjoint(with: signature)
         }
 
         // Defer mirroring swap to other owned storages until after we release primarySet
@@ -442,7 +426,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
             for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                 let tag = otherOwnedType.componentTag
                 if tag == self.primary { continue }
-                guard var otherArray = pool.components[tag] else { continue }
+                guard var otherArray = coordinator.pool.components[tag] else { continue }
                 otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
                     if let ci = otherSet.denseIndex(for: p.slot), ci != p.targetIndex {
                         otherSet.swapDenseAt(ci, p.targetIndex)
@@ -454,19 +438,21 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
     /// Incremental hook to be called when a component is **removed** from an entity.
     /// If the entity was part of the group, it is swapped out of the packed prefix.
-    public func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool) {
+    public func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in coordinator: Coordinator) {
         guard self.fullSignature.contains(tag) else { return }
-        guard var primaryArray = pool.components[primary] else { return }
+        guard var primaryArray = coordinator.pool.components[primary] else { return }
 
-        // Pre-resolve required maps (for inclusion after excluded removal)
-        var requiredMaps: [ContiguousArray<Array.Index?>] = []
-        for t in owned { if let arr = pool.components[t] { requiredMaps.append(arr.entityToComponents) } }
-        for t in backstageComponents { if let arr = pool.components[t] { requiredMaps.append(arr.entityToComponents) } }
+        var requiredSignature = query.signature
+        var excludeSignature = self.excludeSignature
+        guard !requiredSignature.isEmpty else {
+            size = 0
+            return
+        }
         @inline(__always)
-        func hasAllRequired(_ slot: SlotIndex) -> Bool {
-            let raw = slot.rawValue
-            for m in requiredMaps { if m[raw] == nil { return false } }
-            return true
+        func passes(_ slot: SlotIndex) -> Bool {
+            let signature = coordinator.entitySignatures[slot.index]
+            return requiredSignature.isSubset(of: signature)
+            && excludeSignature.isDisjoint(with: signature)
         }
 
         var pending: (slot: SlotIndex, targetIndex: Int)? = nil
@@ -478,7 +464,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
                 if excludedComponents.contains(tag) {
                     // If excluded tag removed and entity is outside packed prefix, include if now valid
-                    if idx >= size, hasAllRequired(entity.slot) {
+                    if idx >= size, passes(entity.slot) {
                         let insertIndex = size
                         let aSlot = entity.slot
                         primarySet.swapDenseAt(idx, insertIndex)
@@ -503,7 +489,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
             for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                 let tag = otherOwnedType.componentTag
                 if tag == self.primary { continue }
-                guard var otherArray = pool.components[tag] else { continue }
+                guard var otherArray = coordinator.pool.components[tag] else { continue }
                 otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
                     if let ci = otherSet.denseIndex(for: p.slot), ci != p.targetIndex {
                         otherSet.swapDenseAt(ci, p.targetIndex)
@@ -515,14 +501,14 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
     /// Typed convenience.
     @inlinable @inline(__always)
-    public func onComponentAdded<C: Component>(_ type: C.Type, entity: Entity.ID, in pool: inout ComponentPool) {
-        onComponentAdded(C.componentTag, entity: entity, in: &pool)
+    public func onComponentAdded<C: Component>(_ type: C.Type, entity: Entity.ID, in coordinator: Coordinator) {
+        onComponentAdded(C.componentTag, entity: entity, in: coordinator)
     }
 
     /// Typed convenience.
     @inlinable @inline(__always)
-    public func onWillRemoveComponent<C: Component>(_ type: C.Type, entity: Entity.ID, in pool: inout ComponentPool) {
-        onWillRemoveComponent(C.componentTag, entity: entity, in: &pool)
+    public func onWillRemoveComponent<C: Component>(_ type: C.Type, entity: Entity.ID, in coordinator: Coordinator) {
+        onWillRemoveComponent(C.componentTag, entity: entity, in: coordinator)
     }
 }
 

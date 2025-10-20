@@ -34,7 +34,7 @@ public final class Coordinator {
     @usableFromInline
     var signatureQueryCache: [QueryHash: SignatureQueryPlan] = [:]
     @usableFromInline
-    internal let signatureQueryCacheLock = OSAllocatedUnfairLock()
+    internal let signatureQueryCacheLock = OSAllocatedUnfairLock() // TODO: Instead of these locks: Explore atomic pointer swap.
 
     @usableFromInline
     var sparseQueryCache: [QueryHash: SparseQueryPlan] = [:]
@@ -58,7 +58,7 @@ public final class Coordinator {
     @usableFromInline
     internal private(set) var resources: [ResourceKey: Any] = [:] // TODO: I don't think the mutex is needed. The executors already guarantee that a system has unique mutable access.
     @usableFromInline
-    internal let resourcesLock = NSRecursiveLock()
+    internal let resourcesLock = OSAllocatedUnfairLock()
 
     public init() {
         MainSystem.install(into: self)
@@ -144,7 +144,7 @@ public final class Coordinator {
         pool.append(component, for: entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].appending(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
-        groups.onComponentAdded(C.componentTag, entity: entityID, in: &pool)
+        groups.onComponentAdded(C.componentTag, entity: entityID, in: self)
     }
     
     /// Add a new group.
@@ -161,15 +161,13 @@ public final class Coordinator {
     @inlinable @inline(__always) @discardableResult
     public func addGroup<each Owned: Component>(@QueryBuilder build: () -> BuiltQuery<repeat each Owned>) -> GroupSignature {
         let query = build().composite
-        groups.add(Group(query: query), in: &pool)
+        let group = Group(query: query)
+        groups.add(group, in: self)
         let signature = GroupSignature(query.querySignature)
-        let owned = query.writeSignature + query.readOnlySignature
-        let backstage = ComponentSignature(query.backstageComponents)
-        let excluded = ComponentSignature(query.excludedComponents)
         let meta = GroupMetadata(
-            owned: owned,
-            backstage: backstage,
-            excluded: excluded
+            owned: group.ownedSignature,
+            backstage: group.backstageSignature,
+            excluded: group.excludeSignature
         )
         knownGroupsMeta[signature] = meta
         return signature
@@ -254,7 +252,7 @@ public final class Coordinator {
         defer {
             worldVersion &+= 1
         }
-        groups.onWillRemoveComponent(componentTag, entity: entityID, in: &pool)
+        groups.onWillRemoveComponent(componentTag, entity: entityID, in: self)
         pool.remove(componentTag, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
@@ -266,7 +264,7 @@ public final class Coordinator {
         defer {
             worldVersion &+= 1
         }
-        groups.onWillRemoveComponent(C.componentTag, entity: entityID, in: &pool)
+        groups.onWillRemoveComponent(C.componentTag, entity: entityID, in: self)
         pool.remove(componentType, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
@@ -280,7 +278,7 @@ public final class Coordinator {
         }
         indices.free(id: entityID)
         for componentTag in self[signatureFor: entityID.slot].tags {
-            groups.onWillRemoveComponent(componentTag, entity: entityID, in: &pool)
+            groups.onWillRemoveComponent(componentTag, entity: entityID, in: self)
         }
         pool.remove(entityID)
         entitySignatures[entityID.slot.rawValue] = ComponentSignature()
@@ -313,10 +311,10 @@ public final class Coordinator {
     @inlinable @inline(__always)
     public subscript<R>(resource resourceType: sending R.Type = R.self) -> R {
         @inlinable @inline(__always)
-        _read {
+        get {
             resourcesLock.lock()
-            yield resources[ResourceKey(R.self)] as! R
-            resourcesLock.unlock()
+            defer { resourcesLock.unlock() }
+            return resources[ResourceKey(R.self)] as! R
         }
         @inlinable @inline(__always)
         set {

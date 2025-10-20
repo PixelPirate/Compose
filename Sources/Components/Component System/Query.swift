@@ -25,6 +25,10 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     @inline(__always)
     public let excludedSignature: ComponentSignature
 
+    /// Includes all components which are required but will not be included in the query output.
+    @inline(__always)
+    public let backstageSignature: ComponentSignature
+
     @inline(__always)
     public let querySignature: QuerySignature
 
@@ -37,6 +41,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         excludedComponents: Set<ComponentTag>
     ) {
         self.backstageComponents = backstageComponents
+        self.backstageSignature = ComponentSignature(backstageComponents)
         self.excludedComponents = excludedComponents
         self.signature = Self.makeSignature(backstageComponents: backstageComponents) // TODO: Why does this include backstage components?
         self.readOnlySignature = Self.makeReadSignature(backstageComponents: backstageComponents)
@@ -432,6 +437,7 @@ extension Query {
     public func performGroup(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let groupSignature = GroupSignature(querySignature)
+        // Since `slots` is a slice, the loop is not allowed to change the pool. Changes must happen deferred.
         guard let slots = context.coordinator.groupSlots(groupSignature) else {
             return
         }
