@@ -51,9 +51,6 @@ public final class Coordinator {
 
     @usableFromInline
     var knownGroupsMeta: [GroupSignature: GroupMetadata] = [:]
-    
-    @usableFromInline
-    var groupsByOwned: [ComponentSignature: GroupSignature] = [:]
 
     @usableFromInline
     private(set) var worldVersion: UInt64 = 0
@@ -149,7 +146,18 @@ public final class Coordinator {
         entitySignatures[entityID.slot.rawValue] = newSignature
         groups.onComponentAdded(C.componentTag, entity: entityID, in: &pool)
     }
-
+    
+    /// Add a new group.
+    /// Group consist of 3 sets of components: Owned, included and excluded.
+    /// Using the builder syntax you can specify these three roles like this:
+    /// ```
+    /// addGroup {
+    ///     Transform.self // Owned
+    ///     With<Material>.self // Included
+    ///     Without<RigidBody>.self // Excluded
+    /// }
+    /// ```
+    /// - Attention: Using virtual components (Like WithEntityID, Write, Optional) in a group definition is undefined behaviour and should be avoided.
     @inlinable @inline(__always) @discardableResult
     public func addGroup<each Owned: Component>(@QueryBuilder build: () -> BuiltQuery<repeat each Owned>) -> GroupSignature {
         let query = build().composite
@@ -164,7 +172,6 @@ public final class Coordinator {
             excluded: excluded
         )
         knownGroupsMeta[signature] = meta
-        groupsByOwned[meta.contained] = signature
         return signature
     }
 
@@ -191,29 +198,6 @@ public final class Coordinator {
         }
         public let slots: ArraySlice<SlotIndex>
         public let exact: Bool
-    }
-
-    @inlinable @inline(__always)
-    public func bestGroup(forContained contained: ComponentSignature, backstage: ComponentSignature, excluded: ComponentSignature) -> BestGroupResult? {
-        // Try exact group by (contained, excluded)
-        let exactSig = GroupSignature(contained: contained, excluded: excluded)
-        if let slots = groupSlots(exactSig) {
-            return BestGroupResult(slots: slots, exact: true)
-        }
-        // Try owned-exact fallback + weaker filters reuse
-        if let sig = groupsByOwned[contained],
-           let slots = groupSlots(sig),
-           let meta = knownGroupsMeta[sig] {
-            // Exact filters: no per-entity checks required
-            if meta.backstage == backstage && meta.excluded == excluded {
-                return BestGroupResult(slots: slots, exact: true)
-            }
-            // Weaker filters reuse: group's filters must be subsets of the query's filters
-            if meta.backstage.isSubset(of: backstage) && meta.excluded.isSubset(of: excluded) {
-                return BestGroupResult(slots: slots, exact: false)
-            }
-        }
-        return nil
     }
 
     @inlinable @inline(__always)
@@ -262,8 +246,6 @@ public final class Coordinator {
         let signature = GroupSignature(built.querySignature)
         groups.remove(built.querySignature)
         knownGroupsMeta.removeValue(forKey: signature)
-        let contained = built.writeSignature.union(built.readOnlySignature).union(ComponentSignature(built.backstageComponents))
-        groupsByOwned.removeValue(forKey: contained)
     }
 
     @inlinable @inline(__always)
@@ -369,4 +351,3 @@ public final class Coordinator {
         systemManager.update(scheduleLabel, update: update)
     }
 }
-

@@ -21,6 +21,7 @@ struct Groups {
 
     @usableFromInline
     mutating func add(_ group: some GroupProtocol, in pool: inout ComponentPool) {
+        try! group.acquire()
         if !isKnownUniquelyReferenced(&storage) {
             storage = storage.copy()
         }
@@ -176,6 +177,8 @@ protocol GroupProtocol {
     func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool)
     func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in pool: inout ComponentPool)
 
+    func acquire() throws(GroupAcquireError)
+
     var signature: GroupSignature { get }
 
     var size: Int { get }
@@ -184,6 +187,8 @@ protocol GroupProtocol {
 
 /// Global registry of which component is already owned by which group (to avoid conflicting orderings).
 nonisolated(unsafe) private var _ownedTags = ComponentSignature()
+
+struct GroupAcquireError: Error {}
 
 /// A high-performance "owned group" that packs all entities matching the required signature
 /// into a contiguous prefix of the primary component's dense storage.
@@ -203,9 +208,6 @@ public final class Group<each Owned: Component>: GroupProtocol {
     private let backstageComponents: Set<ComponentTag>
     private let excludedComponents: Set<ComponentTag>
     private let query: Query<repeat each Owned>
-
-    struct AcquireError: Error {
-    }
 
     /// Number of packed entities at the front of the primary component's storage.
     public private(set) var size: Int = 0
@@ -242,31 +244,16 @@ public final class Group<each Owned: Component>: GroupProtocol {
         self.init(query: query().composite)
     }
 
-    func acquire() throws(AcquireError) {
+    @usableFromInline
+    func acquire() throws(GroupAcquireError) {
         guard _ownedTags.isDisjoint(with: ownedSignature) else {
-            throw AcquireError()
+            throw GroupAcquireError()
         }
         _ownedTags.formUnion(ownedSignature)
     }
 
     deinit {
         _ownedTags.remove(ownedSignature)
-    }
-
-    // Helper to verify if slot has all owned and backstage components for inclusion.
-    @inline(__always)
-    private func hasRequired(slot: SlotIndex, in pool: ComponentPool) -> Bool {
-        for tag in owned {
-            if pool.components[tag]?.entityToComponents[slot.rawValue] == nil {
-                return false
-            }
-        }
-        for tag in backstageComponents {
-            if pool.components[tag]?.entityToComponents[slot.rawValue] == nil {
-                return false
-            }
-        }
-        return true
     }
 
     // TODO: Give this an Query in the init. We need the included/excluded beside the owned.
