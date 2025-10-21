@@ -9,7 +9,7 @@
 extension Query {
     @usableFromInline @inline(__always)
     internal func getCachedArrays(_ coordinator: Coordinator)
-    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index?>], excluded: [ContiguousArray<Array.Index?>])
+    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<ContiguousArray.Index>], excluded: [ContiguousArray<ContiguousArray.Index>])
     {
         coordinator.sparseQueryCacheLock.lock()
         if

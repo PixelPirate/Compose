@@ -112,7 +112,7 @@ extension ComponentPool {
                 } else {
                     return candidates.filter { slot in
                         excludedArrays.allSatisfy { componentArray in
-                            !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == nil
+                            !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == .notFound
                         }
                     }
                 }
@@ -133,7 +133,7 @@ extension ComponentPool {
             } else {
                 return smallest.componentsToEntites.filter { slot in
                     excludedArrays.allSatisfy { componentArray in
-                        !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == nil
+                        !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == .notFound
                     }
                 }
             }
@@ -148,12 +148,12 @@ extension ComponentPool {
         for slot in smallest.componentsToEntites {
             var presentInAll = true
             for sparseList in others {
-                if sparseList[slot.rawValue] == nil {
+                if sparseList[slot.rawValue] == .notFound {
                     presentInAll = false
                     break
                 }
             }
-            for excluded in excludedArrays where excluded.entityToComponents[slot.rawValue] != nil {
+            for excluded in excludedArrays where excluded.entityToComponents[slot.rawValue] != .notFound {
                 presentInAll = false
                 break
             }
@@ -180,7 +180,7 @@ extension ComponentPool {
             let tag = component.QueriedComponent.componentTag
             guard
                 let array = self.components[tag],
-                array.entityToComponents[slot.rawValue] != nil
+                array.entityToComponents[slot.rawValue] != .notFound
             else {
                 return false
             }
@@ -188,7 +188,7 @@ extension ComponentPool {
 
         for tag in query.backstageComponents {
             // If any tag is missing or empty, there can be no matches.
-            guard let array = self.components[tag], array.entityToComponents[slot.rawValue] != nil else {
+            guard let array = self.components[tag], array.entityToComponents[slot.rawValue] != .notFound else {
                 return false
             }
         }
@@ -198,7 +198,7 @@ extension ComponentPool {
             guard let array = self.components[tag] else {
                 continue
             }
-            guard array.entityToComponents[slot.rawValue] == nil else {
+            guard array.entityToComponents[slot.rawValue] == .notFound else {
                 return false
             }
         }
@@ -214,7 +214,7 @@ extension ComponentPool {
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
     )
-    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<Array.Index?>], excluded: [ContiguousArray<Array.Index?>])
+    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<ContiguousArray.Index>], excluded: [ContiguousArray<ContiguousArray.Index>])
     {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []

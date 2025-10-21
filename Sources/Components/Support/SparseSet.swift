@@ -68,11 +68,11 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     /// Returns true if this array contains a component for the given entity.
     @inlinable @inline(__always)
     public func containsEntity(_ slot: SlotIndex) -> Bool {
-        /*slots.contains(index: slot) &&*/ slots[slot] != nil
+        /*slots.contains(index: slot) &&*/ slots[slot] != .notFound
     }
 
     @inlinable @inline(__always)
-    public func componentIndex(_ slot: SlotIndex) -> ContiguousArray.Index? {
+    public func componentIndex(_ slot: SlotIndex) -> ContiguousArray.Index {
 //        guard slots.contains(index: slot) else {
 //            return nil
 //        }
@@ -83,13 +83,14 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     mutating public func ensureEntity(_ slot: SlotIndex) {
         if !slots.contains(index: slot) {
             let missingCount = (slot.index + 1) - slots.count
-            slots.append(contentsOf: repeatElement(nil, count: missingCount))
+            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
         }
     }
 
     @inlinable @inline(__always)
     public mutating func append(_ component: Component, to slot: SlotIndex) {
-        if let index = componentIndex(slot) {
+        let index = componentIndex(slot)
+        if index != .notFound {
             components[index] = component
             return
         }
@@ -105,13 +106,18 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     public mutating func remove(_ slot: SlotIndex) {
-        guard /*slots.contains(index: slot),*/ let componentIndex = slots[slot] else {
+        let componentIndex = slots[slot]
+//        guard /*slots.contains(index: slot),*/ let componentIndex = slots[slot] else {
+//            return
+//        }
+
+        guard componentIndex != .notFound else {
             return
         }
 
         guard componentIndex != components.endIndex - 1 else {
             keys.removeLast()
-            slots[slot] = nil
+            slots[slot] = .notFound
             components.removeLast()
             return
         }
@@ -122,7 +128,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         components[componentIndex] = components.removeLast()
         keys[componentIndex] = lastComponentSlot
         slots[lastComponentSlot] = componentIndex
-        slots[slot] = nil
+        slots[slot] = .notFound
     }
 
     /// Swap two elements in the dense storage and fix up the index maps.
@@ -143,10 +149,10 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     @inlinable @inline(__always)
     public subscript(slot slot: SlotIndex) -> Component {
         _read {
-            yield components[slots[slot]!]
+            yield components[slots[slot]]
         }
         _modify {
-            yield &components[slots[slot]!]
+            yield &components[slots[slot]]
         }
     }
 
@@ -191,9 +197,25 @@ extension Array.Index: SparseSetIndex {
     }
 }
 
-public struct SparseArray<Value, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
+extension ContiguousArray.Index: SparseArrayValue {
+    @inline(__always)
+    public static let notFound: Array.Index = -1
+}
+
+public protocol SparseArrayValue: Hashable, Comparable {
+    @inlinable @inline(__always)
+    var index: Array.Index { get }
+
+    @inlinable @inline(__always)
+    static var notFound: Array.Index { get }
+
+    @inlinable @inline(__always)
+    init(index: Array.Index)
+}
+
+public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
     @usableFromInline
-    private(set) var values: ContiguousArray<Value?> = []
+    private(set) var values: ContiguousArray<Value> = []
 
     @inlinable @inline(__always)
     public var startIndex: Index {
@@ -228,7 +250,7 @@ public struct SparseArray<Value, Index: SparseSetIndex>: Collection, Expressible
     }
 
     @inlinable @inline(__always)
-    public subscript(index: Index) -> Value? {
+    public subscript(index: Index) -> Value {
         _read {
             yield values[index.index]
         }

@@ -53,17 +53,17 @@ struct SparseQueryPlan {
     @usableFromInline
     let base: ContiguousArray<SlotIndex>
     @usableFromInline
-    let others: [ContiguousArray<Array.Index?>] // entityToComponents maps
+    let others: [ContiguousArray<ContiguousArray.Index>] // entityToComponents maps
     @usableFromInline
-    let excluded: [ContiguousArray<Array.Index?>]
+    let excluded: [ContiguousArray<ContiguousArray.Index>]
     @usableFromInline
     let version: UInt64
 
     @usableFromInline
     init(
         base: ContiguousArray<SlotIndex>,
-        others: [ContiguousArray<Array.Index?>],
-        excluded: [ContiguousArray<Array.Index?>],
+        others: [ContiguousArray<ContiguousArray.Index>],
+        excluded: [ContiguousArray<ContiguousArray.Index>],
         version: UInt64
     ) {
         self.base = base
