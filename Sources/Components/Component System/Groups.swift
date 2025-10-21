@@ -122,7 +122,7 @@ extension AnyComponentArray {
         _ type: C.Type,
         _ body: (inout ComponentArray<C>) throws -> R
     ) rethrows -> R {
-        // This mirrors how withBuffer is implemented internally.
+        // This mirrors how withStorage is implemented internally.
         let box = Unmanaged.passUnretained(base as! ComponentArrayBox<C>)
         return try body(&box.takeUnretainedValue().base)
     }

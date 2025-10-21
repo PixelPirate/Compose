@@ -1,8 +1,6 @@
-// TODO: Support paging for sparse array and also for dense storage.
-
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
     @usableFromInline
-    private(set) var components: ContiguousArray<Component> = []
+    private(set) var components: PagedArray<Component> = []
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
@@ -32,7 +30,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
-        components.reserveCapacity(minimumComponentCapacity)
+        components.reserveCapacity(minimumCapacity: minimumComponentCapacity)
         keys.reserveCapacity(minimumComponentCapacity)
         slots.reserveCapacity(minimumCapacity: minimumSlotCapacity)
     }
@@ -58,11 +56,12 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         }
     }
 
+    @available(*, unavailable, message: "SparseSet storage is paged; use withPagedStorage APIs instead.")
     @inlinable @inline(__always)
     public mutating func withUnsafeMutableBufferPointer<R>(
         _ body: (inout UnsafeMutableBufferPointer<Component>) throws -> R
     ) rethrows -> R {
-        try components.withUnsafeMutableBufferPointer(body)
+        fatalError("SparseSet.withUnsafeMutableBufferPointer is unavailable for paged storage.")
     }
 
     /// Returns true if this array contains a component for the given entity.
@@ -177,6 +176,143 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     }
 }
 
+@usableFromInline
+struct PagedArray<Element>: RandomAccessCollection, MutableCollection, ExpressibleByArrayLiteral {
+    typealias Index = Int
+
+    @usableFromInline
+    static let pageShift = 12
+
+    @usableFromInline
+    static let pageSize = 1 << pageShift
+
+    @usableFromInline
+    static let pageMask = pageSize - 1
+
+    @usableFromInline
+    var pages: [ContiguousArray<Element>] = []
+
+    @usableFromInline
+    private(set) var countStorage: Int = 0
+
+    @inlinable @inline(__always)
+    init() {}
+
+    @inlinable @inline(__always)
+    init(arrayLiteral elements: Element...) {
+        self.init()
+        append(contentsOf: elements)
+    }
+
+    @inlinable @inline(__always)
+    init<S: Sequence>(_ elements: S) where S.Element == Element {
+        self.init()
+        append(contentsOf: elements)
+    }
+
+    @inlinable @inline(__always)
+    var startIndex: Int { 0 }
+
+    @inlinable @inline(__always)
+    var endIndex: Int { countStorage }
+
+    @inlinable @inline(__always)
+    var count: Int { countStorage }
+
+    @inlinable @inline(__always)
+    var indices: Range<Int> { 0..<count }
+
+    @inlinable @inline(__always)
+    mutating func reserveCapacity(minimumCapacity: Int) {
+        let requiredPages = (minimumCapacity + Self.pageMask) >> Self.pageShift
+        pages.reserveCapacity(requiredPages)
+        for index in pages.indices {
+            pages[index].reserveCapacity(Self.pageSize)
+        }
+    }
+
+    @inlinable @inline(__always)
+    mutating func append(_ newElement: Element) {
+        let pageIndex = countStorage >> Self.pageShift
+        if pageIndex == pages.count {
+            pages.append(ContiguousArray<Element>())
+            pages[pageIndex].reserveCapacity(Self.pageSize)
+        }
+        pages[pageIndex].append(newElement)
+        countStorage += 1
+    }
+
+    @inlinable @inline(__always)
+    mutating func append<S: Sequence>(contentsOf newElements: S) where S.Element == Element {
+        for element in newElements {
+            append(element)
+        }
+    }
+
+    @inlinable @inline(__always)
+    @discardableResult
+    mutating func popLast() -> Element? {
+        guard !isEmpty else { return nil }
+        return removeLast()
+    }
+
+    @inlinable @inline(__always)
+    @discardableResult
+    mutating func removeLast() -> Element {
+        precondition(!isEmpty, "Cannot removeLast from empty PagedArray")
+        let index = countStorage - 1
+        countStorage -= 1
+        let pageIndex = index >> Self.pageShift
+        let value = pages[pageIndex].removeLast()
+        if pages[pageIndex].isEmpty {
+            pages.removeLast()
+        }
+        return value
+    }
+
+    @inlinable @inline(__always)
+    mutating func swapAt(_ i: Int, _ j: Int) {
+        if i == j { return }
+        let (pageI, offsetI) = pageAndOffset(for: i)
+        let (pageJ, offsetJ) = pageAndOffset(for: j)
+        pages[pageI].swapAt(offsetI, offsetJ)
+    }
+
+    @inlinable @inline(__always)
+    func index(after i: Int) -> Int { i + 1 }
+
+    @inlinable @inline(__always)
+    func index(before i: Int) -> Int { i - 1 }
+
+    @inlinable @inline(__always)
+    subscript(position: Int) -> Element {
+        _read {
+            let (page, offset) = pageAndOffset(for: position)
+            yield pages[page][offset]
+        }
+        _modify {
+            let (page, offset) = pageAndOffset(for: position)
+            yield &pages[page][offset]
+        }
+    }
+
+    @available(*, unavailable, message: "PagedArray storage is paged; use page-wise APIs instead.")
+    @inlinable @inline(__always)
+    mutating func withUnsafeMutableBufferPointer<R>(
+        _ body: (inout UnsafeMutableBufferPointer<Element>) throws -> R
+    ) rethrows -> R {
+        fatalError("PagedArray.withUnsafeMutableBufferPointer is unavailable for paged storage.")
+    }
+
+    @usableFromInline
+    func pageAndOffset(for position: Int) -> (Int, Int) {
+        precondition(position >= 0 && position < countStorage, "Index out of bounds")
+        let page = position >> Self.pageShift
+        let offset = position & Self.pageMask
+        return (page, offset)
+    }
+}
+
 public protocol SparseSetIndex: Hashable, Comparable {
     @inlinable @inline(__always)
     var index: Array.Index { get }
@@ -215,7 +351,7 @@ public protocol SparseArrayValue: Hashable, Comparable {
 
 public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
     @usableFromInline
-    private(set) var values: ContiguousArray<Value> = []
+    private(set) var values: PagedArray<Value> = []
 
     @inlinable @inline(__always)
     public var startIndex: Index {
@@ -229,7 +365,7 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @inline(__always)
     public init(arrayLiteral elements: Value...) {
-        values = ContiguousArray(elements)
+        values = PagedArray(elements)
     }
 
     @inlinable @inline(__always)
