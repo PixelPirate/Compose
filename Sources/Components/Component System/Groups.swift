@@ -104,9 +104,9 @@ extension SparseSet {
     /// Returns the dense index for the given slot if present.
     @inlinable @inline(__always)
     internal func denseIndex(for slot: SlotIndex) -> Int? {
-        assert(slots.indices.contains(slot))
+        assert(slots.indices.contains(slot.index))
 //        if slots.contains(index: slot) {
-            return slots[slot]
+        return slots[slot.index]
 //        }
 //        return nil
     }
