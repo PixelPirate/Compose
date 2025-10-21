@@ -6,7 +6,9 @@
 //
 
 @dynamicMemberLookup
-public struct OptionalWrite<C: Component>: WritableComponent, Sendable {
+public struct OptionalWrite<C: Component>: WritableComponent, OptionalQueriedComponent, Sendable {
+    public typealias Queried = C
+
     public static var componentTag: ComponentTag { C.componentTag }
 
     public typealias Wrapped = C
@@ -28,7 +30,10 @@ public struct OptionalWrite<C: Component>: WritableComponent, Sendable {
             var value = access?.value[keyPath: keyPath]
             yield &value
             guard let newValue = value, let access else {
-                fatalError("Cannot write `nil` through an optional. Remove component through proper means like an command.")
+                if access != nil {
+                    fatalError("Cannot write `nil` through an optional. Remove component through proper means like an command.")
+                }
+                return
             }
             access.value[keyPath: keyPath] = newValue
         }

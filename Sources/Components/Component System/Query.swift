@@ -166,6 +166,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
         for tagType in repeat (each T).self {
             guard tagType.QueriedComponent != Never.self, tagType as? any WritableComponent.Type == nil else { continue } // TODO: Test this
+            // TODO: Ignore optional components
             signature = signature.appending(tagType.componentTag)
         }
 
@@ -178,6 +179,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
         for tagType in repeat (each T).self {
             guard tagType.QueriedComponent != Never.self, tagType is any WritableComponent.Type else { continue } // TODO: Test this
+            // TODO: Ignore OptionalWrite components
             signature = signature.appending(tagType.componentTag)
         }
 
@@ -459,7 +461,7 @@ extension Query {
     }
 
     @inlinable @inline(__always)
-    public func performGroupDense(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
+    public func performGroupDense(_ context: some QueryContextConvertible, requireGroup: Bool = false, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let groupSignature = GroupSignature(querySignature)
 
@@ -470,7 +472,7 @@ extension Query {
         if let best {
             slotsSlice = best.slots
             exactGroupMatch = best.exact
-        } else {
+        } else if !requireGroup {
             // No group found for query, fall back to precomputed slots.
             slotsSlice = context.coordinator.pool.slots(
                 repeat (each T).self,
@@ -479,15 +481,10 @@ extension Query {
             )[...]
             exactGroupMatch = false
             print("No group found for query, falling back to precomputed slots. Consider adding a group matching this query.")
-        }
-
-        // If we didn't get an exact group, prepare other/excluded arrays for per-entity filtering.
-        var otherComponents: [ContiguousArray<Int?>] = []
-        var excludedComponents: [ContiguousArray<Int?>] = []
-        if !exactGroupMatch {
-            let cached = getCachedArrays(context.coordinator)
-            otherComponents = cached.others
-            excludedComponents = cached.excluded
+        } else {
+            slotsSlice = []
+            exactGroupMatch = false
+            print("No group found for query. Consider adding a group matching this query.")
         }
 
         if exactGroupMatch {
@@ -504,11 +501,24 @@ extension Query {
                 }
             }
         } else {
+            // If we didn't get an exact group, prepare other/excluded arrays for per-entity filtering.
+            var baseComponents: ContiguousArray<SlotIndex> = []
+            var otherComponents: [ContiguousArray<Int?>] = []
+            var excludedComponents: [ContiguousArray<Int?>] = []
+            if !exactGroupMatch {
+                let cached = getCachedArrays(context.coordinator)
+                baseComponents = cached.base
+                otherComponents = cached.others
+                excludedComponents = cached.excluded
+            }
             withUnsafePointer(to: context.coordinator.indices) { indices in
                 withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
                     // Enumerate dense indices directly: 0..<size aligned across all owned storages
                     for (denseIndex, slot) in slotsSlice.enumerated() {
                         // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
+                        let entitySignature = context.coordinator.entitySignatures[slot.index]
+                        // TODO: Do this
+
                         if !Self.passes(slot: slot, otherComponents: otherComponents, excludedComponents: excludedComponents) {
                             continue
                         }

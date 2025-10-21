@@ -161,16 +161,33 @@ public final class Coordinator {
     @inlinable @inline(__always) @discardableResult
     public func addGroup<each Owned: Component>(@QueryBuilder build: () -> BuiltQuery<repeat each Owned>) -> GroupSignature {
         let query = build().composite
-        let group = Group(query: query)
-        groups.add(group, in: self)
-        let signature = GroupSignature(query.querySignature)
-        let meta = GroupMetadata(
-            owned: group.ownedSignature,
-            backstage: group.backstageSignature,
-            excluded: group.excludeSignature
-        )
-        knownGroupsMeta[signature] = meta
-        return signature
+
+        if query.writeSignature.isEmpty, query.readOnlySignature.isEmpty {
+            let group = NonOwningGroup(
+                required: Set(query.signature.tags), // Required = write ∪ readOnly ∪ backstage
+                excluded: query.excludedComponents
+            )
+            groups.add(group, in: self)
+            let signature = GroupSignature(query.querySignature)
+            let meta = GroupMetadata(
+                owned: ComponentSignature(),
+                backstage: query.backstageSignature,
+                excluded: query.excludedSignature
+            )
+            knownGroupsMeta[signature] = meta
+            return signature
+        } else {
+            let group = Group(query: query)
+            groups.add(group, in: self)
+            let signature = GroupSignature(query.querySignature)
+            let meta = GroupMetadata(
+                owned: group.ownedSignature,
+                backstage: group.backstageSignature,
+                excluded: group.excludeSignature
+            )
+            knownGroupsMeta[signature] = meta
+            return signature
+        }
     }
 
     @inlinable @inline(__always)
@@ -186,6 +203,11 @@ public final class Coordinator {
     @inlinable @inline(__always)
     public func groupSlots(_ signature: GroupSignature) -> ArraySlice<SlotIndex>? {
         groups.groupSlots(signature, in: &pool)
+    }
+
+    @inlinable @inline(__always)
+    public func isOwningGroup(_ signature: GroupSignature) -> Bool {
+        groups.isOwning(signature)
     }
 
     public struct BestGroupResult {

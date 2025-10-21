@@ -1045,3 +1045,161 @@ public struct Material: Component {
     let components = ComponentSignature(Transform.componentTag, Material.componentTag, Gravity.componentTag)
     #expect(Set(components.tags) == Set([Transform.componentTag, Material.componentTag, Gravity.componentTag]))
 }
+
+@Test func nonOwningGroup_basic() throws {
+    let coordinator = Coordinator()
+
+    // Create entities: two match (T+G, no RB), one excluded (has RB), one missing G
+    let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+    let _  = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), RigidBody(velocity: .zero, acceleration: .zero))
+    let _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+    let e4 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+
+    // Build a NON-OWNING group requiring Transform & Gravity, excluding RigidBody
+    let sig = coordinator.addGroup {
+        With<Transform>.self
+        With<Gravity>.self
+        Without<RigidBody>.self
+    }
+
+    // Group should include e1 and e4 only
+    #expect(coordinator.groupSize(sig) == 2)
+    let slots = try #require(coordinator.groupSlots(sig))
+    #expect(Set(slots) == Set([e1.slot, e4.slot]))
+
+    // Verify performGroup iterates exactly the group members
+    var seen = 0
+    Query { Transform.self; Gravity.self; Without<RigidBody>.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform, _: Gravity) in
+        seen += 1
+    }
+    #expect(seen == 2)
+
+    // Use WithEntityID to ensure IDs resolve correctly on non-owning groups
+    var ids: [Entity.ID] = []
+    Query { WithEntityID.self; Transform.self; Gravity.self; Without<RigidBody>.self }.performGroupDense(coordinator, requireGroup: true) { (id: Entity.ID, _: Transform, _: Gravity) in
+        ids.append(id)
+    }
+    #expect(Set(ids.map { $0.slot }) == Set([e1.slot, e4.slot]))
+}
+
+@Test func partiallyOwningGroup_withBackstage() throws {
+    let coordinator = Coordinator()
+
+    // One entity starts without Material, one with Material
+    let eA = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Material())
+
+    // Group owns Transform, requires Material (backstage)
+    let sig = coordinator.addGroup {
+        Transform.self
+        With<Material>.self
+    }
+
+    #expect(coordinator.groupSize(sig) == 1)
+
+    // Adding Material to eA should include it in the group incrementally
+    coordinator.add(Material(), to: eA)
+    #expect(coordinator.groupSize(sig) == 2)
+
+    // performGroup should visit both
+    var count = 0
+    Query { Transform.self; With<Material>.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform) in
+        count += 1
+    }
+    #expect(count == 2)
+}
+
+@Test func owningGroup_withEntityID_dense() throws {
+    let coordinator = Coordinator()
+    let e1 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+    let e2 = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+
+    let sig = coordinator.addGroup {
+        Transform.self
+        Gravity.self
+    }
+    #expect(coordinator.groupSize(sig) == 2)
+
+    var collected: [Entity.ID] = []
+    Query { WithEntityID.self; Write<Transform>.self; Gravity.self }.performGroupDense(coordinator, requireGroup: true) { (id: Entity.ID, _: Write<Transform>, _: Gravity) in
+        collected.append(id)
+    }
+    #expect(Set(collected.map { $0.slot }) == Set([e1.slot, e2.slot]))
+}
+
+@Test func optionalComponent_withOwningGroupSubset() throws {
+    let coordinator = Coordinator()
+
+    // Some entities have Gravity, some do not
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+
+    // Own only Transform so the group covers all candidates
+    let sig = coordinator.addGroup {
+        Transform.self
+    }
+    #expect(coordinator.groupSize(sig) == 2)
+
+    // Query requires Transform, optionally Gravity; should visit both entities
+    var optionalStates: [Bool] = []
+    // This will find a non-exact group match and it will filter during iteration but with an empty filter.
+    // TODO: Query needs to be fixed to optionals are not part of the signatures. Then this will be an exact match with no filtering.
+    Query { Transform.self; OptionalWrite<Gravity>.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform, g: OptionalWrite<Gravity>) in
+        // Record whether gravity is present
+        g.force?.x += 1
+        optionalStates.append(g.force != nil)
+    }
+
+    // Expect exactly one with gravity present and one without
+    #expect(optionalStates.count == 2)
+    #expect(Set(optionalStates) == Set([true, false]))
+}
+
+@Test func optionalComponent_withOwningGroupSubset2() throws {
+    let coordinator = Coordinator()
+
+    // Some entities have Gravity, some do not
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+
+    // Own only Transform so the group covers all candidates
+    let sig = coordinator.addGroup {
+        Transform.self
+    }
+    #expect(coordinator.groupSize(sig) == 2)
+
+    // Query requires Transform, optionally Gravity; should visit both entities
+    var count = 0
+    Query { Transform.self; Gravity.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform, g: Gravity) in
+        // Record whether gravity is present
+        // TODO: This crashes!
+        count += 1
+    }
+
+    // Expect exactly one with gravity present and one without
+    #expect(count == 1)
+}
+@Test func optionalComponent_withOwningGroupSubset3() throws {
+    let coordinator = Coordinator()
+
+    // Some entities have Gravity, some do not
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+
+    // Own only Transform so the group covers all candidates
+    let sig = coordinator.addGroup {
+        Transform.self
+    }
+    #expect(coordinator.groupSize(sig) == 2)
+
+    // Query requires Transform, optionally Gravity; should visit both entities
+    var count = 0
+    Query { Transform.self; Write<Gravity>.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform, g: Write<Gravity>) in
+        // Record whether gravity is present
+        g.force = .zero // TODO: This makes an illegal write to an entity which does not have this component!
+        count += 1
+    }
+
+    // Expect exactly one with gravity present and one without
+    #expect(count == 1)
+}

@@ -41,7 +41,7 @@ struct Groups {
         guard let group = storage.groups[signature] else {
             return nil
         }
-        return pool.components[group.primary]?.componentsToEntites[..<group.size]
+        return group.slotsSlice(in: &pool)
     }
 
     @usableFromInline
@@ -78,6 +78,15 @@ extension Groups {
     func primaryAndSize(_ signature: GroupSignature) -> (primary: ComponentTag, size: Int)? {
         guard let group = storage.groups[signature] else { return nil }
         return (group.primary, group.size)
+    }
+}
+
+extension Groups {
+    /// Returns whether the group is owning (reorders component storage) for the given signature.
+    @inlinable @inline(__always)
+    func isOwning(_ signature: GroupSignature) -> Bool {
+        guard let group = storage.groups[signature] else { return false }
+        return group.isOwning
     }
 }
 
@@ -191,6 +200,10 @@ protocol GroupProtocol {
 
     var size: Int { get }
     var primary: ComponentTag { get }
+
+    func slotsSlice(in pool: inout ComponentPool) -> ArraySlice<SlotIndex>
+
+    var isOwning: Bool { get }
 }
 
 struct GroupAcquireError: Error {}
@@ -296,8 +309,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
             self.primary = sp
         }
 
-        var requiredSignature = query.signature
-        var excludeSignature = self.excludeSignature
+        let requiredSignature = query.signature
+        let excludeSignature = self.excludeSignature
         guard !requiredSignature.isEmpty else {
             size = 0
             return
@@ -344,7 +357,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
             // 2) Mirror the primary permutation to all other owned storages with a single-pass placement
             if self.size > 0 {
                 // Capture the packed primary order for indices 0..<size
-                var primaryPacked = primaryArray.componentsToEntites[..<self.size]
+                let primaryPacked = primaryArray.componentsToEntites[..<self.size]
 
                 for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                     let tag = otherOwnedType.componentTag
@@ -377,8 +390,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
         // Only proceed if the added tag touches this group's signature and primary exists
         guard fullSignature.contains(tag), var primaryArray = coordinator.pool.components[primary] else { return }
 
-        var requiredSignature = query.signature
-        var excludeSignature = self.excludeSignature
+        let requiredSignature = query.signature
+        let excludeSignature = self.excludeSignature
         guard !requiredSignature.isEmpty else {
             size = 0
             return
@@ -442,8 +455,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
         guard self.fullSignature.contains(tag) else { return }
         guard var primaryArray = coordinator.pool.components[primary] else { return }
 
-        var requiredSignature = query.signature
-        var excludeSignature = self.excludeSignature
+        let requiredSignature = query.signature
+        let excludeSignature = self.excludeSignature
         guard !requiredSignature.isEmpty else {
             size = 0
             return
@@ -510,5 +523,145 @@ public final class Group<each Owned: Component>: GroupProtocol {
     public func onWillRemoveComponent<C: Component>(_ type: C.Type, entity: Entity.ID, in coordinator: Coordinator) {
         onWillRemoveComponent(C.componentTag, entity: entity, in: coordinator)
     }
+    
+    public var isOwning: Bool { true }
+    
+    public func slotsSlice(in pool: inout ComponentPool) -> ArraySlice<SlotIndex> {
+        return pool.components[primary]?.componentsToEntites[..<size] ?? []
+    }
 }
 
+/// A non-owning group that maintains an internal packed list of matching entity slots.
+public final class NonOwningGroup: GroupProtocol {
+    public let signature: GroupSignature
+    public var size: Int { slots.count }
+    public var primary: ComponentTag { ComponentTag(rawValue: -1) } // sentinel, unused
+    public var isOwning: Bool { false }
+
+    // Required/backstage/excluded component sets
+    private let requiredComponents: Set<ComponentTag>
+    private let excludedComponents: Set<ComponentTag>
+
+    // Internal packed list and sparse index for O(1) membership
+    private var slots: ContiguousArray<SlotIndex> = []
+    private var sparseIndex: ContiguousArray<Int?> = [] // maps slot.rawValue -> dense index in `slots`
+
+    public init(required: Set<ComponentTag>, excluded: Set<ComponentTag>) {
+        self.requiredComponents = required
+        self.excludedComponents = excluded
+        // Build a query signature equivalent
+        let reqSig = ComponentSignature(required)
+        let exSig = ComponentSignature(excluded)
+        self.signature = GroupSignature(contained: reqSig, excluded: exSig)
+    }
+
+    @inline(__always)
+    private func ensureSparseCapacity(for raw: Int) {
+        if raw >= sparseIndex.count {
+            let newCount = max(raw + 1, sparseIndex.count * 2)
+            sparseIndex.reserveCapacity(newCount)
+            while sparseIndex.count < newCount { sparseIndex.append(nil) }
+        }
+    }
+
+    @inline(__always)
+    private func indexOf(_ slot: SlotIndex) -> Int? {
+        let raw = slot.rawValue
+        if raw < sparseIndex.count { return sparseIndex[raw] } else { return nil }
+    }
+
+    @inline(__always)
+    private func insertSlot(_ slot: SlotIndex) {
+        ensureSparseCapacity(for: slot.rawValue)
+        guard sparseIndex[slot.rawValue] == nil else { return }
+        slots.append(slot)
+        sparseIndex[slot.rawValue] = slots.count - 1
+    }
+
+    @inline(__always)
+    private func removeSlot(_ slot: SlotIndex) {
+        let raw = slot.rawValue
+        guard raw < sparseIndex.count, let idx = sparseIndex[raw] else { return }
+        let lastIdx = slots.count - 1
+        if idx != lastIdx {
+            let moved = slots[lastIdx]
+            slots[idx] = moved
+            sparseIndex[moved.rawValue] = idx
+        }
+        _ = slots.popLast()
+        sparseIndex[raw] = nil
+    }
+
+    @inline(__always)
+    private func passes(_ slot: SlotIndex, in coordinator: Coordinator) -> Bool {
+        let entitySignature = coordinator.entitySignatures[slot.index]
+        return signature.contained.isSubset(of: entitySignature)
+        && signature.excluded.isDisjoint(with: entitySignature)
+    }
+
+    public func rebuild(in coordinator: Coordinator) {
+        // Choose the smallest required component array as base
+        var baseArray: AnyComponentArray? = nil
+        var minCount = Int.max
+        for tag in requiredComponents {
+            if let arr = coordinator.pool.components[tag] {
+                let c = arr.componentsToEntites.count
+                if c < minCount { minCount = c; baseArray = arr }
+            } else {
+                // No entities can match if a required array is missing
+                slots.removeAll(keepingCapacity: true)
+                return
+            }
+        }
+        guard let base = baseArray else {
+            // No required components: empty by definition
+            slots.removeAll(keepingCapacity: true)
+            return
+        }
+        // Rebuild slots from scratch
+        slots.removeAll(keepingCapacity: true)
+        // Reset sparse index to a reasonable size (optional growth later)
+        sparseIndex.removeAll(keepingCapacity: false)
+        for slot in base.componentsToEntites {
+            if passes(slot, in: coordinator) { insertSlot(slot) }
+        }
+    }
+
+    public func onComponentAdded(_ tag: ComponentTag, entity: Entity.ID, in coordinator: Coordinator) {
+        // Only react if tag is relevant
+        if !(requiredComponents.contains(tag) || excludedComponents.contains(tag)) { return }
+        let slot = entity.slot
+        if passes(slot, in: coordinator) {
+            insertSlot(slot)
+        } else {
+            // If became invalid due to excluded, ensure removal
+            removeSlot(slot)
+        }
+    }
+
+    public func onWillRemoveComponent(_ tag: ComponentTag, entity: Entity.ID, in coordinator: Coordinator) {
+        if !(requiredComponents.contains(tag) || excludedComponents.contains(tag)) { return }
+        let slot = entity.slot
+        // If removing a required component, membership must be dropped
+        if requiredComponents.contains(tag) {
+            removeSlot(slot)
+            return
+        }
+        // If removing an excluded component, entity might become valid
+        if excludedComponents.contains(tag) {
+            if passes(slot, in: coordinator) { insertSlot(slot) } else { removeSlot(slot) }
+        }
+    }
+
+    @usableFromInline
+    func acquire(in signature: inout ComponentSignature) throws(GroupAcquireError) {
+    }
+
+    @usableFromInline
+    func release(from signature: inout ComponentSignature) {
+    }
+
+    public func slotsSlice(in pool: inout ComponentPool) -> ArraySlice<SlotIndex> {
+        return slots[...]
+    }
+}
