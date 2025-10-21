@@ -1,12 +1,15 @@
 // TODO: Support paging for sparse array and also for dense storage.
 
+@usableFromInline
+let SparseSetInvalidDenseIndex = -1
+
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
     @usableFromInline
     private(set) var components: ContiguousArray<Component> = []
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
-    private(set) var slots: SparseArray<ContiguousArray.Index, SlotIndex> = []
+    private(set) var slots: ContiguousArray<Int> = []
 
     /// Indexed by `components`  index.
     @usableFromInline
@@ -34,7 +37,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     public mutating func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
         components.reserveCapacity(minimumComponentCapacity)
         keys.reserveCapacity(minimumComponentCapacity)
-        slots.reserveCapacity(minimumCapacity: minimumSlotCapacity)
+        slots.reserveCapacity(minimumSlotCapacity)
     }
 
     @inlinable @inline(__always)
@@ -68,22 +71,25 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     /// Returns true if this array contains a component for the given entity.
     @inlinable @inline(__always)
     public func containsEntity(_ slot: SlotIndex) -> Bool {
-        /*slots.contains(index: slot) &&*/ slots[slot] != nil
+        let raw = slot.index
+        return raw < slots.count && slots[raw] != SparseSetInvalidDenseIndex
     }
 
     @inlinable @inline(__always)
     public func componentIndex(_ slot: SlotIndex) -> ContiguousArray.Index? {
-//        guard slots.contains(index: slot) else {
-//            return nil
-//        }
-        return slots[slot]
+        let raw = slot.index
+        guard raw < slots.count else {
+            return nil
+        }
+        let dense = slots[raw]
+        return dense == SparseSetInvalidDenseIndex ? nil : dense
     }
 
     @inlinable @inline(__always)
     mutating public func ensureEntity(_ slot: SlotIndex) {
-        if !slots.contains(index: slot) {
+        if slot.index >= slots.count {
             let missingCount = (slot.index + 1) - slots.count
-            slots.append(contentsOf: repeatElement(nil, count: missingCount))
+            slots.append(contentsOf: repeatElement(SparseSetInvalidDenseIndex, count: missingCount))
         }
     }
 
@@ -96,22 +102,22 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
         components.append(component)
         keys.append(slot)
-//        if !slots.contains(index: slot) {
-//            let missingCount = (slot.index + 1) - slots.count
-//            slots.append(contentsOf: repeatElement(nil, count: missingCount))
-//        }
-        slots[slot] = components.endIndex - 1
+        if slot.index >= slots.count {
+            let missingCount = (slot.index + 1) - slots.count
+            slots.append(contentsOf: repeatElement(SparseSetInvalidDenseIndex, count: missingCount))
+        }
+        slots[slot.index] = components.endIndex - 1
     }
 
     @inlinable @inline(__always)
     public mutating func remove(_ slot: SlotIndex) {
-        guard /*slots.contains(index: slot),*/ let componentIndex = slots[slot] else {
+        guard let componentIndex = componentIndex(slot) else {
             return
         }
 
         guard componentIndex != components.endIndex - 1 else {
             keys.removeLast()
-            slots[slot] = nil
+            slots[slot.index] = SparseSetInvalidDenseIndex
             components.removeLast()
             return
         }
@@ -121,8 +127,8 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         }
         components[componentIndex] = components.removeLast()
         keys[componentIndex] = lastComponentSlot
-        slots[lastComponentSlot] = componentIndex
-        slots[slot] = nil
+        slots[lastComponentSlot.index] = componentIndex
+        slots[slot.index] = SparseSetInvalidDenseIndex
     }
 
     /// Swap two elements in the dense storage and fix up the index maps.
@@ -136,17 +142,17 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         let kj = keys[j]
         keys.swapAt(i, j)
         // Update sparse map so that the slots now point to the new dense indices.
-        slots[ki] = j
-        slots[kj] = i
+        slots[ki.index] = j
+        slots[kj.index] = i
     }
 
     @inlinable @inline(__always)
     public subscript(slot slot: SlotIndex) -> Component {
         _read {
-            yield components[slots[slot]!]
+            yield components[slots[slot.index]]
         }
         _modify {
-            yield &components[slots[slot]!]
+            yield &components[slots[slot.index]]
         }
     }
 
@@ -191,64 +197,3 @@ extension Array.Index: SparseSetIndex {
     }
 }
 
-public struct SparseArray<Value, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
-    @usableFromInline
-    private(set) var values: ContiguousArray<Value?> = []
-
-    @inlinable @inline(__always)
-    public var startIndex: Index {
-        Index(index: values.startIndex)
-    }
-
-    @inlinable @inline(__always)
-    public var endIndex: Index {
-        Index(index: values.endIndex)
-    }
-
-    @inlinable @inline(__always)
-    public init(arrayLiteral elements: Value...) {
-        values = ContiguousArray(elements)
-    }
-
-    @inlinable @inline(__always)
-    public func index(after i: Index) -> Index {
-        Index(index: values.index(after: i.index))
-    }
-
-    @inlinable @inline(__always)
-    public func index(before i: Index) -> Index {
-        Index(index: values.index(before: i.index))
-    }
-
-    @inlinable @inline(__always)
-    public var count: Int {
-        _read {
-            yield values.count
-        }
-    }
-
-    @inlinable @inline(__always)
-    public subscript(index: Index) -> Value? {
-        _read {
-            yield values[index.index]
-        }
-        _modify {
-            yield &values[index.index]
-        }
-    }
-
-    @inlinable @inline(__always)
-    public func contains(index: Index) -> Bool {
-        index.index < values.count
-    }
-
-    @inlinable @inline(__always)
-    public mutating func append<S>(contentsOf newElements: S) where Element == S.Element, S: Sequence {
-        values.append(contentsOf: newElements)
-    }
-
-    @inlinable @inline(__always)
-    public mutating func reserveCapacity(minimumCapacity: Int) {
-        values.reserveCapacity(minimumCapacity)
-    }
-}

@@ -7,10 +7,10 @@
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var buffer: UnsafeMutableBufferPointer<C.QueriedComponent>
-    @usableFromInline internal var indices: ContiguousArray<ContiguousArray.Index?>
+    @usableFromInline internal var indices: ContiguousArray<Int>
 
     @usableFromInline
-    init(buffer: UnsafeMutableBufferPointer<C.QueriedComponent>, indices: ContiguousArray<ContiguousArray.Index?>) {
+    init(buffer: UnsafeMutableBufferPointer<C.QueriedComponent>, indices: ContiguousArray<Int>) {
         self.buffer = buffer
         self.indices = indices
     }
@@ -18,17 +18,22 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C.QueriedComponent {
         _read {
-            yield buffer[indices[id.slot.rawValue].unsafelyUnwrapped]
+            yield buffer[indices[id.slot.rawValue]]
         }
         nonmutating _modify {
-            yield &buffer[indices[id.slot.rawValue].unsafelyUnwrapped]
+            yield &buffer[indices[id.slot.rawValue]]
         }
     }
 
     @inlinable @inline(__always)
     public subscript(optional id: Entity.ID) -> C.QueriedComponent? {
         _read {
-            guard id.slot.rawValue < indices.count, let index = indices[id.slot.rawValue] else {
+            guard id.slot.rawValue < indices.count else {
+                yield nil
+                return
+            }
+            let index = indices[id.slot.rawValue]
+            guard index != SparseSetInvalidDenseIndex else {
                 yield nil
                 return
             }
@@ -36,7 +41,17 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         }
         nonmutating _modify {
             var wrapped: Optional<C.QueriedComponent>
-            if let index = indices[id.slot.rawValue] {
+            let slot = id.slot.rawValue
+            if slot < indices.count {
+                let index = indices[slot]
+                guard index != SparseSetInvalidDenseIndex else {
+                    wrapped = nil
+                    yield &wrapped
+                    guard wrapped == nil else {
+                        fatalError("Insertion of component through `Optional` not supported.")
+                    }
+                    return
+                }
                 wrapped = Optional(buffer[index])
                 yield &wrapped
                 guard let newValue = wrapped else {
@@ -66,16 +81,20 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: buffer.baseAddress.unsafelyUnwrapped.advanced(by: indices[id.slot.rawValue].unsafelyUnwrapped))
+        SingleTypedAccess(buffer: buffer.baseAddress.unsafelyUnwrapped.advanced(by: indices[id.slot.rawValue]))
     }
 
     @inlinable @inline(__always)
     public func optionalAccess(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent>? {
         // TODO: Fix warning.
-        guard id.slot.rawValue < indices.count, let index = indices[id.slot.rawValue] else {
+        guard id.slot.rawValue < indices.count else {
             return nil
         }
-        return SingleTypedAccess(buffer: buffer.baseAddress.unsafelyUnwrapped.advanced(by: indices[id.slot.rawValue].unsafelyUnwrapped))
+        let denseIndex = indices[id.slot.rawValue]
+        guard denseIndex != SparseSetInvalidDenseIndex else {
+            return nil
+        }
+        return SingleTypedAccess(buffer: buffer.baseAddress.unsafelyUnwrapped.advanced(by: denseIndex))
     }
 }
 

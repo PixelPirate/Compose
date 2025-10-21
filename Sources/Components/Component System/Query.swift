@@ -397,16 +397,16 @@ extension Query {
     @inlinable @inline(__always)
     static func passes(
         slot: SlotIndex,
-        otherComponents: [ContiguousArray<Int?>],
-        excludedComponents: [ContiguousArray<Int?>]
+        otherComponents: [ContiguousArray<Int>],
+        excludedComponents: [ContiguousArray<Int>]
     ) -> Bool {
         let slotRaw = slot.rawValue
 
-        for component in otherComponents where component[slotRaw] == nil {
+        for component in otherComponents where component[slotRaw] == SparseSetInvalidDenseIndex {
             // Entity does not have all required components, skip.
             return false
         }
-        for component in excludedComponents where component[slotRaw] != nil {
+        for component in excludedComponents where component[slotRaw] != SparseSetInvalidDenseIndex {
             // Entity has at least one excluded component, skip.
             return false
         }
@@ -418,17 +418,19 @@ extension Query {
     public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
-        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            for slot in baseSlots where Self.passes(
-                slot: slot,
-                otherComponents: otherComponents,
-                excludedComponents: excludedComponents
-            ) {
-                let id = Entity.ID(
-                    slot: SlotIndex(rawValue: slot.rawValue),
-                    generation: context.coordinator.indices[generationFor: slot]
-                )
-                handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+        withUnsafePointer(to: context.coordinator.indices) { indices in
+            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                for slot in baseSlots where Self.passes(
+                    slot: slot,
+                    otherComponents: otherComponents,
+                    excludedComponents: excludedComponents
+                ) {
+                    let id = Entity.ID(
+                        slot: slot,
+                        generation: indices.pointee[generationFor: slot]
+                    )
+                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                }
             }
         }
     }
@@ -439,13 +441,15 @@ extension Query {
     public func performPreloaded(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let slots = getCachedPreFilteredSlots(context.coordinator) // TODO: Allow custom order.
-        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            for slot in slots {
-                let id = Entity.ID(
-                    slot: SlotIndex(rawValue: slot.rawValue),
-                    generation: context.coordinator.indices[generationFor: slot]
-                )
-                handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+        withUnsafePointer(to: context.coordinator.indices) { indices in
+            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                for slot in slots {
+                    let id = Entity.ID(
+                        slot: slot,
+                        generation: indices.pointee[generationFor: slot]
+                    )
+                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                }
             }
         }
     }

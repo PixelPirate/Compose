@@ -28,7 +28,7 @@ public protocol AnyComponentArrayBox: AnyObject {
     func `set`(_: Entity.ID, newValue: any Component) -> Void
 
     @inlinable @inline(__always)
-    var entityToComponents: ContiguousArray<ContiguousArray.Index?> { get }
+    var entityToComponents: ContiguousArray<Int> { get }
 
     @inlinable @inline(__always)
     var componentsToEntites: ContiguousArray<SlotIndex> { get }
@@ -71,9 +71,9 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     }
 
     @inlinable @inline(__always)
-    var entityToComponents: ContiguousArray<ContiguousArray.Index?> {
+    var entityToComponents: ContiguousArray<Int> {
         _read {
-            yield base.slots.values
+            yield base.slots
         }
     }
 
@@ -137,7 +137,7 @@ public struct AnyComponentArray {
     }
 
     @usableFromInline
-    var entityToComponents: ContiguousArray<ContiguousArray.Index?> {
+    var entityToComponents: ContiguousArray<Int> {
         _read {
             yield base.entityToComponents
         }
@@ -157,7 +157,7 @@ public struct AnyComponentArray {
 
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (UnsafeMutableBufferPointer<C>, ContiguousArray<ContiguousArray.Index?>) throws -> Result
+        _ body: (UnsafeMutableBufferPointer<C>, ContiguousArray<Int>) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents
