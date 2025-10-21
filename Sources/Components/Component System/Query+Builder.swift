@@ -48,15 +48,6 @@ public enum QueryBuilder {
         )
     }
 
-    public static func buildExpression(_ c: WithEntityID) -> BuiltQuery<WithEntityID> {
-        BuiltQuery(
-            composite: Query<WithEntityID>(
-                backstageComponents: [],
-                excludedComponents: []
-            )
-        )
-    }
-
     public static func buildPartialBlock<each T>(first: BuiltQuery<repeat each T>) -> BuiltQuery<repeat each T> {
         first
     }

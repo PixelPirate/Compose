@@ -221,7 +221,7 @@ public struct ComponentSignature: Hashable, Sendable, CustomDebugStringConvertib
     }
 
     public var debugDescription: String {
-        "ComponentSignature(bitCount: \(rawHashValue.bitCount), words: \(rawHashValue.words)"
+        "ComponentSignature(bitCount: \(rawHashValue.bitCount), words: \(rawHashValue.words))"
     }
 
     @usableFromInline
