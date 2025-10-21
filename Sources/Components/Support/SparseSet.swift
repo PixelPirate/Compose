@@ -1,6 +1,6 @@
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
     @usableFromInline
-    private(set) var components: PagedArray<Component> = []
+    var components: PagedArray<Component> = []
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
@@ -177,17 +177,16 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 }
 
 @usableFromInline
-struct PagedArray<Element>: RandomAccessCollection, MutableCollection, ExpressibleByArrayLiteral {
-    typealias Index = Int
+let pageShift = 12
 
-    @usableFromInline
-    static let pageShift = 12
+@usableFromInline
+let pageSize = 1 << pageShift
 
-    @usableFromInline
-    static let pageSize = 1 << pageShift
+@usableFromInline
+let pageMask = pageSize - 1
 
-    @usableFromInline
-    static let pageMask = pageSize - 1
+public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, ExpressibleByArrayLiteral {
+    public typealias Index = Int
 
     @usableFromInline
     var pages: [ContiguousArray<Element>] = []
@@ -196,54 +195,54 @@ struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Expressib
     private(set) var countStorage: Int = 0
 
     @inlinable @inline(__always)
-    init() {}
+    public init() {}
 
     @inlinable @inline(__always)
-    init(arrayLiteral elements: Element...) {
+    public init(arrayLiteral elements: Element...) {
         self.init()
         append(contentsOf: elements)
     }
 
     @inlinable @inline(__always)
-    init<S: Sequence>(_ elements: S) where S.Element == Element {
+    public init<S: Sequence>(_ elements: S) where S.Element == Element {
         self.init()
         append(contentsOf: elements)
     }
 
     @inlinable @inline(__always)
-    var startIndex: Int { 0 }
+    public var startIndex: Int { 0 }
 
     @inlinable @inline(__always)
-    var endIndex: Int { countStorage }
+    public var endIndex: Int { countStorage }
 
     @inlinable @inline(__always)
-    var count: Int { countStorage }
+    public var count: Int { countStorage }
 
     @inlinable @inline(__always)
-    var indices: Range<Int> { 0..<count }
+    public var indices: Range<Int> { 0..<count }
 
     @inlinable @inline(__always)
-    mutating func reserveCapacity(minimumCapacity: Int) {
-        let requiredPages = (minimumCapacity + Self.pageMask) >> Self.pageShift
+    public mutating func reserveCapacity(minimumCapacity: Int) {
+        let requiredPages = (minimumCapacity + pageMask) >> pageShift
         pages.reserveCapacity(requiredPages)
         for index in pages.indices {
-            pages[index].reserveCapacity(Self.pageSize)
+            pages[index].reserveCapacity(pageSize)
         }
     }
 
     @inlinable @inline(__always)
-    mutating func append(_ newElement: Element) {
-        let pageIndex = countStorage >> Self.pageShift
+    public mutating func append(_ newElement: Element) {
+        let pageIndex = countStorage >> pageShift
         if pageIndex == pages.count {
             pages.append(ContiguousArray<Element>())
-            pages[pageIndex].reserveCapacity(Self.pageSize)
+            pages[pageIndex].reserveCapacity(pageSize)
         }
         pages[pageIndex].append(newElement)
         countStorage += 1
     }
 
     @inlinable @inline(__always)
-    mutating func append<S: Sequence>(contentsOf newElements: S) where S.Element == Element {
+    public mutating func append<S: Sequence>(contentsOf newElements: S) where S.Element == Element {
         for element in newElements {
             append(element)
         }
@@ -251,18 +250,18 @@ struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Expressib
 
     @inlinable @inline(__always)
     @discardableResult
-    mutating func popLast() -> Element? {
+    public mutating func popLast() -> Element? {
         guard !isEmpty else { return nil }
         return removeLast()
     }
 
     @inlinable @inline(__always)
     @discardableResult
-    mutating func removeLast() -> Element {
+    public mutating func removeLast() -> Element {
         precondition(!isEmpty, "Cannot removeLast from empty PagedArray")
         let index = countStorage - 1
         countStorage -= 1
-        let pageIndex = index >> Self.pageShift
+        let pageIndex = index >> pageShift
         let value = pages[pageIndex].removeLast()
         if pages[pageIndex].isEmpty {
             pages.removeLast()
@@ -271,7 +270,7 @@ struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Expressib
     }
 
     @inlinable @inline(__always)
-    mutating func swapAt(_ i: Int, _ j: Int) {
+    public mutating func swapAt(_ i: Int, _ j: Int) {
         if i == j { return }
         let (pageI, offsetI) = pageAndOffset(for: i)
         let (pageJ, offsetJ) = pageAndOffset(for: j)
@@ -279,13 +278,13 @@ struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Expressib
     }
 
     @inlinable @inline(__always)
-    func index(after i: Int) -> Int { i + 1 }
+    public func index(after i: Int) -> Int { i + 1 }
 
     @inlinable @inline(__always)
-    func index(before i: Int) -> Int { i - 1 }
+    public func index(before i: Int) -> Int { i - 1 }
 
     @inlinable @inline(__always)
-    subscript(position: Int) -> Element {
+    public subscript(position: Int) -> Element {
         _read {
             let (page, offset) = pageAndOffset(for: position)
             yield pages[page][offset]
@@ -304,11 +303,11 @@ struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Expressib
         fatalError("PagedArray.withUnsafeMutableBufferPointer is unavailable for paged storage.")
     }
 
-    @usableFromInline
-    func pageAndOffset(for position: Int) -> (Int, Int) {
+    @inlinable @inline(__always)
+    public func pageAndOffset(for position: Int) -> (Int, Int) {
         precondition(position >= 0 && position < countStorage, "Index out of bounds")
-        let page = position >> Self.pageShift
-        let offset = position & Self.pageMask
+        let page = position >> pageShift
+        let offset = position & pageMask
         return (page, offset)
     }
 }
@@ -407,6 +406,6 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumCapacity: Int) {
-        values.reserveCapacity(minimumCapacity)
+        values.reserveCapacity(minimumCapacity: minimumCapacity)
     }
 }

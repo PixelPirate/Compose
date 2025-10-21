@@ -169,7 +169,7 @@ public struct AnyComponentArray {
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents
-        return try withUnsafeMutablePointer(to: &typed.base.components) { pointer in
+        return try withUnsafeMutablePointer(to: &typed.base.components) { pointer in // TODO: This makes the components setter non-private. Fix this.
             try body(pointer, indices)
         }
     }

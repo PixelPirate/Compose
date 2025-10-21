@@ -6,12 +6,6 @@
 //
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
-    @usableFromInline internal static let emptyStoragePointer: UnsafeMutablePointer<PagedArray<C.QueriedComponent>> = {
-        let pointer = UnsafeMutablePointer<PagedArray<C.QueriedComponent>>.allocate(capacity: 1)
-        pointer.initialize(to: [])
-        return pointer
-    }()
-
     @usableFromInline internal var storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>
     @usableFromInline internal var indices: PagedArray<ContiguousArray.Index>
 
@@ -100,7 +94,7 @@ extension TypedAccess {
     static var empty: TypedAccess {
         // a harmless instance that never resolves anything
         TypedAccess(
-            storage: emptyStoragePointer,
+            storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>.allocate(capacity: 0),
             indices: []
         )
     }
