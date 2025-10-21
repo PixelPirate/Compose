@@ -5,7 +5,6 @@
 //  Created by Patrick Horlebein (extern) on 10.10.25.
 //
 
-@dynamicMemberLookup
 public struct OptionalWrite<C: Component>: WritableComponent, OptionalQueriedComponent, Sendable {
     public typealias Queried = C
 
@@ -22,20 +21,21 @@ public struct OptionalWrite<C: Component>: WritableComponent, OptionalQueriedCom
     }
 
     @inlinable @inline(__always)
-    public subscript<R>(dynamicMember keyPath: WritableKeyPath<C, R>) -> R? {
+    public var wrapped: C? {
         _read {
-            yield access?.value[keyPath: keyPath]
+            yield access?.value
         }
         nonmutating _modify {
-            var value = access?.value[keyPath: keyPath]
+            var value = access?.value
             yield &value
             guard let newValue = value, let access else {
-                if access != nil {
+                // Check if `value` was set to `nil` when it had a value before. It must had a value when access is not nil.
+                if value == nil, access != nil {
                     fatalError("Cannot write `nil` through an optional. Remove component through proper means like an command.")
                 }
                 return
             }
-            access.value[keyPath: keyPath] = newValue
+            access.value = newValue
         }
     }
 }

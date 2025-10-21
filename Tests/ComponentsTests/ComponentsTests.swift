@@ -693,6 +693,90 @@ func testReuseSlot() async throws {
 //    #expect(Array(query.fetchAll(&coordinator)).filter { $0.1.isDownward }.map { $0.0 } == [expectedID] )
 }
 
+@Test func testQueryEmpty() {
+    let coordinator = Coordinator()
+    let expectedEntityID = coordinator.spawn()
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+    let empty = Query< >.emptyEntities(coordinator)
+    #expect(empty == [expectedEntityID])
+}
+
+@Test func testOptionalWrite() {
+    struct OptionalContaining: Component, Equatable {
+        static let componentTag = ComponentTag.makeTag()
+
+        var optionalValue: Int?
+    }
+
+    let coordinator = Coordinator()
+    coordinator.spawn(Person(), OptionalContaining(optionalValue: 42))
+
+    let query = Query {
+        OptionalWrite<OptionalContaining>.self
+        With<Person>.self
+    }
+
+    query(coordinator) { (optional: OptionalWrite<OptionalContaining>) in
+        optional.wrapped?.optionalValue = nil
+    }
+
+    let all = Array(query.fetchAll(coordinator))
+    #expect(all == [OptionalContaining(optionalValue: nil)])
+}
+
+@Test func testOptionalWriteNone() {
+    struct OptionalContaining: Component, Equatable {
+        static let componentTag = ComponentTag.makeTag()
+
+        var optionalValue: Int?
+    }
+
+    let coordinator = Coordinator()
+    coordinator.spawn(Person())
+
+    let query = Query {
+        OptionalWrite<OptionalContaining>.self
+        With<Person>.self
+    }
+
+    var calls = 0
+    query(coordinator) { (optional: OptionalWrite<OptionalContaining>) in
+        optional.wrapped?.optionalValue = nil
+        calls += 1
+    }
+
+    #expect(calls == 1)
+    let all = Array(query.fetchAll(coordinator))
+    #expect(all == [(nil)])
+}
+
+@Test func testOptionalWriteNoneMixed() {
+    struct OptionalContaining: Component, Hashable {
+        static let componentTag = ComponentTag.makeTag()
+
+        var optionalValue: Int?
+    }
+
+    let coordinator = Coordinator()
+    coordinator.spawn(Person())
+    coordinator.spawn(Person(), OptionalContaining(optionalValue: 42))
+
+    let query = Query {
+        OptionalWrite<OptionalContaining>.self
+        With<Person>.self
+    }
+
+    var calls = 0
+    query(coordinator) { (optional: OptionalWrite<OptionalContaining>) in
+        optional.wrapped?.optionalValue = nil
+        calls += 1
+    }
+
+    #expect(calls == 2)
+    let all = Array(query.fetchAll(coordinator))
+    #expect(Set(all) == Set([nil, OptionalContaining(optionalValue: nil)]))
+}
+
 @Test func signature() {
     #expect(ComponentSignature(Transform.componentTag) == ComponentSignature(Transform.componentTag))
     #expect(ComponentSignature(Person.componentTag) == ComponentSignature(Person.componentTag))
@@ -763,7 +847,7 @@ func testReuseSlot() async throws {
     }
 
     query(coordinator) { person, gravity in
-        gravity.force?.x += 1
+        gravity.wrapped?.force.x += 1
     }
 
     let all = Array(Query { Gravity.self }.fetchAll(coordinator))
@@ -1175,8 +1259,8 @@ public struct Material: Component {
     // TODO: Query needs to be fixed to optionals are not part of the signatures. Then this will be an exact match with no filtering.
     Query { Transform.self; OptionalWrite<Gravity>.self }.performGroup(coordinator, requireGroup: true) { (_: Transform, g: OptionalWrite<Gravity>) in
         // Record whether gravity is present
-        g.force?.x += 1
-        optionalStates.append(g.force != nil)
+        g.wrapped?.force.x += 1
+        optionalStates.append(g.wrapped?.force != nil)
     }
 
     // Expect exactly one with gravity present and one without

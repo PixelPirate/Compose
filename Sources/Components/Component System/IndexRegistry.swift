@@ -20,7 +20,7 @@ struct IndexRegistry {
     private(set) var generation: [UInt32] = [] // Indexed by `SlotIndex`
 
     @usableFromInline
-    private(set) var freeIDs: ContiguousArray<SlotIndex> = []
+    private(set) var freeIDs: Set<SlotIndex> = []
 
     @usableFromInline
     private(set) var nextID: SlotIndex = 0
@@ -44,15 +44,16 @@ struct IndexRegistry {
     @inlinable @inline(__always)
     var liveEntities: [Entity.ID] {
         (0..<nextID.rawValue)
-            .map { Entity.ID(slot: SlotIndex(rawValue: $0), generation: 0) }
-            .filter { id in
-                !freeIDs.lazy.map(\.rawValue).contains(id.slot.rawValue)
+            .lazy
+            .filter { rawSlot in
+                !freeIDs.contains(SlotIndex(rawValue: rawSlot))
             }
+            .map { Entity.ID(slot: SlotIndex(rawValue: $0), generation: generation[$0]) }
     }
 
     @inlinable @inline(__always)
     mutating func free(id: Entity.ID) {
-        freeIDs.append(id.slot)
+        freeIDs.insert(id.slot)
         self[generationFor: id.slot] += 1
         if archetype.indices.contains(id.slot.rawValue) {
             archetype[id.slot.rawValue] = .free

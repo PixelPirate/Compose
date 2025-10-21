@@ -529,6 +529,25 @@ extension Query {
 
 extension Query {
     @inlinable @inline(__always)
+    public static func emptyEntities(_ context: some QueryContextConvertible) -> [Entity.ID] {
+        context
+            .queryContext
+            .coordinator
+            .entitySignatures
+            .lazy
+            .enumerated()
+            .filter {
+                $1.isEmpty
+            }
+            .map {
+                let slot = SlotIndex(rawValue: $0.offset)
+                return Entity.ID(slot: slot, generation: context.queryContext.coordinator.indices[generationFor: slot])
+            }
+    }
+}
+
+extension Query {
+    @inlinable @inline(__always)
     public func unsafeFetchAllWritable(_ context: some QueryContextConvertible) -> LazyWritableQuerySequence<repeat each T> {
         let context = context.queryContext
         let slots = getCachedPreFilteredSlots(context.coordinator)
