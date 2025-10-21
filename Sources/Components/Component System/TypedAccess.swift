@@ -7,10 +7,10 @@
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var buffer: UnsafeMutableBufferPointer<C.QueriedComponent>
-    @usableFromInline internal var indices: ContiguousArray<ContiguousArray.Index>
+    @usableFromInline internal var indices: SparseArray<ContiguousArray.Index, SlotIndex>.Values
 
     @usableFromInline
-    init(buffer: UnsafeMutableBufferPointer<C.QueriedComponent>, indices: ContiguousArray<ContiguousArray.Index>) {
+    init(buffer: UnsafeMutableBufferPointer<C.QueriedComponent>, indices: SparseArray<ContiguousArray.Index, SlotIndex>.Values) {
         self.buffer = buffer
         self.indices = indices
     }
@@ -95,7 +95,7 @@ extension TypedAccess {
         // a harmless instance that never resolves anything
         TypedAccess(
             buffer: UnsafeMutableBufferPointer(start: nil, count: 0),
-            indices: []
+            indices: SparseArray<ContiguousArray.Index, SlotIndex>().values
         )
     }
 }

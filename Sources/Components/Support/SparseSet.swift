@@ -81,10 +81,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     mutating public func ensureEntity(_ slot: SlotIndex) {
-        if !slots.contains(index: slot) {
-            let missingCount = (slot.index + 1) - slots.count
-            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
-        }
+        slots.ensureCapacity(for: slot)
     }
 
     @inlinable @inline(__always)
@@ -214,63 +211,215 @@ public protocol SparseArrayValue: Hashable, Comparable {
 }
 
 public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
+    public typealias ArrayLiteralElement = Value
     @usableFromInline
-    private(set) var values: ContiguousArray<Value> = []
+    final class Storage {
+        @usableFromInline
+        var pages: ContiguousArray<ContiguousArray<Value>?>
 
-    @inlinable @inline(__always)
-    public var startIndex: Index {
-        Index(index: values.startIndex)
+        @usableFromInline
+        var logicalCount: Int
+
+        @usableFromInline
+        init(pages: ContiguousArray<ContiguousArray<Value>?> = [], logicalCount: Int = 0) {
+            self.pages = pages
+            self.logicalCount = logicalCount
+        }
+
+        @usableFromInline
+        func copy() -> Storage {
+            Storage(pages: pages, logicalCount: logicalCount)
+        }
+
+        @usableFromInline
+        func value(at rawIndex: Int) -> Value {
+            guard rawIndex < logicalCount else {
+                return Value(index: Value.notFound)
+            }
+            let pageIndex = rawIndex >> SparseArray<Value, Index>.pageShift
+            guard pageIndex < pages.count, let page = pages[pageIndex] else {
+                return Value(index: Value.notFound)
+            }
+            return page[rawIndex & SparseArray<Value, Index>.pageMask]
+        }
+    }
+
+    @usableFromInline
+    internal var storage: Storage
+
+    @usableFromInline
+    static let pageShift = 12
+
+    @usableFromInline
+    static let pageSize = 1 << pageShift
+
+    @usableFromInline
+    static let pageMask = pageSize - 1
+
+    @usableFromInline
+    internal static var emptyPage: ContiguousArray<Value> {
+        ContiguousArray(repeating: Value(index: Value.notFound), count: pageSize)
     }
 
     @inlinable @inline(__always)
-    public var endIndex: Index {
-        Index(index: values.endIndex)
+    public init() {
+        storage = Storage()
     }
 
     @inlinable @inline(__always)
     public init(arrayLiteral elements: Value...) {
-        values = ContiguousArray(elements)
+        self.init()
+        append(contentsOf: elements)
+    }
+
+    @inlinable @inline(__always)
+    mutating func ensureUniqueStorage() {
+        if !isKnownUniquelyReferenced(&storage) {
+            storage = storage.copy()
+        }
+    }
+
+    @inlinable @inline(__always)
+    static func pageIndex(for rawIndex: Int) -> Int {
+        rawIndex >> pageShift
+    }
+
+    @inlinable @inline(__always)
+    static func offset(for rawIndex: Int) -> Int {
+        rawIndex & pageMask
+    }
+
+    @inlinable @inline(__always)
+    func readValue(at rawIndex: Int) -> Value {
+        storage.value(at: rawIndex)
+    }
+
+    @inlinable @inline(__always)
+    mutating func ensurePage(for rawIndex: Int) {
+        ensureUniqueStorage()
+        let pageIndex = Self.pageIndex(for: rawIndex)
+        if pageIndex >= storage.pages.count {
+            let missing = pageIndex + 1 - storage.pages.count
+            storage.pages.append(contentsOf: repeatElement(nil, count: missing))
+        }
+        if storage.pages[pageIndex] == nil {
+            storage.pages[pageIndex] = Self.emptyPage
+        }
+    }
+
+    @inlinable @inline(__always)
+    mutating func ensureCapacity(for rawIndex: Int) {
+        ensurePage(for: rawIndex)
+        if rawIndex + 1 > storage.logicalCount {
+            storage.logicalCount = rawIndex + 1
+        }
+    }
+
+    @inlinable @inline(__always)
+    public mutating func ensureCapacity(for index: Index) {
+        ensureCapacity(for: index.index)
+    }
+
+    @inlinable @inline(__always)
+    public var startIndex: Index {
+        Index(index: 0)
+    }
+
+    @inlinable @inline(__always)
+    public var endIndex: Index {
+        Index(index: storage.logicalCount)
     }
 
     @inlinable @inline(__always)
     public func index(after i: Index) -> Index {
-        Index(index: values.index(after: i.index))
+        Index(index: i.index + 1)
     }
 
     @inlinable @inline(__always)
     public func index(before i: Index) -> Index {
-        Index(index: values.index(before: i.index))
+        Index(index: i.index - 1)
     }
 
     @inlinable @inline(__always)
     public var count: Int {
-        _read {
-            yield values.count
-        }
+        storage.logicalCount
     }
 
     @inlinable @inline(__always)
     public subscript(index: Index) -> Value {
         _read {
-            yield values[index.index]
+            yield readValue(at: index.index)
         }
         _modify {
-            yield &values[index.index]
+            ensureCapacity(for: index.index)
+            let pageIndex = Self.pageIndex(for: index.index)
+            let elementIndex = Self.offset(for: index.index)
+            yield &storage.pages[pageIndex]![elementIndex]
         }
     }
 
     @inlinable @inline(__always)
     public func contains(index: Index) -> Bool {
-        index.index < values.count
+        index.index < storage.logicalCount
     }
 
     @inlinable @inline(__always)
     public mutating func append<S>(contentsOf newElements: S) where Element == S.Element, S: Sequence {
-        values.append(contentsOf: newElements)
+        var current = storage.logicalCount
+        for element in newElements {
+            self[Index(index: current)] = element
+            current += 1
+        }
     }
 
     @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumCapacity: Int) {
-        values.reserveCapacity(minimumCapacity)
+        ensureUniqueStorage()
+        let requiredPages = (minimumCapacity + Self.pageSize - 1) >> Self.pageShift
+        if requiredPages > storage.pages.count {
+            let missing = requiredPages - storage.pages.count
+            storage.pages.append(contentsOf: repeatElement(nil, count: missing))
+        }
+    }
+
+    public struct Values: RandomAccessCollection {
+        public typealias Element = Value
+        public typealias Index = Int
+
+        @usableFromInline
+        let storage: Storage
+
+        @usableFromInline
+        init(storage: Storage) {
+            self.storage = storage
+        }
+
+        @inlinable @inline(__always)
+        public var startIndex: Int { 0 }
+
+        @inlinable @inline(__always)
+        public var endIndex: Int { storage.logicalCount }
+
+        @inlinable @inline(__always)
+        public var count: Int { storage.logicalCount }
+
+        @inlinable @inline(__always)
+        public func index(after i: Int) -> Int { i + 1 }
+
+        @inlinable @inline(__always)
+        public func index(before i: Int) -> Int { i - 1 }
+
+        @inlinable @inline(__always)
+        public subscript(position: Int) -> Value {
+            storage.value(at: position)
+        }
+
+        @inlinable @inline(__always)
+        public var indices: Range<Int> { 0..<storage.logicalCount }
+    }
+
+    @usableFromInline
+    public var values: Values {
+        Values(storage: storage)
     }
 }
