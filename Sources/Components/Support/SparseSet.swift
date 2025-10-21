@@ -416,6 +416,28 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
         @inlinable @inline(__always)
         public var indices: Range<Int> { 0..<storage.logicalCount }
+
+        // Fast-path accessors for hot loops (avoid storage.value(at:) indirection)
+        // These are internal helpers intended for tight query loops.
+        @inlinable @inline(__always)
+        internal func unsafeGetRaw(at rawIndex: Int) -> Int {
+            // Caller should ensure rawIndex corresponds to a valid entity slot.
+            // We still check logicalCount to preserve correctness.
+            if rawIndex >= storage.logicalCount { return Value.notFound }
+            let p = rawIndex >> pageShift
+            if p >= storage.pages.count { return Value.notFound }
+            guard let page = storage.pages[p] else { return Value.notFound }
+            return page[rawIndex & pageMask].index
+        }
+
+        @inlinable @inline(__always)
+        internal func unsafeGetRaw(pageIndex: Int, offset: Int, rawIndex: Int) -> Int {
+            // Same as above, but reuses precomputed pageIndex/offset for many arrays.
+            if rawIndex >= storage.logicalCount { return Value.notFound }
+            if pageIndex >= storage.pages.count { return Value.notFound }
+            guard let page = storage.pages[pageIndex] else { return Value.notFound }
+            return page[offset].index
+        }
     }
 
     @inlinable @inline(__always)
@@ -423,3 +445,4 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
         Values(storage: storage)
     }
 }
+

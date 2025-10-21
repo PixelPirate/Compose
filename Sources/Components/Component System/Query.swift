@@ -401,16 +401,26 @@ extension Query {
         excludedComponents: [SparseArray<Int, SlotIndex>.Values]
     ) -> Bool {
         let slotRaw = slot.rawValue
+        // Precompute page index and offset once per slot to reduce repeated work.
+        @inline(__always)
+        func pageIndex(for raw: Int) -> Int { raw >> pageShift }
+        @inline(__always)
+        func offset(for raw: Int) -> Int { raw & pageMask }
+        let pIndex = pageIndex(for: slotRaw)
+        let off = offset(for: slotRaw)
 
-        for component in otherComponents where component[slotRaw] == .notFound {
-            // Entity does not have all required components, skip.
-            return false
+        // Check required components: if any is not found, fail.
+        for component in otherComponents {
+            if component.unsafeGetRaw(pageIndex: pIndex, offset: off, rawIndex: slotRaw) == .notFound {
+                return false
+            }
         }
-        for component in excludedComponents where component[slotRaw] != .notFound {
-            // Entity has at least one excluded component, skip.
-            return false
+        // Check excluded components: if any is present, fail.
+        for component in excludedComponents {
+            if component.unsafeGetRaw(pageIndex: pIndex, offset: off, rawIndex: slotRaw) != .notFound {
+                return false
+            }
         }
-
         return true
     }
 
