@@ -214,7 +214,7 @@ extension ComponentPool {
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
     )
-    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<ContiguousArray.Index>], excluded: [ContiguousArray<ContiguousArray.Index>])
+    -> (base: ContiguousArray<SlotIndex>, others: [SparseArray<Int, SlotIndex>.Values], excluded: [SparseArray<Int, SlotIndex>.Values])
     {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []

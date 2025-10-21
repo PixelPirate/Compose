@@ -95,7 +95,7 @@ extension TypedAccess {
         // a harmless instance that never resolves anything
         TypedAccess(
             buffer: UnsafeMutableBufferPointer(start: nil, count: 0),
-            indices: SparseArray<ContiguousArray.Index, SlotIndex>().values
+            indices: SparseArray<ContiguousArray<C>.Index, SlotIndex>().values
         )
     }
 }

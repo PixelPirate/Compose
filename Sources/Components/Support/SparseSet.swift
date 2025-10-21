@@ -210,6 +210,15 @@ public protocol SparseArrayValue: Hashable, Comparable {
     init(index: Array.Index)
 }
 
+@usableFromInline
+let pageShift = 12
+
+@usableFromInline
+let pageSize = 1 << pageShift
+
+@usableFromInline
+let pageMask = pageSize - 1
+
 public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
     public typealias ArrayLiteralElement = Value
     @usableFromInline
@@ -236,25 +245,16 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
             guard rawIndex < logicalCount else {
                 return Value(index: Value.notFound)
             }
-            let pageIndex = rawIndex >> SparseArray<Value, Index>.pageShift
+            let pageIndex = rawIndex >> pageShift
             guard pageIndex < pages.count, let page = pages[pageIndex] else {
                 return Value(index: Value.notFound)
             }
-            return page[rawIndex & SparseArray<Value, Index>.pageMask]
+            return page[rawIndex & pageMask]
         }
     }
 
     @usableFromInline
     internal var storage: Storage
-
-    @usableFromInline
-    static let pageShift = 12
-
-    @usableFromInline
-    static let pageSize = 1 << pageShift
-
-    @usableFromInline
-    static let pageMask = pageSize - 1
 
     @usableFromInline
     internal static var emptyPage: ContiguousArray<Value> {
@@ -375,7 +375,7 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
     @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumCapacity: Int) {
         ensureUniqueStorage()
-        let requiredPages = (minimumCapacity + Self.pageSize - 1) >> Self.pageShift
+        let requiredPages = (minimumCapacity + pageSize - 1) >> pageShift
         if requiredPages > storage.pages.count {
             let missing = requiredPages - storage.pages.count
             storage.pages.append(contentsOf: repeatElement(nil, count: missing))
@@ -418,7 +418,7 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
         public var indices: Range<Int> { 0..<storage.logicalCount }
     }
 
-    @usableFromInline
+    @inlinable @inline(__always)
     public var values: Values {
         Values(storage: storage)
     }
