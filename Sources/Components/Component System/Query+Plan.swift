@@ -6,14 +6,12 @@
 //
 
 public struct QueryMetadata {
-    public let signature: ComponentSignature
     public let readSignature: ComponentSignature
     public let writeSignature: ComponentSignature
     public let excludedSignature: ComponentSignature
 
     @inlinable @inline(__always)
-    init(signature: ComponentSignature, readSignature: ComponentSignature, writeSignature: ComponentSignature, excludedSignature: ComponentSignature) {
-        self.signature = signature
+    init(readSignature: ComponentSignature, writeSignature: ComponentSignature, excludedSignature: ComponentSignature) {
         self.readSignature = readSignature
         self.writeSignature = writeSignature
         self.excludedSignature = excludedSignature
@@ -21,12 +19,12 @@ public struct QueryMetadata {
 }
 
 extension Query {
+    /// Metadata used for scheduling. Includes optional components.
     @inlinable @inline(__always)
-    public var metadata: QueryMetadata {
+    public var schedulingMetadata: QueryMetadata {
         QueryMetadata(
-            signature: signature,
-            readSignature: readOnlySignature,
-            writeSignature: writeSignature,
+            readSignature: Self.makeReadSignature(backstageComponents: backstageComponents, includeOptionals: true),
+            writeSignature: Self.makeWriteSignature(includeOptionals: true),
             excludedSignature: excludedSignature
         )
     }

@@ -181,7 +181,7 @@ public final class Coordinator {
             groups.add(group, in: self)
             let signature = GroupSignature(query.querySignature)
             let meta = GroupMetadata(
-                owned: group.ownedSignature,
+                owned: group.owned,
                 backstage: group.backstageSignature,
                 excluded: group.excludeSignature
             )
@@ -206,18 +206,25 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
+    public func groupSlotsWithOwned(_ signature: GroupSignature) -> (ArraySlice<SlotIndex>, ComponentSignature)? {
+        groups.groupSlotsWithOwned(signature, in: &pool)
+    }
+
+    @inlinable @inline(__always)
     public func isOwningGroup(_ signature: GroupSignature) -> Bool {
         groups.isOwning(signature)
     }
 
     public struct BestGroupResult {
         @inlinable @inline(__always)
-        public init(slots: ArraySlice<SlotIndex>, exact: Bool) {
+        public init(slots: ArraySlice<SlotIndex>, exact: Bool, owned: ComponentSignature) {
             self.slots = slots
             self.exact = exact
+            self.owned = owned
         }
         public let slots: ArraySlice<SlotIndex>
         public let exact: Bool
+        public let owned: ComponentSignature
     }
 
     @inlinable @inline(__always)
@@ -226,11 +233,11 @@ public final class Coordinator {
         let accessed = query.write + query.readOnly
         let queryExcluded = query.excluded
         // Exact fast path
-        if let slots = groupSlots(GroupSignature(contained: queryContained, excluded: queryExcluded)) {
-            return BestGroupResult(slots: slots, exact: true)
+        if let (slots, owned) = groupSlotsWithOwned(GroupSignature(contained: queryContained, excluded: queryExcluded)) {
+            return BestGroupResult(slots: slots, exact: true, owned: owned)
         }
         // Scan known groups for reusable candidates and score by owned overlap
-        var best: (slots: ArraySlice<SlotIndex>, score: Int, size: Int, primaryRaw: Int)? = nil
+        var best: (slots: ArraySlice<SlotIndex>, score: Int, size: Int, primaryRaw: Int, owned: ComponentSignature)? = nil
         for (sig, meta) in knownGroupsMeta {
             if !meta.contained.isSubset(of: queryContained) { continue }
             if !meta.excluded.isSubset(of: queryExcluded) { continue }
@@ -250,13 +257,13 @@ public final class Coordinator {
                 if score > current.score ||
                    (score == current.score && ps < current.size) ||
                    (score == current.score && ps == current.size && pr < current.primaryRaw) {
-                    best = (slots, score, ps, pr)
+                    best = (slots, score, ps, pr, meta.owned)
                 }
             } else {
-                best = (slots, score, ps, pr)
+                best = (slots, score, ps, pr, meta.owned)
             }
         }
-        if let b = best { return BestGroupResult(slots: b.slots, exact: false) }
+        if let b = best { return BestGroupResult(slots: b.slots, exact: false, owned: b.owned) }
         return nil
     }
 

@@ -187,21 +187,21 @@ extension Tag {
         }
 
         let duration5_1 = clock.measure {
-            query.performGroupDense(coordinator) { a, b, c in
+            query.performGroup(coordinator) { a, b, c in
                 b.v += 0.5 * a.v
                 c.v += 0.25 * b.v
                 a.v *= 0.99
             }
         }
         let duration5_2 = clock.measure {
-            query.performGroupDense(coordinator) { a, b, c in
+            query.performGroup(coordinator) { a, b, c in
                 b.v += 0.5 * a.v
                 c.v += 0.25 * b.v
                 a.v *= 0.99
             }
         }
         let duration5_3 = clock.measure {
-            query.performGroupDense(coordinator) { a, b, c in
+            query.performGroup(coordinator) { a, b, c in
                 b.v += 0.5 * a.v
                 c.v += 0.25 * b.v
                 a.v *= 0.99
@@ -364,7 +364,7 @@ extension Tag {
         let densePasses = preloadedPasses
         let denseTotal = clock.measure {
             for _ in 0..<densePasses {
-                query.performGroupDense(coordinator) { a, b, c in
+                query.performGroup(coordinator) { a, b, c in
                     b.v += a.v * 0.25
                     c.v += b.v * 0.125
                     a.v *= 0.99
@@ -455,7 +455,7 @@ extension Tag {
 
         // Warm a dense pass to ensure any one-time effects are out of the way
         _ = clock.measure {
-            groupQuery.performGroupDense(coordinator) { t, v in
+            groupQuery.performGroup(coordinator) { t, v in
                 t.position.z += 1
                 v.v.z += 1
             }
@@ -464,7 +464,7 @@ extension Tag {
         // Amortize rebuild: many dense iterations after group build
         let denseTotal = clock.measure {
             for _ in 0..<densePasses {
-                groupQuery.performGroupDense(coordinator) { t, v in
+                groupQuery.performGroup(coordinator) { t, v in
                     t.position.x += 1
                     v.v.x += 1
                 }
@@ -497,7 +497,6 @@ extension Tag {
         print("Preloaded x\(preloadedPasses) (no reorder):", preloadedTotal, "(per-iter ~", preloadedPerIter, ")")
         print(String(format: "Group vs Preloaded per-iter speedup: %.2fx", speedup))
     }
-
 
     @Test func testPerformanceSimple() throws {
         let query = Query {
@@ -541,7 +540,7 @@ extension Tag {
             class var id: SystemID { SystemID(name: "TestSystem") }
 
             var metadata: SystemMetadata {
-                Self.metadata(from: [queryA.metadata, queryB.metadata])
+                Self.metadata(from: [queryA.schedulingMetadata, queryB.schedulingMetadata])
             }
 
             let queryA = Query {

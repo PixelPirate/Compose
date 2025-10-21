@@ -12,13 +12,11 @@ extension System {
         writing writeResources: repeat (each WriteResource).Type,
         runAfter: Set<SystemID> = []
     ) -> SystemMetadata {
-        var include = ComponentSignature()
         var read = ComponentSignature()
         var write = ComponentSignature()
         var exclude = ComponentSignature()
 
         for query in queries {
-            include = include.appending(query.signature)
             read = read.appending(query.readSignature)
             write = write.appending(query.writeSignature)
             exclude = exclude.appending(query.excludedSignature)
@@ -35,7 +33,6 @@ extension System {
 
         return SystemMetadata(
             id: Self.id,
-            includedSignature: include,
             readSignature: read,
             writeSignature: write,
             excludedSignature: exclude,
@@ -43,35 +40,11 @@ extension System {
             resourceAccess: access
         )
     }
-
-//    public static func metadata(
-//        from queries: [QueryMetadata]
-//    ) -> SystemMetadata {
-//        var include = ComponentSignature()
-//        var read = ComponentSignature()
-//        var write = ComponentSignature()
-//        var exclude = ComponentSignature()
-//
-//        for query in queries {
-//            include = include.appending(query.signature)
-//            read = read.appending(query.readSignature)
-//            write = write.appending(query.writeSignature)
-//            exclude = exclude.appending(query.excludedSignature)
-//        }
-//
-//        return SystemMetadata(
-//            includedSignature: include,
-//            readSignature: read,
-//            writeSignature: write,
-//            excludedSignature: exclude,
-//            resourceAccess: []
-//        )
-//    }
 }
 
+// TODO: Signatures must include optional components to correctly schedule system!
 public struct SystemMetadata {
     public let id: SystemID
-    public let includedSignature: ComponentSignature
     public let readSignature: ComponentSignature
     public let writeSignature: ComponentSignature
     public let excludedSignature: ComponentSignature

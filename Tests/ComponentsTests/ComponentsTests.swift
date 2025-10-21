@@ -709,17 +709,26 @@ func testReuseSlot() async throws {
 
 @Test func queryMetadata() throws {
     let query = Query {
-        Write<Transform>.self
-        With<Person>.self
-        RigidBody.self
-        Without<Gravity>.self
-        Material?.self
+        Write<Health>.self        // Write signature
+        OptionalWrite<Shape>.self // Omitted but part of scheduling write
+        With<Person>.self         // "signature"
+        RigidBody.self            // Read signature
+        Without<Gravity>.self     // Excluded signature
+        Material?.self            // Omitted but part of scheduling read
+        Downward.self             // Read signature (as Transform)
     }
 
-    #expect(query.metadata.readSignature == ComponentSignature(RigidBody.componentTag, Material.componentTag))
-    #expect(query.metadata.writeSignature == ComponentSignature(Transform.componentTag))
-    #expect(query.metadata.signature == ComponentSignature(Transform.componentTag, Person.componentTag, RigidBody.componentTag, Material.componentTag))
-    #expect(query.metadata.excludedSignature == ComponentSignature(Gravity.componentTag))
+    #expect(query.schedulingMetadata.readSignature == ComponentSignature(RigidBody.componentTag, Transform.componentTag, Material.componentTag))
+    #expect(query.readOnlySignature == ComponentSignature(RigidBody.componentTag, Transform.componentTag))
+
+    #expect(query.schedulingMetadata.writeSignature == ComponentSignature(Health.componentTag, Shape.componentTag))
+    #expect(query.writeSignature == ComponentSignature(Health.componentTag))
+
+    #expect(query.schedulingMetadata.excludedSignature == ComponentSignature(Gravity.componentTag))
+
+    #expect(query.signature == ComponentSignature(Health.componentTag, Person.componentTag, RigidBody.componentTag, Transform.componentTag))
+    #expect(query.backstageSignature == ComponentSignature(Person.componentTag))
+    #expect(query.excludedSignature == ComponentSignature(Gravity.componentTag))
 }
 
 @Test func optional() async throws {
@@ -833,6 +842,16 @@ public struct RigidBody: Component, Equatable {
     }
 }
 
+public struct Shape: Component, Equatable {
+    public static let componentTag = ComponentTag.makeTag()
+
+    public var bounds: Vector3
+
+    public init(bounds: Vector3) {
+        self.bounds = bounds
+    }
+}
+
 public struct Transform: Equatable, Component, Sendable {
     public static let componentTag = ComponentTag.makeTag()
 
@@ -851,6 +870,16 @@ public struct Person: Component {
     public static let componentTag = ComponentTag.makeTag()
 
     public init() {
+    }
+}
+
+public struct Health: Component {
+    public static let componentTag = ComponentTag.makeTag()
+
+    public var value: Int
+
+    public init(value: Int) {
+        self.value = value
     }
 }
 
@@ -1069,14 +1098,14 @@ public struct Material: Component {
 
     // Verify performGroup iterates exactly the group members
     var seen = 0
-    Query { Transform.self; Gravity.self; Without<RigidBody>.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform, _: Gravity) in
+    Query { Transform.self; Gravity.self; Without<RigidBody>.self }.performGroup(coordinator, requireGroup: true) { (_: Transform, _: Gravity) in
         seen += 1
     }
     #expect(seen == 2)
 
     // Use WithEntityID to ensure IDs resolve correctly on non-owning groups
     var ids: [Entity.ID] = []
-    Query { WithEntityID.self; Transform.self; Gravity.self; Without<RigidBody>.self }.performGroupDense(coordinator, requireGroup: true) { (id: Entity.ID, _: Transform, _: Gravity) in
+    Query { WithEntityID.self; Transform.self; Gravity.self; Without<RigidBody>.self }.performGroup(coordinator, requireGroup: true) { (id: Entity.ID, _: Transform, _: Gravity) in
         ids.append(id)
     }
     #expect(Set(ids.map { $0.slot }) == Set([e1.slot, e4.slot]))
@@ -1103,7 +1132,7 @@ public struct Material: Component {
 
     // performGroup should visit both
     var count = 0
-    Query { Transform.self; With<Material>.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform) in
+    Query { Transform.self; With<Material>.self }.performGroup(coordinator, requireGroup: true) { (_: Transform) in
         count += 1
     }
     #expect(count == 2)
@@ -1121,7 +1150,7 @@ public struct Material: Component {
     #expect(coordinator.groupSize(sig) == 2)
 
     var collected: [Entity.ID] = []
-    Query { WithEntityID.self; Write<Transform>.self; Gravity.self }.performGroupDense(coordinator, requireGroup: true) { (id: Entity.ID, _: Write<Transform>, _: Gravity) in
+    Query { WithEntityID.self; Write<Transform>.self; Gravity.self }.performGroup(coordinator, requireGroup: true) { (id: Entity.ID, _: Write<Transform>, _: Gravity) in
         collected.append(id)
     }
     #expect(Set(collected.map { $0.slot }) == Set([e1.slot, e2.slot]))
@@ -1144,7 +1173,7 @@ public struct Material: Component {
     var optionalStates: [Bool] = []
     // This will find a non-exact group match and it will filter during iteration but with an empty filter.
     // TODO: Query needs to be fixed to optionals are not part of the signatures. Then this will be an exact match with no filtering.
-    Query { Transform.self; OptionalWrite<Gravity>.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform, g: OptionalWrite<Gravity>) in
+    Query { Transform.self; OptionalWrite<Gravity>.self }.performGroup(coordinator, requireGroup: true) { (_: Transform, g: OptionalWrite<Gravity>) in
         // Record whether gravity is present
         g.force?.x += 1
         optionalStates.append(g.force != nil)
@@ -1170,15 +1199,15 @@ public struct Material: Component {
 
     // Query requires Transform, optionally Gravity; should visit both entities
     var count = 0
-    Query { Transform.self; Gravity.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform, g: Gravity) in
+    Query { Transform.self; Gravity.self }.performGroup(coordinator, requireGroup: true) { (_: Transform, g: Gravity) in
         // Record whether gravity is present
-        // TODO: This crashes!
         count += 1
     }
 
     // Expect exactly one with gravity present and one without
     #expect(count == 1)
 }
+
 @Test func optionalComponent_withOwningGroupSubset3() throws {
     let coordinator = Coordinator()
 
@@ -1194,9 +1223,9 @@ public struct Material: Component {
 
     // Query requires Transform, optionally Gravity; should visit both entities
     var count = 0
-    Query { Transform.self; Write<Gravity>.self }.performGroupDense(coordinator, requireGroup: true) { (_: Transform, g: Write<Gravity>) in
+    Query { Transform.self; Write<Gravity>.self }.performGroup(coordinator, requireGroup: true) { (_: Transform, g: Write<Gravity>) in
         // Record whether gravity is present
-        g.force = .zero // TODO: This makes an illegal write to an entity which does not have this component!
+        g.force = .zero
         count += 1
     }
 

@@ -153,7 +153,12 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         }
 
         for tagType in repeat (each T).self {
-            guard tagType.QueriedComponent != Never.self else { continue }
+            guard
+                tagType.QueriedComponent != Never.self,
+                tagType is any OptionalQueriedComponent.Type == false
+            else {
+                continue
+            }
             signature = signature.appending(tagType.componentTag)
         }
 
@@ -161,12 +166,17 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @inlinable @inline(__always)
-    static func makeReadSignature(backstageComponents: Set<ComponentTag>) -> ComponentSignature {
+    static func makeReadSignature(backstageComponents: Set<ComponentTag>, includeOptionals: Bool = false) -> ComponentSignature {
         var signature = ComponentSignature()
 
         for tagType in repeat (each T).self {
-            guard tagType.QueriedComponent != Never.self, tagType as? any WritableComponent.Type == nil else { continue } // TODO: Test this
-            // TODO: Ignore optional components
+            guard
+                tagType.QueriedComponent != Never.self,
+                tagType is any WritableComponent.Type == false,
+                (includeOptionals || tagType is any OptionalQueriedComponent.Type == false)
+            else {
+                continue
+            } // TODO: Test this
             signature = signature.appending(tagType.componentTag)
         }
 
@@ -174,12 +184,17 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     }
 
     @inlinable @inline(__always)
-    static func makeWriteSignature() -> ComponentSignature {
+    static func makeWriteSignature(includeOptionals: Bool = false) -> ComponentSignature {
         var signature = ComponentSignature()
 
         for tagType in repeat (each T).self {
-            guard tagType.QueriedComponent != Never.self, tagType is any WritableComponent.Type else { continue } // TODO: Test this
-            // TODO: Ignore OptionalWrite components
+            guard
+                tagType.QueriedComponent != Never.self,
+                tagType is any WritableComponent.Type,
+                (includeOptionals || tagType is any OptionalQueriedComponent.Type == false)
+            else {
+                continue
+            } // TODO: Test this
             signature = signature.appending(tagType.componentTag)
         }
 
@@ -436,42 +451,18 @@ extension Query {
     }
 
     @inlinable @inline(__always)
-    public func performGroup(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
+    public func performGroup(_ context: some QueryContextConvertible, requireGroup: Bool = false, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
-        let groupSignature = GroupSignature(querySignature)
-        // Since `slots` is a slice, the loop is not allowed to change the pool. Changes must happen deferred.
-        guard let slots = context.coordinator.groupSlots(groupSignature) else {
-            return
-        }
-        withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                for slot in slots {
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: indices.pointee[generationFor: slot]
-                    )
-                    // TODO: This needs a specialised `makeResolved`, we cant to avoid the
-                    //       buffer[indices[id.slot.rawValue] dance for groups, we would like
-                    //       to just run over the dense storage and synthesise the EntityID
-                    //       during the iteration.
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
-                }
-            }
-        }
-    }
-
-    @inlinable @inline(__always)
-    public func performGroupDense(_ context: some QueryContextConvertible, requireGroup: Bool = false, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        let context = context.queryContext
-        let groupSignature = GroupSignature(querySignature)
 
         // Prefer a best-fitting group if available; otherwise fall back to cached slots.
         let best = context.coordinator.bestGroup(for: querySignature)
         let slotsSlice: ArraySlice<SlotIndex>
         let exactGroupMatch: Bool
+        let owned: ComponentSignature
         if let best {
             slotsSlice = best.slots
             exactGroupMatch = best.exact
+            owned = best.owned
         } else if !requireGroup {
             // No group found for query, fall back to precomputed slots.
             slotsSlice = context.coordinator.pool.slots(
@@ -480,10 +471,12 @@ extension Query {
                 excluded: excludedComponents
             )[...]
             exactGroupMatch = false
+            owned = ComponentSignature()
             print("No group found for query, falling back to precomputed slots. Consider adding a group matching this query.")
         } else {
             slotsSlice = []
             exactGroupMatch = false
+            owned = ComponentSignature()
             print("No group found for query. Consider adding a group matching this query.")
         }
 
@@ -501,32 +494,32 @@ extension Query {
                 }
             }
         } else {
-            // If we didn't get an exact group, prepare other/excluded arrays for per-entity filtering.
-            var baseComponents: ContiguousArray<SlotIndex> = []
-            var otherComponents: [ContiguousArray<Int?>] = []
-            var excludedComponents: [ContiguousArray<Int?>] = []
-            if !exactGroupMatch {
-                let cached = getCachedArrays(context.coordinator)
-                baseComponents = cached.base
-                otherComponents = cached.others
-                excludedComponents = cached.excluded
-            }
+            let querySignature = self.signature
+            let excludedSignature = self.excludedSignature
             withUnsafePointer(to: context.coordinator.indices) { indices in
                 withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
                     // Enumerate dense indices directly: 0..<size aligned across all owned storages
                     for (denseIndex, slot) in slotsSlice.enumerated() {
                         // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
+                        // TODO: Optional components are ignored.
                         let entitySignature = context.coordinator.entitySignatures[slot.index]
-                        // TODO: Do this
-
-                        if !Self.passes(slot: slot, otherComponents: otherComponents, excludedComponents: excludedComponents) {
+                        guard entitySignature.isSuperset(of: querySignature, isDisjoint: excludedSignature) else {
                             continue
                         }
                         let id = Entity.ID(
                             slot: SlotIndex(rawValue: slot.rawValue),
                             generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
                         )
-                        handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
+
+                        @inline(__always)
+                        func resolve<C: Component>(_ type: C.Type, access: TypedAccess<C>, denseIndex: Int, entityID: Entity.ID, owned: ComponentSignature) -> C.ResolvedType {
+                            if owned.contains(C.componentTag) { // TODO: Does this `if` actually help with performance?
+                                type.makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
+                            } else {
+                                type.makeResolved(access: access, entityID: entityID)
+                            }
+                        }
+                        handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: id, owned: owned))
                     }
                 }
             }

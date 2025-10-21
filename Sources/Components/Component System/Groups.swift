@@ -45,6 +45,14 @@ struct Groups {
     }
 
     @usableFromInline
+    func groupSlotsWithOwned(_ signature: GroupSignature, in pool: inout ComponentPool) -> (ArraySlice<SlotIndex>, ComponentSignature)? {
+        guard let group = storage.groups[signature] else {
+            return nil
+        }
+        return (group.slotsSlice(in: &pool), group.owned)
+    }
+
+    @usableFromInline
     mutating func remove(_ signature: QuerySignature) {
         if !isKnownUniquelyReferenced(&storage) {
             storage = storage.copy()
@@ -197,6 +205,7 @@ protocol GroupProtocol {
     func release(from signature: inout ComponentSignature)
 
     var signature: GroupSignature { get }
+    var owned: ComponentSignature { get }
 
     var size: Int { get }
     var primary: ComponentTag { get }
@@ -214,8 +223,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
     // All owned tags, including Primary and the rest of the pack
     /// The primary owned component. Can change during rebuilds.
     public private(set) var primary: ComponentTag
-    private let owned: Set<ComponentTag>
-    public let ownedSignature: ComponentSignature
+    private let ownedComponents: Set<ComponentTag>
+    public let owned: ComponentSignature
     public let signature: GroupSignature
 
     /// Contains owned, backstage and excluded components.
@@ -249,11 +258,10 @@ public final class Group<each Owned: Component>: GroupProtocol {
             }
         }
         self.query = query
-        // TODO: Add non-owning groups! addGroup { With<X>.self }
         precondition(prim != nil, "Group must have at least one owning component.")
         primary = prim.unsafelyUnwrapped
-        owned = result
-        ownedSignature = ComponentSignature(owned)
+        ownedComponents = result
+        owned = ComponentSignature(ownedComponents)
         backstageSignature = query.backstageSignature
         excludeSignature = query.excludedSignature
         backstageComponents = query.backstageComponents
@@ -268,27 +276,16 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
     @usableFromInline
     func acquire(in signature: inout ComponentSignature) throws(GroupAcquireError) {
-        guard signature.isDisjoint(with: ownedSignature) else {
+        guard signature.isDisjoint(with: owned) else {
             throw GroupAcquireError()
         }
-        signature.formUnion(ownedSignature)
+        signature.formUnion(owned)
     }
 
     @usableFromInline
     func release(from signature: inout ComponentSignature) {
-        signature.remove(ownedSignature)
+        signature.remove(owned)
     }
-
-    // TODO: Give this an Query in the init. We need the included/excluded beside the owned.
-    // E.g.:
-    /*
-     Group<Transform, Renderer>(with: Material.self, not: Debug.self)
-     Here we do not want to have ALL entities with Transform and Renderer be sorted to the top.
-     We only want the ones which fully match the query.
-
-
-     you still need a designated “primary” to derive the permutation and then apply that permutation to all other owned components in lock-step. That’s exactly how EnTT does it internally: one storage is the ordering source, and the others mirror its permutation.
-     */
 
     /// Build (or rebuild) the contiguous partition for this group.
     /// This partitions the primary component's dense storage so that all matching entities are in [0 ..< size).
@@ -296,7 +293,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
         // Dynamically select the primary as the smallest owned storage to minimize scan/swaps
         var selectedPrimary: ComponentTag? = nil
         var minCount: Int = .max
-        for tag in owned {
+        for tag in ownedComponents {
             if let arr = coordinator.pool.components[tag] {
                 let c = arr.componentsToEntites.count
                 if c < minCount {
@@ -484,7 +481,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
                         size &+= 1
                         pending = (slot: aSlot, targetIndex: insertIndex)
                     }
-                } else if owned.contains(tag) || backstageComponents.contains(tag) {
+                } else if ownedComponents.contains(tag) || backstageComponents.contains(tag) {
                     // If owned/backstage removed and entity is inside packed prefix, swap it out
                     if idx < size {
                         let last = size &- 1
@@ -537,6 +534,7 @@ public final class NonOwningGroup: GroupProtocol {
     public var size: Int { slots.count }
     public var primary: ComponentTag { ComponentTag(rawValue: -1) } // sentinel, unused
     public var isOwning: Bool { false }
+    public let owned = ComponentSignature()
 
     // Required/backstage/excluded component sets
     private let requiredComponents: Set<ComponentTag>

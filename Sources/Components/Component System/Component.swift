@@ -211,6 +211,11 @@ public struct ComponentSignature: Hashable, Sendable, CustomDebugStringConvertib
     }
 
     @inlinable @inline(__always)
+    public func isSuperset(of set: ComponentSignature, isDisjoint disjoint: ComponentSignature) -> Bool {
+        rawHashValue.isSuperset(of: set.rawHashValue, isDisjoint: disjoint.rawHashValue)
+    }
+
+    @inlinable @inline(__always)
     public static func + (lhs: ComponentSignature, rhs: ComponentSignature) -> ComponentSignature {
         lhs.appending(rhs)
     }
