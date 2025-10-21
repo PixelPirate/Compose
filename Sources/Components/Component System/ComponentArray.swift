@@ -28,7 +28,7 @@ public protocol AnyComponentArrayBox: AnyObject {
     func `set`(_: Entity.ID, newValue: any Component) -> Void
 
     @inlinable @inline(__always)
-    var entityToComponents: ContiguousArray<ContiguousArray.Index> { get }
+    var entityToComponents: PagedArray<ContiguousArray.Index> { get }
 
     @inlinable @inline(__always)
     var componentsToEntites: ContiguousArray<SlotIndex> { get }
@@ -71,7 +71,7 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     }
 
     @inlinable @inline(__always)
-    var entityToComponents: ContiguousArray<ContiguousArray.Index> {
+    var entityToComponents: PagedArray<ContiguousArray.Index> {
         _read {
             yield base.slots.values
         }
@@ -137,7 +137,7 @@ public struct AnyComponentArray {
     }
 
     @usableFromInline
-    var entityToComponents: ContiguousArray<ContiguousArray.Index> {
+    var entityToComponents: PagedArray<ContiguousArray.Index> {
         _read {
             yield base.entityToComponents
         }
@@ -155,14 +155,22 @@ public struct AnyComponentArray {
         base as! ComponentArrayBox<C>
     }
 
+    @available(*, unavailable, message: "Paged storage no longer exposes contiguous buffers. Use withStorage(_:_:)")
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (UnsafeMutableBufferPointer<C>, ContiguousArray<ContiguousArray.Index>) throws -> Result
+        _ body: (UnsafeMutableBufferPointer<C>, PagedArray<ContiguousArray.Index>) throws -> Result
+    ) rethrows -> Result {
+        fatalError("AnyComponentArray.withBuffer is unavailable for paged storage.")
+    }
+
+    public func withStorage<C: Component, Result>(
+        _ of: C.Type,
+        _ body: (UnsafeMutablePointer<PagedArray<C>>, PagedArray<ContiguousArray.Index>) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents
-        return try typed.base.withUnsafeMutableBufferPointer { buffer in
-             try body(buffer, indices)
+        return try withUnsafeMutablePointer(to: &typed.base.components) { pointer in
+            try body(pointer, indices)
         }
     }
 
