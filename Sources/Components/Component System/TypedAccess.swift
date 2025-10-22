@@ -98,8 +98,8 @@ extension TypedAccess {
         // a harmless instance that never resolves anything
         let storage = UnsafeMutablePointer<PagedArray<C.QueriedComponent>>.allocate(capacity: 1)
         storage.initialize(to: PagedArray())
-        let indices = UnsafeMutablePointer<PagedArray<ContiguousArray.Index>>.allocate(capacity: 1)
-        indices.initialize(to: PagedArray())
+        let indices = UnsafeMutablePointer<PagedArray<ContiguousArray<C.QueriedComponent>.Index>>.allocate(capacity: 1)
+        indices.initialize(to: PagedArray([0]))
         return TypedAccess(storage: storage, indices: indices)
     }
 }

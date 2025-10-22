@@ -4,7 +4,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
-    private(set) var slots: SparseArray<ContiguousArray.Index, SlotIndex> = []
+    var slots: SparseArray<ContiguousArray.Index, SlotIndex> = []
 
     /// Indexed by `components`  index.
     @usableFromInline
@@ -350,7 +350,7 @@ public protocol SparseArrayValue: Hashable, Comparable {
 
 public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
     @usableFromInline
-    private(set) var values: PagedArray<Value> = []
+    var values: PagedArray<Value> = []
 
     @inlinable @inline(__always)
     public var startIndex: Index {

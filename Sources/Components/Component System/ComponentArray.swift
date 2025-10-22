@@ -171,11 +171,16 @@ public struct AnyComponentArray {
         ) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
-        return try withUnsafeMutablePointer(to: &typed.base.components) { componentsPointer in // TODO: This makes the components setter non-private. Fix this.
-            try withUnsafeMutablePointer(to: &typed.base.slots.values) { indicesPointer in
+        var c = typed.base.components
+        var s = typed.base.slots
+        let ret = try withUnsafeMutablePointer(to: &c) { componentsPointer in // TODO: This makes the components setter non-private. Fix this.
+            try withUnsafeMutablePointer(to: &s.values) { indicesPointer in
                 try body(componentsPointer, indicesPointer)
             }
         }
+        typed.base.components = c
+        typed.base.slots = s
+        return ret
     }
 
     @inlinable @inline(__always)
