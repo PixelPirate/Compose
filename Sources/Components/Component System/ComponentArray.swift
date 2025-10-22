@@ -165,13 +165,11 @@ public struct AnyComponentArray {
 
     public func withStorage<C: Component, Result>(
         _ of: C.Type,
-        _ body: (UnsafeMutablePointer<PagedArray<C>>, PagedArray<ContiguousArray.Index>) throws -> Result
+        _ body: (Unmanaged<ComponentArrayBox<C>>, PagedArray<ContiguousArray.Index>) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents
-        return try withUnsafeMutablePointer(to: &typed.base.components) { pointer in // TODO: This makes the components setter non-private. Fix this.
-            try body(pointer, indices)
-        }
+        return try body(Unmanaged.passUnretained(typed), indices)
     }
 
     @inlinable @inline(__always)
