@@ -18,10 +18,14 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C.QueriedComponent {
         _read {
-            yield storage.pointee[indices[id.slot.rawValue]]
+            let denseIndex = indices[id.slot.rawValue]
+            let pointer = storage.pointee.pointer(at: denseIndex)
+            yield pointer.pointee
         }
         nonmutating _modify {
-            yield &storage.pointee[indices[id.slot.rawValue]]
+            let denseIndex = indices[id.slot.rawValue]
+            let pointer = storage.pointee.mutablePointer(at: denseIndex)
+            yield &pointer.pointee
         }
     }
 
@@ -37,18 +41,20 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
                 yield nil
                 return
             }
-            yield storage.pointee[index]
+            let pointer = storage.pointee.pointer(at: index)
+            yield pointer.pointee
         }
         nonmutating _modify {
             var wrapped: Optional<C.QueriedComponent>
             let index = indices[id.slot.rawValue]
             if index != .notFound {
-                wrapped = Optional(storage.pointee[index])
+                let pointer = storage.pointee.mutablePointer(at: index)
+                wrapped = Optional(pointer.pointee)
                 yield &wrapped
                 guard let newValue = wrapped else {
                     fatalError("Removal of component through `Optional` not supported.")
                 }
-                storage.pointee[index] = newValue
+                pointer.pointee = newValue
             } else {
                 wrapped = nil
                 yield &wrapped
@@ -61,8 +67,14 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public subscript(dense denseIndex: Int) -> C.QueriedComponent {
-        _read { yield storage.pointee[denseIndex] }
-        nonmutating _modify { yield &storage.pointee[denseIndex] }
+        _read {
+            let pointer = storage.pointee.pointer(at: denseIndex)
+            yield pointer.pointee
+        }
+        nonmutating _modify {
+            let pointer = storage.pointee.mutablePointer(at: denseIndex)
+            yield &pointer.pointee
+        }
     }
 
     @inlinable @inline(__always)
@@ -101,22 +113,16 @@ extension TypedAccess {
 }
 
 public struct SingleTypedAccess<C: Component> {
-    @usableFromInline internal var storage: UnsafeMutablePointer<PagedArray<C>>
-    @usableFromInline internal var denseIndex: Int
+    @usableFromInline internal var pointer: UnsafeMutablePointer<C>
 
     @inlinable @inline(__always)
     init(storage: UnsafeMutablePointer<PagedArray<C>>, denseIndex: Int) {
-        self.storage = storage
-        self.denseIndex = denseIndex
+        self.pointer = storage.pointee.mutablePointer(at: denseIndex)
     }
 
     @inlinable @inline(__always)
     public var value: C {
-        _read {
-            yield storage.pointee[denseIndex]
-        }
-        nonmutating _modify {
-            yield &storage.pointee[denseIndex]
-        }
+        _read { yield pointer.pointee }
+        nonmutating _modify { yield &pointer.pointee }
     }
 }

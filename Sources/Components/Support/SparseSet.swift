@@ -185,14 +185,61 @@ let pageSize = 1 << pageShift
 @usableFromInline
 let pageMask = pageSize - 1
 
+@usableFromInline
+final class _PagedArrayBuffer<Element>: ManagedBuffer<Void, Element> {
+    @usableFromInline
+    var initializedCount: Int = 0
+
+    @usableFromInline
+    static func create(minimumCapacity: Int) -> _PagedArrayBuffer<Element> {
+        let storage = super.create(minimumCapacity: minimumCapacity) { _ in () }
+        return unsafeDowncast(storage, to: _PagedArrayBuffer<Element>.self)
+    }
+
+    @usableFromInline
+    func withMutableElements<R>(_ body: (UnsafeMutablePointer<Element>) throws -> R) rethrows -> R {
+        try self.withUnsafeMutablePointerToElements { pointer in
+            try body(pointer)
+        }
+    }
+
+    deinit {
+        if initializedCount > 0 {
+            _ = self.withUnsafeMutablePointerToElements { pointer in
+                pointer.deinitialize(count: initializedCount)
+            }
+        }
+    }
+}
+
 public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, ExpressibleByArrayLiteral {
     public typealias Index = Int
 
     @usableFromInline
-    var pages: [ContiguousArray<Element>] = []
+    struct Storage {
+        @usableFromInline
+        var buffer: _PagedArrayBuffer<Element>? = nil
+
+        @usableFromInline
+        var count: Int = 0
+
+        @usableFromInline
+        var capacity: Int = 0
+
+        @usableFromInline
+        var isUnique: Bool {
+            guard buffer != nil else { return true }
+            return isKnownUniquelyReferenced(&self.buffer)
+        }
+
+        @usableFromInline
+        mutating func updateInitializedCount() {
+            buffer?.initializedCount = count
+        }
+    }
 
     @usableFromInline
-    private(set) var countStorage: Int = 0
+    var storage = Storage()
 
     @inlinable @inline(__always)
     public init() {}
@@ -206,39 +253,40 @@ public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Ex
     @inlinable @inline(__always)
     public init<S: Sequence>(_ elements: S) where S.Element == Element {
         self.init()
-        append(contentsOf: elements)
+        let estimated = elements.underestimatedCount
+        if estimated > 0 {
+            reserveCapacity(minimumCapacity: estimated)
+        }
+        for element in elements {
+            append(element)
+        }
     }
 
     @inlinable @inline(__always)
     public var startIndex: Int { 0 }
 
     @inlinable @inline(__always)
-    public var endIndex: Int { countStorage }
+    public var endIndex: Int { storage.count }
 
     @inlinable @inline(__always)
-    public var count: Int { countStorage }
+    public var count: Int { storage.count }
 
     @inlinable @inline(__always)
-    public var indices: Range<Int> { 0..<count }
+    public var indices: Range<Int> { 0..<storage.count }
 
     @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumCapacity: Int) {
-        let requiredPages = (minimumCapacity + pageMask) >> pageShift
-        pages.reserveCapacity(requiredPages)
-        for index in pages.indices {
-            pages[index].reserveCapacity(pageSize)
-        }
+        ensureUniqueStorage(minimumCapacity: minimumCapacity)
+        storage.updateInitializedCount()
     }
 
     @inlinable @inline(__always)
     public mutating func append(_ newElement: Element) {
-        let pageIndex = countStorage >> pageShift
-        if pageIndex == pages.count {
-            pages.append(ContiguousArray<Element>())
-            pages[pageIndex].reserveCapacity(pageSize)
-        }
-        pages[pageIndex].append(newElement)
-        countStorage += 1
+        ensureUniqueStorage(minimumCapacity: storage.count + 1)
+        let pointer = basePointer()
+        pointer.advanced(by: storage.count).initialize(to: newElement)
+        storage.count += 1
+        storage.updateInitializedCount()
     }
 
     @inlinable @inline(__always)
@@ -259,22 +307,23 @@ public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Ex
     @discardableResult
     public mutating func removeLast() -> Element {
         precondition(!isEmpty, "Cannot removeLast from empty PagedArray")
-        let index = countStorage - 1
-        countStorage -= 1
-        let pageIndex = index >> pageShift
-        let value = pages[pageIndex].removeLast()
-        if pages[pageIndex].isEmpty {
-            pages.removeLast()
-        }
+        ensureUniqueStorage(minimumCapacity: storage.count)
+        let newCount = storage.count - 1
+        let pointer = basePointer().advanced(by: newCount)
+        let value = pointer.move()
+        storage.count = newCount
+        storage.updateInitializedCount()
         return value
     }
 
     @inlinable @inline(__always)
     public mutating func swapAt(_ i: Int, _ j: Int) {
         if i == j { return }
-        let (pageI, offsetI) = pageAndOffset(for: i)
-        let (pageJ, offsetJ) = pageAndOffset(for: j)
-        pages[pageI].swapAt(offsetI, offsetJ)
+        precondition(i >= 0 && i < storage.count)
+        precondition(j >= 0 && j < storage.count)
+        ensureUniqueStorage(minimumCapacity: storage.count)
+        let pointer = basePointer()
+        swap(&pointer[i], &pointer[j])
     }
 
     @inlinable @inline(__always)
@@ -286,16 +335,20 @@ public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Ex
     @inlinable @inline(__always)
     public subscript(position: Int) -> Element {
         _read {
-            let (page, offset) = pageAndOffset(for: position)
-            yield pages[page][offset]
+            precondition(position >= 0 && position < storage.count)
+            let pointer = basePointer()
+            yield pointer[position]
         }
         _modify {
-            let (page, offset) = pageAndOffset(for: position)
-            yield &pages[page][offset]
+            precondition(position >= 0 && position < storage.count)
+            ensureUniqueStorage(minimumCapacity: storage.count)
+            var pointer = basePointer()
+            yield &pointer[position]
+            storage.updateInitializedCount()
         }
     }
 
-    @available(*, unavailable, message: "PagedArray storage is paged; use page-wise APIs instead.")
+    @available(*, unavailable, message: "PagedArray storage does not expose contiguous mutable buffers.")
     @inlinable @inline(__always)
     mutating func withUnsafeMutableBufferPointer<R>(
         _ body: (inout UnsafeMutableBufferPointer<Element>) throws -> R
@@ -303,12 +356,100 @@ public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Ex
         fatalError("PagedArray.withUnsafeMutableBufferPointer is unavailable for paged storage.")
     }
 
-    @inlinable @inline(__always)
-    public func pageAndOffset(for position: Int) -> (Int, Int) {
-        precondition(position >= 0 && position < countStorage, "Index out of bounds")
-        let page = position >> pageShift
-        let offset = position & pageMask
-        return (page, offset)
+    @usableFromInline @inline(__always)
+    mutating func ensureUniqueStorage(minimumCapacity: Int) {
+        let neededCapacity = max(minimumCapacity, storage.count)
+        if neededCapacity == 0 {
+            if storage.buffer == nil { return }
+            if !storage.isUnique {
+                reallocateBuffer(newCapacity: storage.capacity)
+            }
+            return
+        }
+        if storage.buffer == nil {
+            let capacity = max(alignedCapacity(for: neededCapacity), pageSize)
+            allocateBuffer(capacity: capacity, copyExistingCount: 0)
+            return
+        }
+
+        if storage.capacity < neededCapacity {
+            let capacity = alignedCapacity(for: neededCapacity)
+            reallocateBuffer(newCapacity: capacity)
+            return
+        }
+
+        if !storage.isUnique {
+            reallocateBuffer(newCapacity: storage.capacity)
+        }
+    }
+
+    @usableFromInline @inline(__always)
+    mutating func reallocateBuffer(newCapacity: Int) {
+        let copyCount = storage.count
+        let oldBuffer = storage.buffer
+        allocateBuffer(capacity: newCapacity, copyExistingCount: copyCount)
+        oldBuffer?.initializedCount = copyCount
+    }
+
+    @usableFromInline @inline(__always)
+    mutating func allocateBuffer(capacity: Int, copyExistingCount count: Int) {
+        let buffer = _PagedArrayBuffer<Element>.create(minimumCapacity: capacity)
+        if let oldBuffer = storage.buffer, count > 0 {
+            buffer.withMutableElements { destination in
+                oldBuffer.withMutableElements { source in
+                    destination.initialize(from: source, count: count)
+                }
+            }
+        }
+        storage.buffer = buffer
+        storage.capacity = capacity
+        buffer.initializedCount = count
+    }
+
+    @usableFromInline @inline(__always)
+    func alignedCapacity(for minimum: Int) -> Int {
+        guard minimum > 0 else { return pageSize }
+        var capacity = storage.capacity > 0 ? storage.capacity : pageSize
+        while capacity < minimum {
+            let doubled = capacity << 1
+            if doubled < capacity { // overflow
+                capacity = minimum
+                break
+            }
+            capacity = max(doubled, capacity + pageSize)
+            if capacity < 0 { // overflow to negative
+                capacity = minimum
+                break
+            }
+        }
+        let remainder = capacity & pageMask
+        if remainder == 0 { return capacity }
+        let adjustment = pageSize - remainder
+        if capacity > Int.max - adjustment {
+            return Int.max
+        }
+        return capacity + adjustment
+    }
+
+    @usableFromInline @inline(__always)
+    func basePointer() -> UnsafeMutablePointer<Element> {
+        guard let buffer = storage.buffer else {
+            fatalError("PagedArray has no allocated storage")
+        }
+        return buffer.withMutableElements { $0 }
+    }
+
+    @usableFromInline @inline(__always)
+    func pointer(at index: Int) -> UnsafeMutablePointer<Element> {
+        precondition(index >= 0 && index < storage.count)
+        return basePointer().advanced(by: index)
+    }
+
+    @usableFromInline @inline(__always)
+    mutating func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
+        precondition(index >= 0 && index < storage.count)
+        ensureUniqueStorage(minimumCapacity: storage.count)
+        return basePointer().advanced(by: index)
     }
 }
 
