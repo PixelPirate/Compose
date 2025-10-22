@@ -6,7 +6,7 @@
 //
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
-    @usableFromInline internal unowned(unsafe) var box: ComponentArrayBox<C.QueriedComponent>
+    @usableFromInline internal unowned(safe) var box: ComponentArrayBox<C.QueriedComponent>
 
     @usableFromInline
     init(box: ComponentArrayBox<C.QueriedComponent>) {
@@ -88,17 +88,6 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         }
         return SingleTypedAccess(box: box, denseIndex: index)
     }
-}
-
-extension TypedAccess {
-    @inlinable @inline(__always)
-    static var empty: TypedAccess {
-        // a harmless instance that never resolves anything
-        TypedAccess(box: emptyBox)
-    }
-
-    @usableFromInline
-    static var emptyBox: ComponentArrayBox<C.QueriedComponent> = ComponentArrayBox(SparseSet<C.QueriedComponent, SlotIndex>())
 }
 
 public struct SingleTypedAccess<C: Component> {
