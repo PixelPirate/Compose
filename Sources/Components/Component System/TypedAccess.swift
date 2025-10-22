@@ -6,49 +6,49 @@
 //
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
-    @usableFromInline internal var storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>
-    @usableFromInline internal var indices: PagedArray<ContiguousArray.Index>
+    @usableFromInline internal unowned(unsafe) var box: ComponentArrayBox<C.QueriedComponent>
 
     @usableFromInline
-    init(storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>, indices: PagedArray<ContiguousArray.Index>) {
-        self.storage = storage
-        self.indices = indices
+    init(box: ComponentArrayBox<C.QueriedComponent>) {
+        self.box = box
     }
 
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C.QueriedComponent {
         _read {
-            yield storage.pointee[indices[id.slot.rawValue]]
+            yield box.base[slot: id.slot]
         }
         nonmutating _modify {
-            yield &storage.pointee[indices[id.slot.rawValue]]
+            yield &box.base[slot: id.slot]
         }
     }
 
     @inlinable @inline(__always)
     public subscript(optional id: Entity.ID) -> C.QueriedComponent? {
         _read {
-            guard id.slot.rawValue < indices.count else {
+            let slots = box.base.slots
+            guard id.slot.rawValue < slots.count else {
                 yield nil
                 return
             }
-            let index = indices[id.slot.rawValue]
+            let index = slots[id.slot]
             guard index != .notFound else {
                 yield nil
                 return
             }
-            yield storage.pointee[index]
+            yield box.base[index]
         }
         nonmutating _modify {
             var wrapped: Optional<C.QueriedComponent>
-            let index = indices[id.slot.rawValue]
+            let slots = box.base.slots
+            let index = slots[id.slot]
             if index != .notFound {
-                wrapped = Optional(storage.pointee[index])
+                wrapped = Optional(box.base[index])
                 yield &wrapped
                 guard let newValue = wrapped else {
                     fatalError("Removal of component through `Optional` not supported.")
                 }
-                storage.pointee[index] = newValue
+                box.base[index] = newValue
             } else {
                 wrapped = nil
                 yield &wrapped
@@ -61,31 +61,32 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public subscript(dense denseIndex: Int) -> C.QueriedComponent {
-        _read { yield storage.pointee[denseIndex] }
-        nonmutating _modify { yield &storage.pointee[denseIndex] }
+        _read { yield box.base[denseIndex] }
+        nonmutating _modify { yield &box.base[denseIndex] }
     }
 
     @inlinable @inline(__always)
     public func accessDense(_ denseIndex: Int) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(storage: storage, denseIndex: denseIndex)
+        SingleTypedAccess(box: box, denseIndex: denseIndex)
     }
 
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(storage: storage, denseIndex: indices[id.slot.rawValue])
+        SingleTypedAccess(box: box, denseIndex: box.base.componentIndex(id.slot))
     }
 
     @inlinable @inline(__always)
     public func optionalAccess(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent>? {
         // TODO: Fix warning.
-        guard id.slot.rawValue < indices.count else {
+        let slots = box.base.slots
+        guard id.slot.rawValue < slots.count else {
             return nil
         }
-        let index = indices[id.slot.rawValue]
+        let index = slots[id.slot]
         guard index != .notFound else {
             return nil
         }
-        return SingleTypedAccess(storage: storage, denseIndex: indices[id.slot.rawValue])
+        return SingleTypedAccess(box: box, denseIndex: index)
     }
 }
 
@@ -93,30 +94,30 @@ extension TypedAccess {
     @inlinable @inline(__always)
     static var empty: TypedAccess {
         // a harmless instance that never resolves anything
-        TypedAccess(
-            storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>.allocate(capacity: 0),
-            indices: []
-        )
+        TypedAccess(box: emptyBox)
     }
+
+    @usableFromInline
+    static var emptyBox: ComponentArrayBox<C.QueriedComponent> = ComponentArrayBox(SparseSet<C.QueriedComponent, SlotIndex>())
 }
 
 public struct SingleTypedAccess<C: Component> {
-    @usableFromInline internal var storage: UnsafeMutablePointer<PagedArray<C>>
+    @usableFromInline internal unowned(unsafe) var box: ComponentArrayBox<C>
     @usableFromInline internal var denseIndex: Int
 
     @inlinable @inline(__always)
-    init(storage: UnsafeMutablePointer<PagedArray<C>>, denseIndex: Int) {
-        self.storage = storage
+    init(box: ComponentArrayBox<C>, denseIndex: Int) {
+        self.box = box
         self.denseIndex = denseIndex
     }
 
     @inlinable @inline(__always)
     public var value: C {
         _read {
-            yield storage.pointee[denseIndex]
+            yield box.base[denseIndex]
         }
         nonmutating _modify {
-            yield &storage.pointee[denseIndex]
+            yield &box.base[denseIndex]
         }
     }
 }

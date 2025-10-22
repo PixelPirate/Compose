@@ -386,15 +386,8 @@ func withTypedBuffers<each C: ComponentResolving, R>(
             }
             return TypedAccess<D>.empty
         }
-        var result: TypedAccess<D>? = nil
-        anyArray.withStorage(D.QueriedComponent.self) { storage, entitiesToIndices in
-            result = TypedAccess(storage: storage, indices: entitiesToIndices)
-            // Escaping the storage pointer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
-            // The solution would be a recursive function which would recursively call `withStorage` on the head until the pack is empty, and then call `body` with all the storages.
-            // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12
-            // See: https://forums.swift.org/t/passing-a-parameter-pack-to-a-function-call-fails-to-compile/72243/15
-        }
-        return result.unsafelyUnwrapped
+        let typedBox = anyArray.typedBox(D.QueriedComponent.self)
+        return TypedAccess(box: typedBox)
     }
 
     let built = buildTuple()
