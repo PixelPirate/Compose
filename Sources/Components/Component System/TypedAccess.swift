@@ -5,12 +5,6 @@
 //  Created by Patrick Horlebein (extern) on 10.10.25.
 //
 
-@usableFromInline
-enum EmptyComponentArrayStorage<C: Component> {
-    @usableFromInline
-    static let box = ComponentArrayBox<C>(SparseSet<C, SlotIndex>())
-}
-
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var storage: Unmanaged<ComponentArrayBox<C.QueriedComponent>>
     @usableFromInline internal var indices: PagedArray<ContiguousArray.Index>
@@ -102,17 +96,6 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
             return nil
         }
         return SingleTypedAccess(storage: storage, denseIndex: denseIndex)
-    }
-}
-
-extension TypedAccess {
-    @inlinable @inline(__always)
-    static var empty: TypedAccess {
-        // a harmless instance that never resolves anything
-        TypedAccess(
-            storage: Unmanaged.passUnretained(EmptyComponentArrayStorage<C.QueriedComponent>.box),
-            indices: []
-        )
     }
 }
 

@@ -372,6 +372,8 @@ func withTypedBuffers<each C: ComponentResolving, R>(
     _ pool: inout ComponentPool,
     _ body: (repeat TypedAccess<each C>) throws -> R
 ) rethrows -> R {
+    var emptyBoxes: [any AnyComponentArrayBox] = []
+
     @inline(__always)
     func buildTuple() -> (repeat TypedAccess<each C>) {
         return (repeat tryMakeAccess((each C).self))
@@ -379,12 +381,18 @@ func withTypedBuffers<each C: ComponentResolving, R>(
 
     @inline(__always)
     func tryMakeAccess<D: ComponentResolving>(_ type: D.Type) -> TypedAccess<D> {
-        guard D.QueriedComponent.self != Never.self else { return TypedAccess<D>.empty }
+        guard D.QueriedComponent.self != Never.self else {
+            let empty = ComponentArrayBox<D.QueriedComponent>(SparseSet<D.QueriedComponent, SlotIndex>())
+            emptyBoxes.append(empty)
+            return TypedAccess<D>(storage: .passUnretained(empty), indices: PagedArray())
+        }
         guard let anyArray = pool.components[D.QueriedComponent.componentTag] else {
             guard D.self is any OptionalQueriedComponent.Type else {
                 fatalError("Unknown component.")
             }
-            return TypedAccess<D>.empty
+            let empty = ComponentArrayBox<D.QueriedComponent>(SparseSet<D.QueriedComponent, SlotIndex>())
+            emptyBoxes.append(empty)
+            return TypedAccess<D>(storage: .passUnretained(empty), indices: PagedArray())
         }
         var result: TypedAccess<D>? = nil
         anyArray.withStorage(D.QueriedComponent.self) { box, entitiesToIndices in
@@ -399,5 +407,7 @@ func withTypedBuffers<each C: ComponentResolving, R>(
     }
 
     let built = buildTuple()
-    return try body(repeat each built)
+    return try withExtendedLifetime(emptyBoxes) {
+        return try body(repeat each built)
+    }
 }

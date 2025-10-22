@@ -163,7 +163,7 @@ public struct AnyComponentArray {
         fatalError("AnyComponentArray.withBuffer is unavailable for paged storage.")
     }
 
-    public func withStorage<C: Component, Result>(
+    func withStorage<C: Component, Result>(
         _ of: C.Type,
         _ body: (Unmanaged<ComponentArrayBox<C>>, PagedArray<ContiguousArray.Index>) throws -> Result
     ) rethrows -> Result {
