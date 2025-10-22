@@ -7,10 +7,13 @@
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>
-    @usableFromInline internal var indices: PagedArray<ContiguousArray.Index>
+    @usableFromInline internal var indices: UnsafeMutablePointer<PagedArray<ContiguousArray.Index>>
 
     @usableFromInline
-    init(storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>, indices: PagedArray<ContiguousArray.Index>) {
+    init(
+        storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>,
+        indices: UnsafeMutablePointer<PagedArray<ContiguousArray.Index>>
+    ) {
         self.storage = storage
         self.indices = indices
     }
@@ -18,21 +21,21 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C.QueriedComponent {
         _read {
-            yield storage.pointee[indices[id.slot.rawValue]]
+            yield storage.pointee[indices.pointee[id.slot.rawValue]]
         }
         nonmutating _modify {
-            yield &storage.pointee[indices[id.slot.rawValue]]
+            yield &storage.pointee[indices.pointee[id.slot.rawValue]]
         }
     }
 
     @inlinable @inline(__always)
     public subscript(optional id: Entity.ID) -> C.QueriedComponent? {
         _read {
-            guard id.slot.rawValue < indices.count else {
+            guard id.slot.rawValue < indices.pointee.count else {
                 yield nil
                 return
             }
-            let index = indices[id.slot.rawValue]
+            let index = indices.pointee[id.slot.rawValue]
             guard index != .notFound else {
                 yield nil
                 return
@@ -41,7 +44,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         }
         nonmutating _modify {
             var wrapped: Optional<C.QueriedComponent>
-            let index = indices[id.slot.rawValue]
+            let index = indices.pointee[id.slot.rawValue]
             if index != .notFound {
                 wrapped = Optional(storage.pointee[index])
                 yield &wrapped
@@ -72,20 +75,20 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(storage: storage, denseIndex: indices[id.slot.rawValue])
+        SingleTypedAccess(storage: storage, denseIndex: indices.pointee[id.slot.rawValue])
     }
 
     @inlinable @inline(__always)
     public func optionalAccess(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent>? {
         // TODO: Fix warning.
-        guard id.slot.rawValue < indices.count else {
+        guard id.slot.rawValue < indices.pointee.count else {
             return nil
         }
-        let index = indices[id.slot.rawValue]
+        let index = indices.pointee[id.slot.rawValue]
         guard index != .notFound else {
             return nil
         }
-        return SingleTypedAccess(storage: storage, denseIndex: indices[id.slot.rawValue])
+        return SingleTypedAccess(storage: storage, denseIndex: indices.pointee[id.slot.rawValue])
     }
 }
 
@@ -93,10 +96,11 @@ extension TypedAccess {
     @inlinable @inline(__always)
     static var empty: TypedAccess {
         // a harmless instance that never resolves anything
-        TypedAccess(
-            storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>.allocate(capacity: 0),
-            indices: []
-        )
+        let storage = UnsafeMutablePointer<PagedArray<C.QueriedComponent>>.allocate(capacity: 1)
+        storage.initialize(to: PagedArray())
+        let indices = UnsafeMutablePointer<PagedArray<ContiguousArray.Index>>.allocate(capacity: 1)
+        indices.initialize(to: PagedArray())
+        return TypedAccess(storage: storage, indices: indices)
     }
 }
 
