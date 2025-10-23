@@ -372,6 +372,8 @@ func withTypedBuffers<each C: ComponentResolving, R>(
     _ pool: inout ComponentPool,
     _ body: (repeat TypedAccess<each C>) throws -> R
 ) rethrows -> R {
+    var emptyBoxes: [any AnyComponentArrayBox] = []
+
     @inline(__always)
     func buildTuple() -> (repeat TypedAccess<each C>) {
         return (repeat tryMakeAccess((each C).self))
@@ -379,24 +381,25 @@ func withTypedBuffers<each C: ComponentResolving, R>(
 
     @inline(__always)
     func tryMakeAccess<D: ComponentResolving>(_ type: D.Type) -> TypedAccess<D> {
-        guard D.QueriedComponent.self != Never.self else { return TypedAccess<D>.empty }
+        guard D.QueriedComponent.self != Never.self else {
+            let empty = ComponentArrayBox(SparseSet<D.QueriedComponent, SlotIndex>())
+            emptyBoxes.append(empty)
+            return TypedAccess(box: empty)
+        }
         guard let anyArray = pool.components[D.QueriedComponent.componentTag] else {
             guard D.self is any OptionalQueriedComponent.Type else {
                 fatalError("Unknown component.")
             }
-            return TypedAccess<D>.empty
+            let empty = ComponentArrayBox(SparseSet<D.QueriedComponent, SlotIndex>())
+            emptyBoxes.append(empty)
+            return TypedAccess(box: empty)
         }
-        var result: TypedAccess<D>? = nil
-        anyArray.withStorage(D.QueriedComponent.self) { storage, entitiesToIndices in
-            result = TypedAccess(storage: storage, indices: entitiesToIndices)
-            // Escaping the storage pointer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
-            // The solution would be a recursive function which would recursively call `withStorage` on the head until the pack is empty, and then call `body` with all the storages.
-            // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12
-            // See: https://forums.swift.org/t/passing-a-parameter-pack-to-a-function-call-fails-to-compile/72243/15
-        }
-        return result.unsafelyUnwrapped
+        let typedBox = anyArray.typedBox(D.QueriedComponent.self)
+        return TypedAccess(box: typedBox)
     }
 
     let built = buildTuple()
-    return try body(repeat each built)
+    return try withExtendedLifetime(emptyBoxes) {
+        return try body(repeat each built)
+    }
 }
