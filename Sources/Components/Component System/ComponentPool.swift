@@ -29,7 +29,7 @@ extension ComponentPool {
     mutating func append<C: Component>(_ component: C, for entityID: Entity.ID) {
         let array = components[C.componentTag] ?? {
             var newArray = AnyComponentArray(ComponentArray<C>())
-            newArray.reserveCapacity(minimumComponentCapacity: 50, minimumSlotCapacity: 500)
+            newArray.reserveCapacity(minimumComponentCapacity: 1024, minimumSlotCapacity: 4096)
             newArray.ensureEntity(ensuredEntityID ?? entityID)
             return newArray
         }()
