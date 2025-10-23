@@ -19,12 +19,6 @@ public struct LazyQuerySequence<each T: ComponentResolving>: Sequence {
     }
 
     @inlinable @inline(__always)
-    init() {
-        self.entityIDs = []
-        self.accessors = (repeat TypedAccess<each T>.empty)
-    }
-
-    @inlinable @inline(__always)
     public func makeIterator() -> AnyIterator<(repeat (each T).ReadOnlyResolvedType)> {
         var index = 0
         return AnyIterator {
@@ -47,12 +41,6 @@ public struct LazyWritableQuerySequence<each T: ComponentResolving>: Sequence {
     init(entityIDs: [Entity.ID], accessors: repeat TypedAccess<each T>) {
         self.entityIDs = entityIDs
         self.accessors = (repeat each accessors)
-    }
-
-    @inlinable @inline(__always)
-    init() {
-        self.entityIDs = []
-        self.accessors = (repeat TypedAccess<each T>.empty)
     }
 
     @inlinable @inline(__always)

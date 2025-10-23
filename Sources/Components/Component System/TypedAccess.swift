@@ -6,11 +6,11 @@
 //
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
-    @usableFromInline internal var storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>
+    @usableFromInline internal var storage: Unmanaged<ComponentArrayBox<C.QueriedComponent>>
     @usableFromInline internal var indices: PagedArray<ContiguousArray.Index>
 
     @usableFromInline
-    init(storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>, indices: PagedArray<ContiguousArray.Index>) {
+    init(storage: Unmanaged<ComponentArrayBox<C.QueriedComponent>>, indices: PagedArray<ContiguousArray.Index>) {
         self.storage = storage
         self.indices = indices
     }
@@ -18,10 +18,12 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C.QueriedComponent {
         _read {
-            yield storage.pointee[indices[id.slot.rawValue]]
+            let box = storage.takeUnretainedValue()
+            yield box[entityID: id]
         }
         nonmutating _modify {
-            yield &storage.pointee[indices[id.slot.rawValue]]
+            let box = storage.takeUnretainedValue()
+            yield &box[entityID: id]
         }
     }
 
@@ -32,23 +34,25 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
                 yield nil
                 return
             }
-            let index = indices[id.slot.rawValue]
-            guard index != .notFound else {
+            let denseIndex = indices[id.slot.rawValue]
+            guard denseIndex != .notFound else {
                 yield nil
                 return
             }
-            yield storage.pointee[index]
+            let box = storage.takeUnretainedValue()
+            yield box[index: denseIndex]
         }
         nonmutating _modify {
             var wrapped: Optional<C.QueriedComponent>
-            let index = indices[id.slot.rawValue]
-            if index != .notFound {
-                wrapped = Optional(storage.pointee[index])
+            let denseIndex = indices[id.slot.rawValue]
+            if denseIndex != .notFound {
+                let box = storage.takeUnretainedValue()
+                wrapped = Optional(box[index: denseIndex])
                 yield &wrapped
                 guard let newValue = wrapped else {
                     fatalError("Removal of component through `Optional` not supported.")
                 }
-                storage.pointee[index] = newValue
+                box[index: denseIndex] = newValue
             } else {
                 wrapped = nil
                 yield &wrapped
@@ -61,8 +65,14 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public subscript(dense denseIndex: Int) -> C.QueriedComponent {
-        _read { yield storage.pointee[denseIndex] }
-        nonmutating _modify { yield &storage.pointee[denseIndex] }
+        _read {
+            let box = storage.takeUnretainedValue()
+            yield box[index: denseIndex]
+        }
+        nonmutating _modify {
+            let box = storage.takeUnretainedValue()
+            yield &box[index: denseIndex]
+        }
     }
 
     @inlinable @inline(__always)
@@ -81,31 +91,20 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         guard id.slot.rawValue < indices.count else {
             return nil
         }
-        let index = indices[id.slot.rawValue]
-        guard index != .notFound else {
+        let denseIndex = indices[id.slot.rawValue]
+        guard denseIndex != .notFound else {
             return nil
         }
-        return SingleTypedAccess(storage: storage, denseIndex: indices[id.slot.rawValue])
-    }
-}
-
-extension TypedAccess {
-    @inlinable @inline(__always)
-    static var empty: TypedAccess {
-        // a harmless instance that never resolves anything
-        TypedAccess(
-            storage: UnsafeMutablePointer<PagedArray<C.QueriedComponent>>.allocate(capacity: 0),
-            indices: []
-        )
+        return SingleTypedAccess(storage: storage, denseIndex: denseIndex)
     }
 }
 
 public struct SingleTypedAccess<C: Component> {
-    @usableFromInline internal var storage: UnsafeMutablePointer<PagedArray<C>>
+    @usableFromInline internal var storage: Unmanaged<ComponentArrayBox<C>>
     @usableFromInline internal var denseIndex: Int
 
     @inlinable @inline(__always)
-    init(storage: UnsafeMutablePointer<PagedArray<C>>, denseIndex: Int) {
+    init(storage: Unmanaged<ComponentArrayBox<C>>, denseIndex: Int) {
         self.storage = storage
         self.denseIndex = denseIndex
     }
@@ -113,10 +112,12 @@ public struct SingleTypedAccess<C: Component> {
     @inlinable @inline(__always)
     public var value: C {
         _read {
-            yield storage.pointee[denseIndex]
+            let box = storage.takeUnretainedValue()
+            yield box[index: denseIndex]
         }
         nonmutating _modify {
-            yield &storage.pointee[denseIndex]
+            let box = storage.takeUnretainedValue()
+            yield &box[index: denseIndex]
         }
     }
 }
