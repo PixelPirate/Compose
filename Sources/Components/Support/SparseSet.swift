@@ -228,8 +228,10 @@ public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Ex
 
         @usableFromInline
         var isUnique: Bool {
-            guard buffer != nil else { return true }
-            return isKnownUniquelyReferenced(&self.buffer)
+            mutating get {
+                guard buffer != nil else { return true }
+                return isKnownUniquelyReferenced(&buffer)
+            }
         }
 
         @usableFromInline
@@ -358,7 +360,7 @@ public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Ex
 
     @usableFromInline @inline(__always)
     mutating func ensureUniqueStorage(minimumCapacity: Int) {
-        let neededCapacity = max(minimumCapacity, storage.count)
+        let neededCapacity = Swift.max(minimumCapacity, storage.count)
         if neededCapacity == 0 {
             if storage.buffer == nil { return }
             if !storage.isUnique {
@@ -367,7 +369,7 @@ public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Ex
             return
         }
         if storage.buffer == nil {
-            let capacity = max(alignedCapacity(for: neededCapacity), pageSize)
+            let capacity = Swift.max(alignedCapacity(for: neededCapacity), pageSize)
             allocateBuffer(capacity: capacity, copyExistingCount: 0)
             return
         }
@@ -416,7 +418,7 @@ public struct PagedArray<Element>: RandomAccessCollection, MutableCollection, Ex
                 capacity = minimum
                 break
             }
-            capacity = max(doubled, capacity + pageSize)
+            capacity = Swift.max(doubled, capacity + pageSize)
             if capacity < 0 { // overflow to negative
                 capacity = minimum
                 break
