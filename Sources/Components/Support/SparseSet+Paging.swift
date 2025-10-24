@@ -37,7 +37,10 @@ public struct UnmanagedStorage<Component> {
 
     @inlinable @inline(__always)
     public func elementPointer(_ index: Int) -> UnsafeMutablePointer<Component> {
-        pages.takeUnretainedValue().getPointer(index, pageCount: pageCount, count: count)
+//        pages.takeUnretainedValue().getPointer(index, pageCount: pageCount, count: count)
+        pages._withUnsafeGuaranteedRef { x in
+            x.getPointer(index, pageCount: pageCount, count: count)
+        }
     }
 }
 
