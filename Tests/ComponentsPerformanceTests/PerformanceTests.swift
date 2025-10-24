@@ -1150,3 +1150,42 @@ public struct Person: Component {
     }
 }
 
+@Test func testPerformance() {
+    struct TestComponent: Component, Equatable {
+        static let componentTag = ComponentTag.makeTag()
+        var value: Int
+    }
+    var storage = Storage<TestComponent>(initialPageCapacity: 8)
+    for value in 0..<2_000_000 {
+        storage.pages.append(TestComponent(value: value), storage: &storage)
+    }
+
+    let clock = ContinuousClock()
+    let duration = clock.measure {
+        for index in 0..<storage.count {
+            storage.pages[index, storage].value *= -1
+        }
+    }
+    print("Dur:", duration)
+
+    for index in 0..<storage.count {
+        #expect(storage.pages[index, storage].value == index * -1)
+    }
+
+    var storage2 = ContiguousArray<TestComponent>()
+    for value in 0..<2_000_000 {
+        storage2.append(TestComponent(value: value))
+    }
+
+    let clock2 = ContinuousClock()
+    let duration2 = clock.measure {
+        for index in 0..<storage.count {
+            storage2[index].value *= -1
+        }
+    }
+    print("Dur:", duration2)
+
+    for index in 0..<storage2.count {
+        #expect(storage2[index].value == index * -1)
+    }
+}
