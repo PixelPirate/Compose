@@ -35,6 +35,18 @@ public protocol ComponentResolving {
     static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> ReadOnlyResolvedType
 }
 
+public extension ComponentResolving {
+    @inlinable @inline(__always)
+    static func makeResolvedDenseFast(
+        access: TypedAccess<Self>,
+        denseView: DenseComponentBuffer<QueriedComponent>,
+        denseIndex: Int,
+        entityID: Entity.ID
+    ) -> ResolvedType {
+        makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
+    }
+}
+
 public extension ComponentResolving where Self: Component, ResolvedType == Self, QueriedComponent == Self, ReadOnlyResolvedType == Self {
     @inlinable @inline(__always)
     static func makeResolved(access: TypedAccess<QueriedComponent>, entityID: Entity.ID) -> Self {
@@ -49,6 +61,16 @@ public extension ComponentResolving where Self: Component, ResolvedType == Self,
     @inlinable @inline(__always)
     static func makeResolvedDense(access: TypedAccess<QueriedComponent>, denseIndex: Int, entityID: Entity.ID) -> Self {
         access[dense: denseIndex]
+    }
+
+    @inlinable @inline(__always)
+    static func makeResolvedDenseFast(
+        access: TypedAccess<QueriedComponent>,
+        denseView: DenseComponentBuffer<QueriedComponent>,
+        denseIndex: Int,
+        entityID: Entity.ID
+    ) -> Self {
+        denseView.value(at: denseIndex)
     }
 
     @inlinable @inline(__always)

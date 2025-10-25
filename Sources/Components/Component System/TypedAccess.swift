@@ -71,6 +71,11 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     }
 
     @inlinable @inline(__always)
+    public func denseBufferView() -> DenseComponentBuffer<C.QueriedComponent> {
+        DenseComponentBuffer(storage: storage)
+    }
+
+    @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
         SingleTypedAccess(buffer: storage.elementPointer(indices[id.slot.rawValue]))
     }
@@ -120,5 +125,54 @@ public struct SingleTypedAccess<C: Component> {
         nonmutating _modify {
             yield &buffer.pointee
         }
+    }
+}
+
+@usableFromInline
+struct DenseComponentBuffer<Component> {
+    @usableFromInline
+    let count: Int
+
+    @usableFromInline
+    let pageBases: ContiguousArray<UnsafeMutablePointer<Component>>
+
+    @inlinable @inline(__always)
+    init(storage: UnmanagedStorage<Component>) {
+        self.count = storage.count
+        guard storage.pageCount > 0 else {
+            self.pageBases = []
+            return
+        }
+
+        self.pageBases = storage.pages._withUnsafeGuaranteedRef { pagesBuffer in
+            pagesBuffer.withUnsafeMutablePointerToElements { pagesPointer in
+                var bases = ContiguousArray<UnsafeMutablePointer<Component>>()
+                bases.reserveCapacity(storage.pageCount)
+                for pageIndex in 0..<storage.pageCount {
+                    let page = pagesPointer.advanced(by: pageIndex).pointee
+                    let base = page.withUnsafeMutablePointerToElements { $0 }
+                    bases.append(base)
+                }
+                return bases
+            }
+        }
+    }
+
+    @inlinable @inline(__always)
+    func pointer(at denseIndex: Int) -> UnsafeMutablePointer<Component> {
+        precondition(denseIndex < count)
+        let pageIndex = denseIndex >> pageShift
+        let offset = denseIndex & pageMask
+        return pageBases[pageIndex].advanced(by: offset)
+    }
+
+    @inlinable @inline(__always)
+    func value(at denseIndex: Int) -> Component {
+        pointer(at: denseIndex).pointee
+    }
+
+    @inlinable @inline(__always)
+    func access(at denseIndex: Int) -> SingleTypedAccess<Component> {
+        SingleTypedAccess(buffer: pointer(at: denseIndex))
     }
 }

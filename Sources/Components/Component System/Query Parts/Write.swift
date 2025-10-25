@@ -57,6 +57,16 @@ extension Write: ComponentResolving {
     }
 
     @inlinable @inline(__always)
+    public static func makeResolvedDenseFast(
+        access: TypedAccess<Self>,
+        denseView: DenseComponentBuffer<Wrapped>,
+        denseIndex: Int,
+        entityID: Entity.ID
+    ) -> Write<Wrapped> {
+        Write<Wrapped>(access: denseView.access(at: denseIndex))
+    }
+
+    @inlinable @inline(__always)
     public static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Wrapped {
         access[dense: denseIndex]
     }
