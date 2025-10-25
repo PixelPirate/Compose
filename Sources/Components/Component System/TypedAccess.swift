@@ -109,7 +109,7 @@ extension TypedAccess {
     }
 }
 
-public struct SingleTypedAccess<C: Component> {
+public struct SingleTypedAccess<C> {
     @usableFromInline internal var buffer: UnsafeMutablePointer<C>
 
     @inlinable @inline(__always)
@@ -128,8 +128,7 @@ public struct SingleTypedAccess<C: Component> {
     }
 }
 
-@usableFromInline
-struct DenseComponentBuffer<Component> {
+public struct DenseComponentBuffer<Component> {
     @usableFromInline
     let count: Int
 
