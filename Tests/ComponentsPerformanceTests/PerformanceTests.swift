@@ -1150,3 +1150,67 @@ public struct Person: Component {
     }
 }
 
+@Test func testPerformance() {
+    struct TestComponent: Component, Equatable {
+        static let componentTag = ComponentTag.makeTag()
+        var value: Int
+    }
+    var storage = Storage<TestComponent>(initialPageCapacity: 8)
+    for value in 0..<1_000_000 {
+        storage.pages.append(TestComponent(value: value), storage: &storage)
+    }
+
+    let clock = ContinuousClock()
+    let duration = clock.measure {
+        for index in 0..<storage.count {
+            storage[index].value *= -1
+        }
+    }
+    let duration3 = clock.measure {
+        storage.pages.withUnsafeMutablePointerToElements { pagesPointer in
+            for pageIndex in 0..<storage.pageCount-1 {
+                let page = pagesPointer.advanced(by: pageIndex).pointee
+                page.withUnsafeMutablePointerToElements { elementsPointer in
+                    for index in 0..<1024 {
+                        elementsPointer.advanced(by: index).pointee.value *= -1
+                    }
+                }
+            }
+            let lastIndex = storage.count - 1
+            let lastPageIndex = lastIndex >> pageShift
+            let lastOffset = lastIndex & pageMask
+            let lastPage = pagesPointer.advanced(by: lastPageIndex).pointee
+            lastPage.withUnsafeMutablePointerToElements { elementsPointer in
+                for index in 0...lastOffset {
+                    elementsPointer.advanced(by: index).pointee.value *= -1
+                }
+            }
+        }
+    }
+    // 0.014s
+    // 0.0017
+    print("Dur get:", duration)
+    // 0.0005
+    print("Dur loop:", duration3)
+
+    for index in 0..<storage.count {
+        #expect(storage[index].value == index * +1)
+    }
+
+    var storage2 = ContiguousArray<TestComponent>()
+    for value in 0..<1_000_000 {
+        storage2.append(TestComponent(value: value))
+    }
+
+    let duration2 = clock.measure {
+        for index in 0..<storage.count {
+            storage2[index].value *= -1
+        }
+    }
+    // 0.0013
+    print("Dur array:", duration2)
+
+    for index in 0..<storage2.count {
+        #expect(storage2[index].value == index * -1)
+    }
+}

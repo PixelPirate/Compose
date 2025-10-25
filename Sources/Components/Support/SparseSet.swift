@@ -1,8 +1,11 @@
 // TODO: Support paging for sparse array and also for dense storage.
 
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
+//    @usableFromInline
+//    private(set) var components: ContiguousArray<Component> = []
+
     @usableFromInline
-    private(set) var components: ContiguousArray<Component> = []
+    private(set) var storage: Storage<Component> = Storage(initialPageCapacity: 8)
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
@@ -13,14 +16,14 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     private(set) var keys: ContiguousArray<SlotIndex> = []
 
     @inlinable @inline(__always)
-    public var startIndex: ContiguousArray.Index { components.startIndex }
+    public var startIndex: ContiguousArray.Index { 0 }
 
     @inlinable @inline(__always)
-    public var endIndex: ContiguousArray.Index { components.endIndex }
+    public var endIndex: ContiguousArray.Index { storage.count }
 
     @inlinable @inline(__always)
     public var indices: Range<Int> {
-        0..<components.count
+        0..<storage.count
     }
 
     @inlinable @inline(__always)
@@ -32,7 +35,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
-        components.reserveCapacity(minimumComponentCapacity)
+//        components.reserveCapacity(minimumComponentCapacity)
         keys.reserveCapacity(minimumComponentCapacity)
         slots.reserveCapacity(minimumCapacity: minimumSlotCapacity)
     }
@@ -59,10 +62,10 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     }
 
     @inlinable @inline(__always)
-    public mutating func withUnsafeMutableBufferPointer<R>(
-        _ body: (inout UnsafeMutableBufferPointer<Component>) throws -> R
+    public mutating func withUnmanagedStorage<R>(
+        _ body: (UnmanagedStorage<Component>) throws -> R
     ) rethrows -> R {
-        try components.withUnsafeMutableBufferPointer(body)
+        try body(UnmanagedStorage(storage))
     }
 
     /// Returns true if this array contains a component for the given entity.
@@ -91,17 +94,17 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     public mutating func append(_ component: Component, to slot: SlotIndex) {
         let index = componentIndex(slot)
         if index != .notFound {
-            components[index] = component
+            storage[index] = component
             return
         }
 
-        components.append(component)
+        storage.append(component)
         keys.append(slot)
 //        if !slots.contains(index: slot) {
 //            let missingCount = (slot.index + 1) - slots.count
 //            slots.append(contentsOf: repeatElement(nil, count: missingCount))
 //        }
-        slots[slot] = components.endIndex - 1
+        slots[slot] = storage.count - 1
     }
 
     @inlinable @inline(__always)
@@ -115,17 +118,17 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
             return
         }
 
-        guard componentIndex != components.endIndex - 1 else {
+        guard componentIndex != storage.count - 1 else {
             keys.removeLast()
             slots[slot] = .notFound
-            components.removeLast()
+            storage.removeLast()
             return
         }
 
         guard let lastComponentSlot = keys.popLast() else {
             fatalError("Missing entity for last component.")
         }
-        components[componentIndex] = components.removeLast()
+        storage[componentIndex] = storage.removeLast()
         keys[componentIndex] = lastComponentSlot
         slots[lastComponentSlot] = componentIndex
         slots[slot] = .notFound
@@ -136,7 +139,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     @inlinable @inline(__always)
     internal mutating func swapDenseAt(_ i: ContiguousArray.Index, _ j: ContiguousArray.Index) {
         if i == j { return }
-        components.swapAt(i, j)
+        storage.swapAt(i, j)
         // keys[i] / keys[j] are SlotIndex that correspond to the entities at those dense positions.
         let ki = keys[i]
         let kj = keys[j]
@@ -149,30 +152,30 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     @inlinable @inline(__always)
     public subscript(slot slot: SlotIndex) -> Component {
         _read {
-            yield components[slots[slot]]
+            yield storage[slots[slot]]
         }
         _modify {
-            yield &components[slots[slot]]
+            yield &storage[slots[slot]]
         }
     }
 
     @inlinable @inline(__always)
     public func index(after i: ContiguousArray.Index) -> ContiguousArray.Index {
-        components.index(after: i)
+        i + 1
     }
 
     @inlinable @inline(__always)
     public func index(before i: ContiguousArray.Index) -> ContiguousArray.Index {
-        components.index(before: i)
+        i - 1
     }
 
     @inlinable @inline(__always)
     public subscript(_ position: ContiguousArray.Index) -> Component {
         _read {
-            yield components[position]
+            yield storage[position]
         }
         _modify {
-            yield &components[position]
+            yield &storage[position]
         }
     }
 }

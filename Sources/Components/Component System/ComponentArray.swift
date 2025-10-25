@@ -157,12 +157,12 @@ public struct AnyComponentArray {
 
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (UnsafeMutableBufferPointer<C>, ContiguousArray<ContiguousArray.Index>) throws -> Result
+        _ body: (UnmanagedStorage<C>, ContiguousArray<ContiguousArray.Index>) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents
-        return try typed.base.withUnsafeMutableBufferPointer { buffer in
-             try body(buffer, indices)
+        return try typed.base.withUnmanagedStorage { storage in
+            try body(storage, indices)
         }
     }
 
