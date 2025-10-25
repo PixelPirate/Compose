@@ -418,18 +418,43 @@ extension Query {
     public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
-        withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                for slot in baseSlots where Self.passes(
-                    slot: slot,
-                    otherComponents: otherComponents,
-                    excludedComponents: excludedComponents
-                ) {
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: indices.pointee[generationFor: slot]
-                    )
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+        let hasOtherComponents = !otherComponents.isEmpty
+        let hasExcludedComponents = !excludedComponents.isEmpty
+        var requiresEntityID = false
+        repeat (requiresEntityID = requiresEntityID || (each T).needsEntityID)
+
+        baseSlots.withUnsafeBufferPointer { slotsBuffer in
+            guard let baseAddress = slotsBuffer.baseAddress else { return }
+            let slotsCount = slotsBuffer.count
+            withUnsafePointer(to: context.coordinator.indices) { indices in
+                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                    for dense in 0..<slotsCount {
+                        let slot = baseAddress[dense]
+                        let slotRaw = slot.rawValue
+                        if hasOtherComponents {
+                            var isValid = true
+                            for component in otherComponents where component[slotRaw] == .notFound {
+                                isValid = false
+                                break
+                            }
+                            if !isValid { continue }
+                        }
+                        if hasExcludedComponents {
+                            var isValid = true
+                            for component in excludedComponents where component[slotRaw] != .notFound {
+                                isValid = false
+                                break
+                            }
+                            if !isValid { continue }
+                        }
+
+                        let generation: UInt32 = requiresEntityID ? indices.pointee[generationFor: slot] : 0
+                        let id = Entity.ID(
+                            slot: slot,
+                            generation: generation
+                        )
+                        handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                    }
                 }
             }
         }
@@ -484,46 +509,61 @@ extension Query {
             print("No group found for query. Consider adding a group matching this query.")
         }
 
+        var requiresEntityID = false
+        repeat (requiresEntityID = requiresEntityID || (each T).needsEntityID)
+
         if exactGroupMatch {
-            withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                    for (denseIndex, slot) in slotsSlice.enumerated() {
-                        let id = Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
-                        )
-                        handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
+            slotsSlice.withUnsafeBufferPointer { slotsBuffer in
+                guard let baseAddress = slotsBuffer.baseAddress else { return }
+                let count = slotsBuffer.count
+                withUnsafePointer(to: context.coordinator.indices) { indices in
+                    withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                        for denseIndex in 0..<count {
+                            let slot = baseAddress[denseIndex]
+                            let generation: UInt32 = requiresEntityID ? indices.pointee[generationFor: slot] : 0 // TODO: Only compute generation if component needs it (WithEntityId).
+                            let id = Entity.ID(
+                                slot: slot,
+                                generation: generation
+                            )
+                            handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
+                        }
                     }
                 }
             }
         } else {
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
-            withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                    for (denseIndex, slot) in slotsSlice.enumerated() {
-                        // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
-                        // TODO: Optional components are ignored.
-                        let entitySignature = context.coordinator.entitySignatures[slot.index]
-                        guard entitySignature.isSuperset(of: querySignature, isDisjoint: excludedSignature) else {
-                            continue
-                        }
-                        let id = Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
-                        )
+            slotsSlice.withUnsafeBufferPointer { slotsBuffer in
+                guard let baseAddress = slotsBuffer.baseAddress else { return }
+                let count = slotsBuffer.count
+                context.coordinator.entitySignatures.withUnsafeBufferPointer { signaturesBuffer in
+                    withUnsafePointer(to: context.coordinator.indices) { indices in
+                        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                            for denseIndex in 0..<count {
+                                let slot = baseAddress[denseIndex]
+                                // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
+                                // TODO: Optional components are ignored.
+                                let entitySignature = signaturesBuffer[slot.index]
+                                guard entitySignature.isSuperset(of: querySignature, isDisjoint: excludedSignature) else {
+                                    continue
+                                }
+                                let generation: UInt32 = requiresEntityID ? indices.pointee[generationFor: slot] : 0 // TODO: Only compute generation if component needs it (WithEntityId).
+                                let id = Entity.ID(
+                                    slot: slot,
+                                    generation: generation
+                                )
 
-                        @inline(__always)
-                        func resolve<C: Component>(_ type: C.Type, access: TypedAccess<C>, denseIndex: Int, entityID: Entity.ID, owned: ComponentSignature) -> C.ResolvedType {
-                            if owned.contains(C.componentTag) { // TODO: Does this `if` actually help with performance?
-                                type.makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
-                            } else {
-                                type.makeResolved(access: access, entityID: entityID)
+                                @inline(__always)
+                                func resolve<C: Component>(_ type: C.Type, access: TypedAccess<C>, denseIndex: Int, entityID: Entity.ID, owned: ComponentSignature) -> C.ResolvedType {
+                                    if owned.contains(C.componentTag) { // TODO: Does this `if` actually help with performance?
+                                        type.makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
+                                    } else {
+                                        type.makeResolved(access: access, entityID: entityID)
+                                    }
+                                }
+                                handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: id, owned: owned))
                             }
                         }
-                        handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: id, owned: owned))
                     }
                 }
             }

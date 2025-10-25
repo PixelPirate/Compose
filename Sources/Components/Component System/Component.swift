@@ -23,6 +23,9 @@ public protocol ComponentResolving {
     associatedtype QueriedComponent: Component = Self
 
     @inlinable @inline(__always)
+    static var needsEntityID: Bool { get }
+
+    @inlinable @inline(__always)
     static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> ResolvedType
 
     @inlinable @inline(__always)
@@ -33,6 +36,11 @@ public protocol ComponentResolving {
 
     @inlinable @inline(__always)
     static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> ReadOnlyResolvedType
+}
+
+public extension ComponentResolving {
+    @inlinable @inline(__always)
+    static var needsEntityID: Bool { false }
 }
 
 public extension ComponentResolving where Self: Component, ResolvedType == Self, QueriedComponent == Self, ReadOnlyResolvedType == Self {

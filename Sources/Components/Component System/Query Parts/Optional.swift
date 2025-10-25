@@ -14,6 +14,9 @@ extension Optional: Component, ComponentResolving where Wrapped: Component {
     public static var componentTag: ComponentTag { Wrapped.componentTag }
 
     @inlinable @inline(__always)
+    public static var needsEntityID: Bool { true }
+
+    @inlinable @inline(__always)
     public static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> Optional<Wrapped> {
         access[optional: entityID]
     }
