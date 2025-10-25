@@ -44,6 +44,9 @@ extension OptionalWrite: ComponentResolving {
     public typealias QueriedComponent = Wrapped
 
     @inlinable @inline(__always)
+    public static var needsEntityID: Bool { true }
+
+    @inlinable @inline(__always)
     public static func makeResolved(access: TypedAccess<Self>, entityID: Entity.ID) -> OptionalWrite<Wrapped> {
         OptionalWrite<Wrapped>(access: access.optionalAccess(entityID))
     }

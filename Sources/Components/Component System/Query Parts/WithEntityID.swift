@@ -11,6 +11,9 @@ public struct WithEntityID: Component, Sendable {
     public typealias ReadOnlyResolvedType = Entity.ID
     public typealias QueriedComponent = Never
 
+    @inlinable @inline(__always)
+    public static var needsEntityID: Bool { true }
+
     public init() {}
 
     @inlinable @inline(__always)
