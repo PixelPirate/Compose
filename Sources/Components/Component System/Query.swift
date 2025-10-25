@@ -426,7 +426,7 @@ extension Query {
                     excludedComponents: excludedComponents
                 ) {
                     let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
+                        slot: slot,
                         generation: indices.pointee[generationFor: slot]
                     )
                     handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
@@ -445,7 +445,7 @@ extension Query {
             withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
                 for slot in slots {
                     let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
+                        slot: slot,
                         generation: indices.pointee[generationFor: slot]
                     )
                     handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
@@ -487,13 +487,24 @@ extension Query {
         if exactGroupMatch {
             withUnsafePointer(to: context.coordinator.indices) { indices in
                 withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                    let denseUsage = (repeat Self.shouldUseDense((each T).self, owned: owned))
+                    var denseCursors = (repeat each accessors.denseCursor())
+
                     // Enumerate dense indices directly: 0..<size aligned across all owned storages
                     for (denseIndex, slot) in slotsSlice.enumerated() {
                         let id = Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
+                            slot: slot,
                             generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
                         )
-                        handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
+
+                        handler(repeat Self.resolveDenseIfNeeded(
+                            (each T).self,
+                            access: each accessors,
+                            denseIndex: denseIndex,
+                            entityID: id,
+                            useDense: each denseUsage,
+                            cursor: &each denseCursors
+                        ))
                     }
                 }
             }
@@ -502,28 +513,30 @@ extension Query {
             let excludedSignature = self.excludedSignature
             withUnsafePointer(to: context.coordinator.indices) { indices in
                 withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                    let denseUsage = (repeat Self.shouldUseDense((each T).self, owned: owned))
+                    var denseCursors = (repeat each accessors.denseCursor())
+
                     // Enumerate dense indices directly: 0..<size aligned across all owned storages
                     for (denseIndex, slot) in slotsSlice.enumerated() {
                         // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
                         // TODO: Optional components are ignored.
-                        let entitySignature = context.coordinator.entitySignatures[slot.index]
+                        let entitySignature = context.coordinator.entitySignatures[slot.rawValue]
                         guard entitySignature.isSuperset(of: querySignature, isDisjoint: excludedSignature) else {
                             continue
                         }
                         let id = Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
+                            slot: slot,
                             generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
                         )
 
-                        @inline(__always)
-                        func resolve<C: Component>(_ type: C.Type, access: TypedAccess<C>, denseIndex: Int, entityID: Entity.ID, owned: ComponentSignature) -> C.ResolvedType {
-                            if owned.contains(C.componentTag) { // TODO: Does this `if` actually help with performance?
-                                type.makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
-                            } else {
-                                type.makeResolved(access: access, entityID: entityID)
-                            }
-                        }
-                        handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: id, owned: owned))
+                        handler(repeat Self.resolveDenseIfNeeded(
+                            (each T).self,
+                            access: each accessors,
+                            denseIndex: denseIndex,
+                            entityID: id,
+                            useDense: each denseUsage,
+                            cursor: &each denseCursors
+                        ))
                     }
                 }
             }
@@ -532,6 +545,38 @@ extension Query {
 }
 
 extension Query {
+    @inlinable @inline(__always)
+    static func shouldUseDense<C: Component>(_ type: C.Type, owned: ComponentSignature) -> Bool {
+        guard owned.contains(C.componentTag) else {
+            return false
+        }
+        if C.QueriedComponent.self == Never.self {
+            return false
+        }
+        return type is any OptionalQueriedComponent.Type == false
+    }
+
+    @inlinable @inline(__always)
+    static func resolveDenseIfNeeded<C: Component>(
+        _ type: C.Type,
+        access: TypedAccess<C>,
+        denseIndex: Int,
+        entityID: Entity.ID,
+        useDense: Bool,
+        cursor: inout DenseStorageCursor<C.QueriedComponent>
+    ) -> C.ResolvedType where C: ComponentResolving {
+        if useDense {
+            return type.makeResolvedDenseFast(
+                access: access,
+                denseIndex: denseIndex,
+                entityID: entityID,
+                cursor: &cursor
+            )
+        }
+
+        return type.makeResolved(access: access, entityID: entityID)
+    }
+
     @inlinable @inline(__always)
     public static func emptyEntities(_ context: some QueryContextConvertible) -> [Entity.ID] {
         context

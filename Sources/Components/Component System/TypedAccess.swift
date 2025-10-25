@@ -102,6 +102,11 @@ extension TypedAccess {
             indices: []
         )
     }
+
+    @inlinable @inline(__always)
+    public func denseCursor() -> DenseStorageCursor<C.QueriedComponent> {
+        DenseStorageCursor(storage: storage)
+    }
 }
 
 public struct SingleTypedAccess<C: Component> {
@@ -120,5 +125,49 @@ public struct SingleTypedAccess<C: Component> {
         nonmutating _modify {
             yield &buffer.pointee
         }
+    }
+}
+
+@usableFromInline
+public struct DenseStorageCursor<Component> {
+    @usableFromInline
+    let pages: Unmanaged<PagesBuffer<Component>>
+    @usableFromInline
+    let pageCount: Int
+    @usableFromInline
+    let count: Int
+
+    @usableFromInline
+    var cachedPageIndex: Int = -1
+    @usableFromInline
+    var cachedElements: UnsafeMutablePointer<Component>? = nil
+
+    @inlinable @inline(__always)
+    init(storage: UnmanagedStorage<Component>) {
+        self.pages = storage.pages
+        self.pageCount = storage.pageCount
+        self.count = storage.count
+    }
+
+    @inlinable @inline(__always)
+    public mutating func pointer(forDenseIndex denseIndex: Int) -> UnsafeMutablePointer<Component> {
+        precondition(denseIndex < count)
+        let pageIndex = denseIndex >> pageShift
+        precondition(pageIndex < pageCount)
+        let offset = denseIndex & pageMask
+
+        if pageIndex != cachedPageIndex {
+            cachedElements = pages._withUnsafeGuaranteedRef { buffer in
+                buffer.withUnsafeMutablePointerToElements { pagesPointer in
+                    pagesPointer
+                        .advanced(by: pageIndex)
+                        .pointee
+                        .withUnsafeMutablePointerToElements { $0 }
+                }
+            }
+            cachedPageIndex = pageIndex
+        }
+
+        return cachedElements!.advanced(by: offset)
     }
 }
