@@ -82,6 +82,13 @@ struct GroupDenseResolver<C: ComponentResolving> {
     }
 
     @inlinable @inline(__always)
+    func preparedForPage(_ pageIndex: Int) -> Self {
+        var copy = self
+        copy.preparePage(pageIndex)
+        return copy
+    }
+
+    @inlinable @inline(__always)
     mutating func resolve(denseIndex: Int, entityID: Entity.ID) -> C.ResolvedType {
         switch mode {
         case .denseFast:
@@ -617,7 +624,7 @@ extension Query {
                 let startIndex = slotsSlice.startIndex
                 while denseIndex < slotCount {
                     let pageIndex = denseIndex >> pageShift
-                    (repeat (each resolvers).preparePage(pageIndex))
+                    resolvers = (repeat (each resolvers).preparedForPage(pageIndex))
                     let pageEnd = min(slotCount, ((pageIndex + 1) << pageShift))
                     while denseIndex < pageEnd {
                         let slot = slotsSlice[slotsSlice.index(startIndex, offsetBy: denseIndex)]
@@ -643,7 +650,7 @@ extension Query {
                 let startIndex = slotsSlice.startIndex
                 while denseIndex < slotCount {
                     let pageIndex = denseIndex >> pageShift
-                    (repeat (each resolvers).preparePage(pageIndex))
+                    resolvers = (repeat (each resolvers).preparedForPage(pageIndex))
                     let pageEnd = min(slotCount, ((pageIndex + 1) << pageShift))
                     while denseIndex < pageEnd {
                         let slot = slotsSlice[slotsSlice.index(startIndex, offsetBy: denseIndex)]
