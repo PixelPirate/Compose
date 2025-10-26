@@ -109,6 +109,16 @@ extension TypedAccess {
     }
 }
 
+extension DenseStorageCursor {
+    var pointer: UnsafeMutablePointer<Self> {
+        mutating get {
+            withUnsafeMutablePointer(to: &self) { pointer in
+                pointer
+            }
+        }
+    }
+}
+
 public struct SingleTypedAccess<C: Component> {
     @usableFromInline internal var buffer: UnsafeMutablePointer<C>
 
@@ -128,7 +138,6 @@ public struct SingleTypedAccess<C: Component> {
     }
 }
 
-@usableFromInline
 public struct DenseStorageCursor<Component> {
     @usableFromInline
     let pages: Unmanaged<PagesBuffer<Component>>

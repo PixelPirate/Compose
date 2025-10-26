@@ -488,7 +488,11 @@ extension Query {
             withUnsafePointer(to: context.coordinator.indices) { indices in
                 withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
                     let denseUsage = (repeat Self.shouldUseDense((each T).self, owned: owned))
-                    var denseCursors = (repeat each accessors.denseCursor())
+                    var denseCursors = (repeat (each accessors).denseCursor())
+                    var point = CGPoint()
+                    withUnsafeMutablePointer(to: &point) { pointer in
+
+                    }
 
                     // Enumerate dense indices directly: 0..<size aligned across all owned storages
                     for (denseIndex, slot) in slotsSlice.enumerated() {
@@ -503,7 +507,7 @@ extension Query {
                             denseIndex: denseIndex,
                             entityID: id,
                             useDense: each denseUsage,
-                            cursor: &each denseCursors
+                            cursor: (each denseCursors).pointer // TODO: It's not possible to to anything mutating in a pack expansion??
                         ))
                     }
                 }
@@ -535,7 +539,7 @@ extension Query {
                             denseIndex: denseIndex,
                             entityID: id,
                             useDense: each denseUsage,
-                            cursor: &each denseCursors
+                            cursor: &(each denseCursors)
                         ))
                     }
                 }
@@ -563,14 +567,14 @@ extension Query {
         denseIndex: Int,
         entityID: Entity.ID,
         useDense: Bool,
-        cursor: inout DenseStorageCursor<C.QueriedComponent>
+        cursor: UnsafeMutablePointer<DenseStorageCursor<C.QueriedComponent>>
     ) -> C.ResolvedType where C: ComponentResolving {
         if useDense {
             return type.makeResolvedDenseFast(
                 access: access,
                 denseIndex: denseIndex,
                 entityID: entityID,
-                cursor: &cursor
+                cursor: cursor
             )
         }
 

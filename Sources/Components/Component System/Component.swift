@@ -41,7 +41,7 @@ public extension ComponentResolving {
         access: TypedAccess<Self>,
         denseIndex: Int,
         entityID: Entity.ID,
-        cursor: inout DenseStorageCursor<QueriedComponent>
+        cursor: UnsafeMutablePointer<DenseStorageCursor<QueriedComponent>>
     ) -> ResolvedType {
         makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
     }
@@ -73,9 +73,9 @@ public extension ComponentResolving where Self: Component, ResolvedType == Self,
         access: TypedAccess<QueriedComponent>,
         denseIndex: Int,
         entityID: Entity.ID,
-        cursor: inout DenseStorageCursor<QueriedComponent>
+        cursor: UnsafeMutablePointer<DenseStorageCursor<QueriedComponent>>
     ) -> Self {
-        cursor.pointer(forDenseIndex: denseIndex).pointee
+        cursor.pointee.pointer(forDenseIndex: denseIndex).pointee
     }
 }
 
