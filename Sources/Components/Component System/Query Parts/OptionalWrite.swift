@@ -62,4 +62,9 @@ extension OptionalWrite: ComponentResolving {
     public static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Wrapped? {
         access[optional: entityID]
     }
+
+    @inlinable @inline(__always)
+    public static func _makeResolvedDense(pointer: UnsafeMutablePointer<Wrapped>) -> OptionalWrite<Wrapped> {
+        OptionalWrite(access: SingleTypedAccess(buffer: pointer))
+    }
 }

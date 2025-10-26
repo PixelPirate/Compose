@@ -32,4 +32,9 @@ public struct WithEntityID: Component, Sendable {
     public static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> ResolvedType {
         entityID
     }
+
+    @inlinable @inline(__always)
+    public static func _makeResolvedDense(pointer: UnsafeMutablePointer<Never>) -> Entity.ID {
+        fatalError()
+    }
 }

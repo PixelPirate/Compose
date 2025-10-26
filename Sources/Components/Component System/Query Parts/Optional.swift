@@ -32,6 +32,11 @@ extension Optional: Component, ComponentResolving where Wrapped: Component {
     public static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Optional<Wrapped> {
         access[optional: entityID]
     }
+
+    @inlinable @inline(__always)
+    public static func _makeResolvedDense(pointer: UnsafeMutablePointer<Wrapped>) -> Optional<Wrapped> {
+        pointer.pointee
+    }
 }
 
 extension Optional: OptionalQueriedComponent where Wrapped: Component {

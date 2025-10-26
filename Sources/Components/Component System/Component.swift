@@ -33,6 +33,9 @@ public protocol ComponentResolving {
 
     @inlinable @inline(__always)
     static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> ReadOnlyResolvedType
+
+    @inlinable @inline(__always)
+    static func _makeResolvedDense(pointer: UnsafeMutablePointer<QueriedComponent>) -> ResolvedType
 }
 
 public extension ComponentResolving where Self: Component, ResolvedType == Self, QueriedComponent == Self, ReadOnlyResolvedType == Self {
@@ -54,6 +57,11 @@ public extension ComponentResolving where Self: Component, ResolvedType == Self,
     @inlinable @inline(__always)
     static func makeReadOnlyResolvedDense(access: TypedAccess<QueriedComponent>, denseIndex: Int, entityID: Entity.ID) -> Self {
         access[dense: denseIndex]
+    }
+
+    @inlinable @inline(__always)
+    static func _makeResolvedDense(pointer: UnsafeMutablePointer<QueriedComponent>) -> ResolvedType {
+        pointer.pointee
     }
 }
 
