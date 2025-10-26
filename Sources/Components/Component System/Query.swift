@@ -1,5 +1,143 @@
 import Foundation
 
+@usableFromInline
+struct DensePageCursor<Component> {
+    @usableFromInline let pages: Unmanaged<PagesBuffer<Component>>
+    @usableFromInline let pageCount: Int
+    @usableFromInline let count: Int
+    @usableFromInline var currentPageIndex: Int = -1
+    @usableFromInline var currentElements: UnsafeMutablePointer<Component>? = nil
+
+    @inlinable @inline(__always)
+    init(storage: UnmanagedStorage<Component>) {
+        self.pages = storage.pages
+        self.pageCount = storage.pageCount
+        self.count = storage.count
+    }
+
+    @inlinable @inline(__always)
+    mutating func prepare(page pageIndex: Int) {
+        guard pageIndex != currentPageIndex else { return }
+        guard pageIndex < pageCount else { return }
+        let elements: UnsafeMutablePointer<Component> = pages.takeUnretainedValue().withUnsafeMutablePointerToElements { pointer in
+            let pagePointer = pointer.advanced(by: pageIndex)
+            return pagePointer.pointee.withUnsafeMutablePointerToElements { $0 }
+        }
+        currentPageIndex = pageIndex
+        currentElements = elements
+    }
+
+    @inlinable @inline(__always)
+    mutating func pointer(for denseIndex: Int) -> UnsafeMutablePointer<Component> {
+        precondition(denseIndex < count)
+        let pageIndex = denseIndex >> pageShift
+        prepare(page: pageIndex)
+        return currentElements!.advanced(by: denseIndex & pageMask)
+    }
+}
+
+@usableFromInline
+final class DensePageCursorBox<Component> {
+    @usableFromInline var cursor: DensePageCursor<Component>
+
+    @inlinable @inline(__always)
+    init(storage: UnmanagedStorage<Component>) {
+        self.cursor = DensePageCursor(storage: storage)
+    }
+
+    @inlinable @inline(__always)
+    func prepare(page pageIndex: Int) {
+        cursor.prepare(page: pageIndex)
+    }
+
+    @inlinable @inline(__always)
+    func pointer(for denseIndex: Int) -> UnsafeMutablePointer<Component> {
+        cursor.pointer(for: denseIndex)
+    }
+}
+
+@usableFromInline
+struct GroupDenseResolver<C: ComponentResolving> {
+    @usableFromInline
+    enum Mode {
+        case denseFast
+        case denseSlow
+        case entity
+    }
+
+    @usableFromInline var access: TypedAccess<C>
+    @usableFromInline var denseCursor: DensePageCursorBox<C.QueriedComponent>?
+    @usableFromInline let mode: Mode
+
+    @inlinable @inline(__always)
+    init(access: TypedAccess<C>, owned: ComponentSignature) {
+        self.access = access
+        if C.QueriedComponent.self != Never.self,
+           owned.contains(C.QueriedComponent.componentTag),
+           C.self is any OptionalQueriedComponent.Type == false {
+            if Self.canUseFastDense() {
+                self.mode = .denseFast
+                self.denseCursor = DensePageCursorBox(storage: access.storage)
+            } else {
+                self.mode = .denseSlow
+                self.denseCursor = nil
+            }
+        } else {
+            self.mode = .entity
+            self.denseCursor = nil
+        }
+    }
+
+    @inlinable @inline(__always)
+    static func canUseFastDense() -> Bool {
+        if C.self is any DenseWritableComponent.Type { return true }
+        return C.ResolvedType.self == C.QueriedComponent.self
+    }
+
+    @inlinable @inline(__always)
+    func preparePage(_ pageIndex: Int) {
+        if case .denseFast = mode {
+            denseCursor?.prepare(page: pageIndex)
+        }
+    }
+
+    @inlinable @inline(__always)
+    func resolve(denseIndex: Int, entityID: Entity.ID) -> C.ResolvedType {
+        switch mode {
+        case .denseFast:
+            if let cursor = denseCursor {
+                let pointer = cursor.pointer(for: denseIndex)
+                return Self.resolveFast(pointer: pointer, denseIndex: denseIndex, entityID: entityID, access: access)
+            }
+            fallthrough
+        case .denseSlow:
+            return C.makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
+        case .entity:
+            return C.makeResolved(access: access, entityID: entityID)
+        }
+    }
+
+    @inlinable @inline(__always)
+    static func resolveFast(
+        pointer: UnsafeMutablePointer<C.QueriedComponent>,
+        denseIndex: Int,
+        entityID: Entity.ID,
+        access: TypedAccess<C>
+    ) -> C.ResolvedType {
+        if let denseWritable = C.self as? any DenseWritableComponent.Type {
+            return _openExistential(denseWritable, do: { type -> C.ResolvedType in
+                let typedPointer = pointer.assumingMemoryBound(to: type.Wrapped.self)
+                let value = type._makeResolvedDense(pointer: typedPointer)
+                return unsafeBitCast(value, to: C.ResolvedType.self)
+            })
+        }
+        if C.ResolvedType.self == C.QueriedComponent.self {
+            return unsafeBitCast(pointer.pointee, to: C.ResolvedType.self)
+        }
+        return C.makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
+    }
+}
+
 public struct Query<each T: Component> where repeat each T: ComponentResolving {
     /// All components which entities are required to have but will not be included in the query output.
     @inline(__always)
@@ -418,19 +556,20 @@ extension Query {
     public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
-        withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                for slot in baseSlots where Self.passes(
-                    slot: slot,
-                    otherComponents: otherComponents,
-                    excludedComponents: excludedComponents
-                ) {
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: indices.pointee[generationFor: slot]
-                    )
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
-                }
+        let indices = context.coordinator.indices
+        let generations = indices.generation
+        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+            for slot in baseSlots where Self.passes(
+                slot: slot,
+                otherComponents: otherComponents,
+                excludedComponents: excludedComponents
+            ) {
+                let raw = slot.rawValue
+                let id = Entity.ID(
+                    slot: SlotIndex(rawValue: raw),
+                    generation: generations[raw]
+                )
+                handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
             }
         }
     }
@@ -441,15 +580,15 @@ extension Query {
     public func performPreloaded(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let slots = getCachedPreFilteredSlots(context.coordinator) // TODO: Allow custom order.
-        withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                for slot in slots {
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: indices.pointee[generationFor: slot]
-                    )
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
-                }
+        let generations = context.coordinator.indices.generation
+        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+            for slot in slots {
+                let raw = slot.rawValue
+                let id = Entity.ID(
+                    slot: SlotIndex(rawValue: raw),
+                    generation: generations[raw]
+                )
+                handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
             }
         }
     }
@@ -484,46 +623,59 @@ extension Query {
             print("No group found for query. Consider adding a group matching this query.")
         }
 
+        if slotsSlice.isEmpty {
+            return
+        }
+
         if exactGroupMatch {
-            withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                    for (denseIndex, slot) in slotsSlice.enumerated() {
+            let generations = context.coordinator.indices.generation
+            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                var resolvers = (repeat GroupDenseResolver<each T>(access: each accessors, owned: owned))
+                let slotCount = slotsSlice.count
+                var denseIndex = 0
+                let startIndex = slotsSlice.startIndex
+                while denseIndex < slotCount {
+                    let pageIndex = denseIndex >> pageShift
+                    repeat (each resolvers).preparePage(pageIndex)
+                    let pageEnd = min(slotCount, ((pageIndex + 1) << pageShift))
+                    while denseIndex < pageEnd {
+                        let slot = slotsSlice[slotsSlice.index(startIndex, offsetBy: denseIndex)]
+                        let raw = slot.rawValue
                         let id = Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
+                            slot: SlotIndex(rawValue: raw),
+                            generation: generations[raw]
                         )
-                        handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
+                        handler(repeat (each resolvers).resolve(denseIndex: denseIndex, entityID: id))
+                        denseIndex &+= 1
                     }
                 }
             }
         } else {
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
-            withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                    for (denseIndex, slot) in slotsSlice.enumerated() {
-                        // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
-                        // TODO: Optional components are ignored.
-                        let entitySignature = context.coordinator.entitySignatures[slot.index]
-                        guard entitySignature.isSuperset(of: querySignature, isDisjoint: excludedSignature) else {
-                            continue
+            let generations = context.coordinator.indices.generation
+            let entitySignatures = context.coordinator.entitySignatures
+            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                var resolvers = (repeat GroupDenseResolver<each T>(access: each accessors, owned: owned))
+                let slotCount = slotsSlice.count
+                var denseIndex = 0
+                let startIndex = slotsSlice.startIndex
+                while denseIndex < slotCount {
+                    let pageIndex = denseIndex >> pageShift
+                    repeat (each resolvers).preparePage(pageIndex)
+                    let pageEnd = min(slotCount, ((pageIndex + 1) << pageShift))
+                    while denseIndex < pageEnd {
+                        let slot = slotsSlice[slotsSlice.index(startIndex, offsetBy: denseIndex)]
+                        let entitySignature = entitySignatures[slot.index]
+                        if entitySignature.isSuperset(of: querySignature, isDisjoint: excludedSignature) {
+                            let raw = slot.rawValue
+                            let id = Entity.ID(
+                                slot: SlotIndex(rawValue: raw),
+                                generation: generations[raw]
+                            )
+                            handler(repeat (each resolvers).resolve(denseIndex: denseIndex, entityID: id))
                         }
-                        let id = Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
-                        )
-
-                        @inline(__always)
-                        func resolve<C: Component>(_ type: C.Type, access: TypedAccess<C>, denseIndex: Int, entityID: Entity.ID, owned: ComponentSignature) -> C.ResolvedType {
-                            if owned.contains(C.componentTag) { // TODO: Does this `if` actually help with performance?
-                                type.makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
-                            } else {
-                                type.makeResolved(access: access, entityID: entityID)
-                            }
-                        }
-                        handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: id, owned: owned))
+                        denseIndex &+= 1
                     }
                 }
             }

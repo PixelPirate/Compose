@@ -11,6 +11,12 @@ protocol WritableComponent: Component {
     associatedtype Wrapped: Component
 }
 
+@usableFromInline
+protocol DenseWritableComponent: WritableComponent {
+    @inlinable @inline(__always)
+    static func _makeResolvedDense(pointer: UnsafeMutablePointer<Wrapped>) -> Self
+}
+
 @dynamicMemberLookup
 public struct Write<C: Component>: WritableComponent, Sendable {
     public static var componentTag: ComponentTag { C.componentTag }
@@ -59,5 +65,12 @@ extension Write: ComponentResolving {
     @inlinable @inline(__always)
     public static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Wrapped {
         access[dense: denseIndex]
+    }
+}
+
+extension Write: DenseWritableComponent {
+    @inlinable @inline(__always)
+    static func _makeResolvedDense(pointer: UnsafeMutablePointer<Wrapped>) -> Write<Wrapped> {
+        Write<Wrapped>(access: SingleTypedAccess(buffer: pointer))
     }
 }
