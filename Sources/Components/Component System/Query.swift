@@ -114,8 +114,9 @@ struct GroupDenseResolver<C: ComponentResolving> {
     ) -> C.ResolvedType {
         if let denseWritable = C.self as? any DenseWritableComponent.Type {
             return _openExistential(denseWritable, do: { type -> C.ResolvedType in
-                let typedPointer = pointer.assumingMemoryBound(to: type.Wrapped.self)
-                let value = type._makeResolvedDense(pointer: typedPointer)
+                let value = pointer.withMemoryRebound(to: type.Wrapped.self, capacity: 1) { pointer in
+                    type._makeResolvedDense(pointer: pointer)
+                }
                 return unsafeBitCast(value, to: C.ResolvedType.self)
             })
         }
