@@ -157,7 +157,7 @@ public struct AnyComponentArray {
 
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (UnmanagedPagedStorage<C>, ContiguousArray<ContiguousArray.Index>) throws -> Result
+        _ body: (UnmanagedContiguousStorage<C>, ContiguousArray<ContiguousArray.Index>) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents

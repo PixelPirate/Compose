@@ -5,7 +5,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 //    private(set) var components: ContiguousArray<Component> = []
 
     @usableFromInline
-    private(set) var storage: PagedStorage<Component> = PagedStorage(initialPageCapacity: 8)
+    private(set) var storage: ContiguousStorage<Component> = ContiguousStorage(initialPageCapacity: 1024)
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
@@ -63,9 +63,9 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     public mutating func withUnmanagedStorage<R>(
-        _ body: (UnmanagedPagedStorage<Component>) throws -> R
+        _ body: (UnmanagedContiguousStorage<Component>) throws -> R
     ) rethrows -> R {
-        try body(UnmanagedPagedStorage(storage))
+        try body(UnmanagedContiguousStorage(storage))
     }
 
     /// Returns true if this array contains a component for the given entity.

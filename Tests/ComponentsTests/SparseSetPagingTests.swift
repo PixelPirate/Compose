@@ -8,7 +8,7 @@ final class SparseSetPagingTests: XCTestCase {
     }
 
     func testAppendAcrossPages() {
-        var storage = Storage<TestComponent>()
+        var storage = PagedStorage<TestComponent>()
         let total = pageCapacity + 10
         for value in 0..<total {
             storage.pages.append(TestComponent(value: value), storage: &storage)
@@ -18,12 +18,12 @@ final class SparseSetPagingTests: XCTestCase {
         XCTAssertEqual(storage.pageCount, 2)
 
         for index in 0..<total {
-            XCTAssertEqual(storage.pages.get(index, storage: storage), TestComponent(value: index))
+            XCTAssertEqual(storage.pages.get(index, pageCount: storage.pageCount, count: storage.count), TestComponent(value: index))
         }
     }
 
     func testRemoveAcrossPages() {
-        var storage = Storage<TestComponent>()
+        var storage = PagedStorage<TestComponent>()
         let total = pageCapacity * 2
         for value in 0..<total {
             storage.pages.append(TestComponent(value: value), storage: &storage)
@@ -34,13 +34,13 @@ final class SparseSetPagingTests: XCTestCase {
 
         let removed = storage.pages.remove(at: pageCapacity / 2, storage: &storage)
         XCTAssertEqual(removed, TestComponent(value: pageCapacity / 2))
-        XCTAssertEqual(storage.pages.get(pageCapacity / 2, storage: storage), TestComponent(value: total - 1))
+        XCTAssertEqual(storage.pages.get(pageCapacity / 2, pageCount: storage.pageCount, count: storage.count), TestComponent(value: total - 1))
         XCTAssertEqual(storage.count, total - 1)
         XCTAssertEqual(storage.pageCount, 2)
 
         let removedCrossPage = storage.pages.remove(at: pageCapacity - 1, storage: &storage)
         XCTAssertEqual(removedCrossPage, TestComponent(value: pageCapacity - 1))
-        XCTAssertEqual(storage.pages.get(pageCapacity - 1, storage: storage), TestComponent(value: total - 2))
+        XCTAssertEqual(storage.pages.get(pageCapacity - 1, pageCount: storage.pageCount, count: storage.count), TestComponent(value: total - 2))
         XCTAssertEqual(storage.count, total - 2)
 
         // Removing all elements should release pages.
@@ -52,7 +52,7 @@ final class SparseSetPagingTests: XCTestCase {
     }
 
     func testAppendTriggersCapacityGrowth() {
-        var storage = Storage<TestComponent>(initialPageCapacity: 1)
+        var storage = PagedStorage<TestComponent>(initialPageCapacity: 1)
         let pagesToCreate = 8
         let total = pagesToCreate * pageCapacity
         for value in 0..<total {
@@ -61,12 +61,12 @@ final class SparseSetPagingTests: XCTestCase {
         XCTAssertEqual(storage.pageCount, pagesToCreate)
         XCTAssertEqual(storage.count, total)
         for index in stride(from: total - 1, through: 0, by: -pageCapacity) {
-            XCTAssertEqual(storage.pages.get(index, storage: storage), TestComponent(value: index))
+            XCTAssertEqual(storage.pages.get(index, pageCount: storage.pageCount, count: storage.count), TestComponent(value: index))
         }
     }
 
     func testPerformance() {
-        var storage = Storage<TestComponent>(initialPageCapacity: 8)
+        var storage = PagedStorage<TestComponent>(initialPageCapacity: 8)
         for value in 0..<2_000_000 {
             storage.pages.append(TestComponent(value: value), storage: &storage)
         }
@@ -74,13 +74,13 @@ final class SparseSetPagingTests: XCTestCase {
         let clock = ContinuousClock()
         let duration = clock.measure {
             for index in 0..<storage.count {
-                storage.pages[index, storage].value *= -1
+                storage.pages[index, storage.pageCount, storage.count].value *= -1
             }
         }
         print("Dur:", duration)
 
         for index in 0..<storage.count {
-            XCTAssertEqual(storage.pages[index, storage].value, index * -1)
+            XCTAssertEqual(storage.pages[index, storage.pageCount, storage.count].value, index * -1)
         }
     }
 }
