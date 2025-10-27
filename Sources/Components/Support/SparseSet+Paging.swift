@@ -1,23 +1,31 @@
-
 @usableFromInline
 let defaultInitialPageCapacity = 1
 
-public struct UnmanagedStorage<Component> {
+@usableFromInline
+let defaultInitialCapacity = 1
+
+public let pageShift = 10 // 10 -> 1024, 20 -> 1M
+
+public let pageCapacity = 1 << pageShift
+
+public let pageMask = pageCapacity - 1
+
+public struct UnmanagedPagedStorage<Component> {
     public var count: Int
 
     public var pageCount: Int
 
-    public var pages: Unmanaged<PagesBuffer<Component>>
+    public var pages: Unmanaged<PagedBuffer<Component>>
 
     @inlinable @inline(__always)
-    public init(_ storage: Storage<Component>) {
+    public init(_ storage: PagedStorage<Component>) {
         self.count = storage.count
         self.pageCount = storage.pageCount
         self.pages = .passUnretained(storage.pages)
     }
 
     @inlinable @inline(__always)
-    public init(_ pages: Unmanaged<PagesBuffer<Component>>, count: Int, pageCount: Int) {
+    public init(_ pages: Unmanaged<PagedBuffer<Component>>, count: Int, pageCount: Int) {
         self.count = count
         self.pageCount = pageCount
         self.pages = pages
@@ -44,23 +52,23 @@ public struct UnmanagedStorage<Component> {
     }
 }
 
-public struct Storage<Component> {
+public struct PagedStorage<Element> {
     public var count: Int
 
     public var pageCount: Int
 
-    public var pages: PagesBuffer<Component>
+    public var pages: PagedBuffer<Element>
 
     @inlinable @inline(__always)
     public init(initialPageCapacity: Int = defaultInitialPageCapacity) {
         precondition(initialPageCapacity > 0)
         self.count = 0
         self.pageCount = 0
-        self.pages = PagesBuffer.create(initialCapacity: initialPageCapacity)
+        self.pages = PagedBuffer.create(initialCapacity: initialPageCapacity)
     }
 
     @inlinable @inline(__always)
-    public subscript(_ index: Int) -> Component {
+    public subscript(_ index: Int) -> Element {
         @inlinable
         _read {
             yield pages[index, pageCount, count]
@@ -72,12 +80,12 @@ public struct Storage<Component> {
     }
 
     @inlinable @inline(__always)
-    public mutating func append(_ component: Component) {
+    public mutating func append(_ component: Element) {
         pages.append(component, storage: &self)
     }
 
     @inlinable @inline(__always) @discardableResult
-    public mutating func removeLast() -> Component {
+    public mutating func removeLast() -> Element {
         precondition(count > 0)
         return pages.remove(at: count - 1, storage: &self)
     }
@@ -113,230 +121,221 @@ public struct Storage<Component> {
     }
 }
 
-public let pageShift = 10 // 10 -> 1024, 20 -> 1M
+public final class PageBuffer<Element>: ManagedBuffer<Void, Element> {
+    @inlinable @inline(__always)
+    static func createPage() -> PageBuffer {
+        unsafeDowncast(PageBuffer.create(minimumCapacity: pageCapacity) { _ in () }, to: PageBuffer.self)
+    }
 
-public let pageCapacity = 1 << pageShift
-
-public let pageMask = pageCapacity - 1
-
-    public final class ComponentPageBuffer<Component>: ManagedBuffer<Void, Component> {
-        @inlinable @inline(__always)
-        static func createPage() -> ComponentPageBuffer {
-            unsafeDowncast(Self.create(minimumCapacity: pageCapacity) { _ in () }, to: Self.self)
+    @inlinable @inline(__always)
+    func initializeElement(at index: Int, to value: Element) {
+        precondition(index < pageCapacity)
+        withUnsafeMutablePointerToElements { buffer in
+            buffer.advanced(by: index).initialize(to: value)
         }
+    }
 
-        @inlinable @inline(__always)
-        func initializeElement(at index: Int, to value: Component) {
-            precondition(index < pageCapacity)
-            withUnsafeMutablePointerToElements { buffer in
-                buffer.advanced(by: index).initialize(to: value)
-            }
-        }
-
-        @inlinable @inline(__always)
-        func moveInitializeElement(at index: Int, from other: ComponentPageBuffer, sourceIndex: Int) {
-            precondition(index < pageCapacity)
-            precondition(sourceIndex < pageCapacity)
-            withUnsafeMutablePointerToElements { destination in
-                other.withUnsafeMutablePointerToElements { source in
-                    destination.advanced(by: index).moveInitialize(from: source.advanced(by: sourceIndex), count: 1)
-                }
-            }
-        }
-
-        @inlinable @inline(__always)
-        func moveElement(at index: Int) -> Component {
-            precondition(index < pageCapacity)
-            return withUnsafeMutablePointerToElements { buffer in
-                buffer.advanced(by: index).move()
-            }
-        }
-
-        @inlinable @inline(__always)
-        func value(at index: Int) -> Component {
-            precondition(index < pageCapacity)
-            return withUnsafeMutablePointerToElements { buffer in
-                buffer[index]
-            }
-        }
-
-        @inlinable @inline(__always)
-        subscript(index: Int) -> Component {
-            @inlinable @inline(__always)
-            _read {
-                precondition(index < pageCapacity)
-                yield withUnsafeMutablePointerToElements { buffer in
-                    buffer[index]
-                }
-            }
-            @inlinable @inline(__always)
-            _modify {
-                let b = withUnsafeMutablePointerToElements { buffer in
-                    buffer
-                }
-                yield &b[index]
+    @inlinable @inline(__always)
+    func moveInitializeElement(at index: Int, from other: PageBuffer, sourceIndex: Int) {
+        precondition(index < pageCapacity)
+        precondition(sourceIndex < pageCapacity)
+        withUnsafeMutablePointerToElements { destination in
+            other.withUnsafeMutablePointerToElements { source in
+                destination.advanced(by: index).moveInitialize(from: source.advanced(by: sourceIndex), count: 1)
             }
         }
     }
 
-@usableFromInline
-let defaultInitialCapacity = 1
+    @inlinable @inline(__always)
+    func moveElement(at index: Int) -> Element {
+        precondition(index < pageCapacity)
+        return withUnsafeMutablePointerToElements { buffer in
+            buffer.advanced(by: index).move()
+        }
+    }
 
-    public final class PagesBuffer<Component>: ManagedBuffer<Void, ComponentPageBuffer<Component>> {
+    @inlinable @inline(__always)
+    func value(at index: Int) -> Element {
+        precondition(index < pageCapacity)
+        return withUnsafeMutablePointerToElements { buffer in
+            buffer[index]
+        }
+    }
+
+    @inlinable @inline(__always)
+    subscript(index: Int) -> Element {
         @inlinable @inline(__always)
-        static func create(initialCapacity: Int = defaultInitialCapacity) -> PagesBuffer {
-            precondition(initialCapacity > 0)
-            return unsafeDowncast(Self.create(minimumCapacity: initialCapacity) { _ in () }, to: Self.self)
+        _read {
+            precondition(index < pageCapacity)
+            yield withUnsafeMutablePointerToElements { buffer in
+                buffer[index]
+            }
+        }
+        @inlinable @inline(__always)
+        _modify {
+            let b = withUnsafeMutablePointerToElements { buffer in
+                buffer
+            }
+            yield &b[index]
+        }
+    }
+}
+
+public final class PagedBuffer<Element>: ManagedBuffer<Void, PageBuffer<Element>> {
+    @inlinable @inline(__always)
+    static func create(initialCapacity: Int = defaultInitialCapacity) -> PagedBuffer {
+        precondition(initialCapacity > 0)
+        return unsafeDowncast(PagedBuffer.create(minimumCapacity: initialCapacity) { _ in () }, to: PagedBuffer.self)
+    }
+
+    @inlinable @inline(__always) @discardableResult
+    public func append(_ component: Element, storage: inout PagedStorage<Element>) -> Int {
+        precondition(self === storage.pages)
+
+        var buffer: PagedBuffer = self
+        let nextIndex = storage.count
+        let pageIndex = nextIndex >> pageShift
+        let offset = nextIndex & pageMask
+
+        if pageIndex == storage.pageCount {
+            buffer = buffer.ensureCapacity(forPageCount: storage.pageCount + 1, storage: &storage)
+            let newPage = PageBuffer<Element>.createPage()
+            buffer.initializePage(newPage, at: pageIndex)
+            storage.pageCount += 1
         }
 
-        @inlinable @inline(__always) @discardableResult
-        public func append(_ component: Component, storage: inout Storage<Component>) -> Int {
-            precondition(self === storage.pages)
-
-            var buffer: PagesBuffer = self
-            let nextIndex = storage.count
-            let pageIndex = nextIndex >> pageShift
-            let offset = nextIndex & pageMask
-
-            if pageIndex == storage.pageCount {
-                buffer = buffer.ensureCapacity(forPageCount: storage.pageCount + 1, storage: &storage)
-                let newPage = ComponentPageBuffer<Component>.createPage()
-                buffer.initializePage(newPage, at: pageIndex)
-                storage.pageCount += 1
-            }
-
-            buffer.withElements(atPage: pageIndex) { pointer in
-                pointer.pointee.initializeElement(at: offset, to: component)
-            }
-            storage.count = nextIndex + 1
-            return nextIndex
+        buffer.withElements(atPage: pageIndex) { pointer in
+            pointer.pointee.initializeElement(at: offset, to: component)
         }
+        storage.count = nextIndex + 1
+        return nextIndex
+    }
 
+    @inlinable @inline(__always)
+    func get(_ index: Int, pageCount: Int, count: Int) -> Element {
+        precondition(index < count)
+        let pageIndex = index >> pageShift
+        let offset = index & pageMask
+        precondition(pageIndex < pageCount)
+        return withElements(atPage: pageIndex) { pagePointer in
+            pagePointer.pointee.withUnsafeMutablePointerToElements { elementsPointer in
+                elementsPointer.advanced(by: offset).pointee
+            }
+        }
+    }
+
+    @inlinable @inline(__always)
+    public func getPointer(_ index: Int, pageCount: Int, count: Int) -> UnsafeMutablePointer<Element> {
+        precondition(index < count)
+        let pageIndex = index >> pageShift
+        let offset = index & pageMask
+        precondition(pageIndex < pageCount)
+        return withElements(atPage: pageIndex) { pagePointer in
+            pagePointer.pointee.withUnsafeMutablePointerToElements { elementsPointer in
+                elementsPointer.advanced(by: offset)
+            }
+        }
+    }
+
+    @inlinable @inline(__always)
+    public subscript(_ index: Int, pageCount: Int, count: Int) -> Element {
         @inlinable @inline(__always)
-        func get(_ index: Int, pageCount: Int, count: Int) -> Component {
-            precondition(index < count)
+        _read {
+            yield get(index, pageCount: pageCount, count: count)
+        }
+        @inlinable @inline(__always)
+        _modify {
             let pageIndex = index >> pageShift
             let offset = index & pageMask
-            precondition(pageIndex < pageCount)
-            return withElements(atPage: pageIndex) { pagePointer in
-                pagePointer.pointee.withUnsafeMutablePointerToElements { elementsPointer in
-                    elementsPointer.advanced(by: offset).pointee
-                }
-            }
-        }
 
-        @inlinable @inline(__always)
-        public func getPointer(_ index: Int, pageCount: Int, count: Int) -> UnsafeMutablePointer<Component> {
-            precondition(index < count)
-            let pageIndex = index >> pageShift
-            let offset = index & pageMask
-            precondition(pageIndex < pageCount)
-            return withElements(atPage: pageIndex) { pagePointer in
-                pagePointer.pointee.withUnsafeMutablePointerToElements { elementsPointer in
+            let pointer = withUnsafeMutablePointerToElements { pagesPointer in
+                pagesPointer[pageIndex].withUnsafeMutablePointerToElements { elementsPointer in
                     elementsPointer.advanced(by: offset)
                 }
             }
-        }
-
-        @inlinable @inline(__always)
-        public subscript(_ index: Int, pageCount: Int, count: Int) -> Component {
-            @inlinable @inline(__always)
-            _read {
-                yield get(index, pageCount: pageCount, count: count)
-            }
-            @inlinable @inline(__always)
-            _modify {
-                let pageIndex = index >> pageShift
-                let offset = index & pageMask
-
-                let pointer = withUnsafeMutablePointerToElements { pagesPointer in
-                    pagesPointer[pageIndex].withUnsafeMutablePointerToElements { elementsPointer in
-                        elementsPointer.advanced(by: offset)
-                    }
-                }
-                yield &pointer.pointee
+            yield &pointer.pointee
 //                precondition(index < count)
 //                let pageIndex = index >> pageShift
 //                let offset = index & pageMask
 //                precondition(pageIndex < pageCount)
 //                let page = page(at: pageIndex)
 //                yield &page[offset]
-            }
+        }
+    }
+
+    @inlinable @inline(__always)
+    @discardableResult
+    func remove(at index: Int, storage: inout PagedStorage<Element>) -> Element {
+        precondition(self === storage.pages)
+        precondition(index < storage.count)
+
+        let lastIndex = storage.count - 1
+        let lastPageIndex = lastIndex >> pageShift
+        let lastOffset = lastIndex & pageMask
+        let pageIndex = index >> pageShift
+        let offset = index & pageMask
+
+        let page = withElements(atPage: pageIndex, body: \.pointee)
+        let removed = page.moveElement(at: offset)
+
+        if index != lastIndex {
+            let lastPage = withElements(atPage: lastPageIndex, body: \.pointee)
+            page.moveInitializeElement(at: offset, from: lastPage, sourceIndex: lastOffset)
         }
 
-        @inlinable @inline(__always)
-        @discardableResult
-        func remove(at index: Int, storage: inout Storage<Component>) -> Component {
-            precondition(self === storage.pages)
-            precondition(index < storage.count)
+        storage.count = lastIndex
 
-            let lastIndex = storage.count - 1
-            let lastPageIndex = lastIndex >> pageShift
-            let lastOffset = lastIndex & pageMask
-            let pageIndex = index >> pageShift
-            let offset = index & pageMask
-
-            let page = withElements(atPage: pageIndex, body: \.pointee)
-            let removed = page.moveElement(at: offset)
-
-            if index != lastIndex {
-                let lastPage = withElements(atPage: lastPageIndex, body: \.pointee)
-                page.moveInitializeElement(at: offset, from: lastPage, sourceIndex: lastOffset)
-            }
-
-            storage.count = lastIndex
-
-            if lastOffset == 0 {
-                let lastPage = withElements(atPage: lastPageIndex, body: \.pointee)
-                removeUninitialisedLastPage(storage: &storage, lastPageIndex: lastPageIndex, lastPage: lastPage)
-            }
-
-            return removed
+        if lastOffset == 0 {
+            let lastPage = withElements(atPage: lastPageIndex, body: \.pointee)
+            removeUninitialisedLastPage(storage: &storage, lastPageIndex: lastPageIndex, lastPage: lastPage)
         }
 
-        @inlinable @inline(__always)
-        func ensureCapacity(forPageCount requiredPageCount: Int, storage: inout Storage<Component>) -> PagesBuffer {
-            if requiredPageCount <= capacity {
-                return self
-            }
+        return removed
+    }
 
-            let newCapacity = Swift.max(capacity << 1, requiredPageCount)
-            let newBuffer = PagesBuffer.create(initialCapacity: newCapacity)
-            let existingPageCount = storage.pageCount
-            withUnsafeMutablePointerToElements { source in
-                newBuffer.withUnsafeMutablePointerToElements { destination in
-                    destination.moveInitialize(from: source, count: existingPageCount)
-                }
+    @inlinable @inline(__always)
+    func ensureCapacity(forPageCount requiredPageCount: Int, storage: inout PagedStorage<Element>) -> PagedBuffer {
+        if requiredPageCount <= capacity {
+            return self
+        }
+
+        let newCapacity = Swift.max(capacity << 1, requiredPageCount)
+        let newBuffer = PagedBuffer.create(initialCapacity: newCapacity)
+        let existingPageCount = storage.pageCount
+        withUnsafeMutablePointerToElements { source in
+            newBuffer.withUnsafeMutablePointerToElements { destination in
+                destination.moveInitialize(from: source, count: existingPageCount)
+            }
 //                source.deallocate() // I think I don't need to deallocate anything. The page buffers are moved and stay at their retain count and the pages buffer will be handled by ManagedBuffer.
-            }
-            storage.pages = newBuffer
-            return newBuffer
         }
+        storage.pages = newBuffer
+        return newBuffer
+    }
 
-        @inlinable @inline(__always)
-        func initializePage(_ page: ComponentPageBuffer<Component>, at index: Int) {
-            withUnsafeMutablePointerToElements { pointer in
-                pointer.advanced(by: index).initialize(to: page)
-            }
+    @inlinable @inline(__always)
+    func initializePage(_ page: PageBuffer<Element>, at index: Int) {
+        withUnsafeMutablePointerToElements { pointer in
+            pointer.advanced(by: index).initialize(to: page)
         }
+    }
 
-        @inlinable @inline(__always)
-        func withElements<R>(atPage index: Int, body: (UnsafeMutablePointer<ComponentPageBuffer<Component>>) -> R) -> R {
-            withUnsafeMutablePointerToElements { pointer in
-                body(pointer.advanced(by: index))
-            }
+    @inlinable @inline(__always)
+    func withElements<R>(atPage index: Int, body: (UnsafeMutablePointer<PageBuffer<Element>>) -> R) -> R {
+        withUnsafeMutablePointerToElements { pointer in
+            body(pointer.advanced(by: index))
         }
+    }
 
-        @inlinable @inline(__always)
-        func removeUninitialisedLastPage(storage: inout Storage<Component>, lastPageIndex: Int, lastPage: ComponentPageBuffer<Component>) {
-            withUnsafeMutablePointerToElements { pointer in
-                let lastPage = pointer.advanced(by: lastPageIndex)
+    @inlinable @inline(__always)
+    func removeUninitialisedLastPage(storage: inout PagedStorage<Element>, lastPageIndex: Int, lastPage: PageBuffer<Element>) {
+        withUnsafeMutablePointerToElements { pointer in
+            let lastPage = pointer.advanced(by: lastPageIndex)
 //                lastPage.pointee.withUnsafeMutablePointerToElements { elements in
 //                    elements.deallocate()
 //                }
-                // I don't think I need to deallocate anything, this should be done by ManagedBuffer.
-                lastPage.deinitialize(count: 1)
-            }
-            storage.pageCount -= 1
+            // I don't think I need to deallocate anything, this should be done by ManagedBuffer.
+            lastPage.deinitialize(count: 1)
         }
+        storage.pageCount -= 1
     }
+}

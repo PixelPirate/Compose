@@ -6,11 +6,11 @@
 //
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
-    @usableFromInline internal var storage: UnmanagedStorage<C.QueriedComponent>
+    @usableFromInline internal var storage: UnmanagedPagedStorage<C.QueriedComponent>
     @usableFromInline internal var indices: ContiguousArray<ContiguousArray.Index>
 
     @usableFromInline
-    init(storage: UnmanagedStorage<C.QueriedComponent>, indices: ContiguousArray<ContiguousArray.Index>) {
+    init(storage: UnmanagedPagedStorage<C.QueriedComponent>, indices: ContiguousArray<ContiguousArray.Index>) {
         self.storage = storage
         self.indices = indices
     }
@@ -94,8 +94,8 @@ extension TypedAccess {
     static var empty: TypedAccess {
         // a harmless instance that never resolves anything
         TypedAccess(
-            storage: UnmanagedStorage(
-                .passRetained(PagesBuffer<C.QueriedComponent>.create(initialCapacity: 1)),
+            storage: UnmanagedPagedStorage(
+                .passRetained(PagedBuffer<C.QueriedComponent>.create(initialCapacity: 1)),
                 count: 0,
                 pageCount: 0
             ),

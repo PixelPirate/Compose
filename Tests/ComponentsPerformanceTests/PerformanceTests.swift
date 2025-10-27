@@ -1155,7 +1155,7 @@ public struct Person: Component {
         static let componentTag = ComponentTag.makeTag()
         var value: Int
     }
-    var storage = Storage<TestComponent>(initialPageCapacity: 8)
+    var storage = PagedStorage<TestComponent>(initialPageCapacity: 8)
     for value in 0..<1_000_000 {
         storage.pages.append(TestComponent(value: value), storage: &storage)
     }
