@@ -112,7 +112,7 @@ extension ComponentPool {
                 } else {
                     return candidates.filter { slot in
                         excludedArrays.allSatisfy { componentArray in
-                            !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == .notFound
+                            componentArray.entityToComponents.count < slot.rawValue || componentArray.entityToComponents[slot.rawValue] == .notFound
                         }
                     }
                 }
@@ -133,7 +133,7 @@ extension ComponentPool {
             } else {
                 return smallest.componentsToEntites.filter { slot in
                     excludedArrays.allSatisfy { componentArray in
-                        !componentArray.entityToComponents.indices.contains(slot.rawValue) || componentArray.entityToComponents[slot.rawValue] == .notFound
+                        componentArray.entityToComponents.count < slot.rawValue || componentArray.entityToComponents[slot.rawValue] == .notFound
                     }
                 }
             }
@@ -214,7 +214,7 @@ extension ComponentPool {
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
     )
-    -> (base: ContiguousArray<SlotIndex>, others: [ContiguousArray<ContiguousArray.Index>], excluded: [ContiguousArray<ContiguousArray.Index>])
+    -> (base: ContiguousArray<SlotIndex>, others: [UnmanagedPagedStorage<ContiguousArray.Index>], excluded: [UnmanagedPagedStorage<ContiguousArray.Index>])
     {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
@@ -387,8 +387,8 @@ func withTypedBuffers<each C: ComponentResolving, R>(
             return TypedAccess<D>.empty
         }
         var result: TypedAccess<D>? = nil
-        anyArray.withBuffer(D.QueriedComponent.self) { storage, entitiesToIndices in
-            result = TypedAccess(storage: storage, indices: entitiesToIndices)
+        anyArray.withBuffer(D.QueriedComponent.self) { pointer, entitiesToIndices in
+            result = TypedAccess(pointer: pointer, indices: entitiesToIndices)
             // Escaping the buffer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
             // The solution would be a recursive function which would recursively call `withBuffer` on the head until the pack is empty, and then call `body` with all the buffers.
             // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12

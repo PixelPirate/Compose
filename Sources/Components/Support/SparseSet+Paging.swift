@@ -68,6 +68,15 @@ public struct PagedStorage<Element> {
     }
 
     @inlinable @inline(__always)
+    public var unsafeAddress: UnsafeMutablePointer<UnsafeMutablePointer<Element>> {
+        pages.withUnsafeMutablePointerToElements { pagesPointer in
+            pagesPointer.withMemoryRebound(to: UnsafeMutablePointer<Element>.self, capacity: count) { pointer in
+                pointer
+            }
+        }
+    }
+
+    @inlinable @inline(__always)
     public subscript(_ index: Int) -> Element {
         @inlinable
         _read {
@@ -183,7 +192,7 @@ public final class PageBuffer<Element>: ManagedBuffer<Void, Element> {
 
 public final class PagedBuffer<Element>: ManagedBuffer<Void, PageBuffer<Element>> {
     @inlinable @inline(__always)
-    static func create(initialCapacity: Int = defaultInitialCapacity) -> PagedBuffer {
+    public static func create(initialCapacity: Int = defaultInitialCapacity) -> PagedBuffer {
         precondition(initialCapacity > 0)
         return unsafeDowncast(PagedBuffer.create(minimumCapacity: initialCapacity) { _ in () }, to: PagedBuffer.self)
     }

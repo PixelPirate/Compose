@@ -397,8 +397,8 @@ extension Query {
     @inlinable @inline(__always)
     static func passes(
         slot: SlotIndex,
-        otherComponents: [ContiguousArray<ContiguousArray.Index>],
-        excludedComponents: [ContiguousArray<ContiguousArray.Index>]
+        otherComponents: [UnmanagedPagedStorage<ContiguousArray.Index>],
+        excludedComponents: [UnmanagedPagedStorage<ContiguousArray.Index>]
     ) -> Bool {
         let slotRaw = slot.rawValue
 

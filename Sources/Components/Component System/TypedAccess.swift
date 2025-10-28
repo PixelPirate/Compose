@@ -6,22 +6,22 @@
 //
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
-    @usableFromInline internal var storage: UnmanagedContiguousStorage<C.QueriedComponent>
-    @usableFromInline internal var indices: ContiguousArray<ContiguousArray.Index>
+    @usableFromInline internal var pointer: UnsafeMutablePointer<C.QueriedComponent>
+    @usableFromInline internal var indices: UnmanagedPagedStorage<ContiguousArray.Index>
 
     @usableFromInline
-    init(storage: UnmanagedContiguousStorage<C.QueriedComponent>, indices: ContiguousArray<ContiguousArray.Index>) {
-        self.storage = storage
+    init(pointer: UnsafeMutablePointer<C.QueriedComponent>, indices: UnmanagedPagedStorage<ContiguousArray.Index>) {
+        self.pointer = pointer
         self.indices = indices
     }
 
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C.QueriedComponent {
         _read {
-            yield storage[indices[id.slot.rawValue]]
+            yield pointer[indices[id.slot.rawValue]]
         }
         nonmutating _modify {
-            yield &storage[indices[id.slot.rawValue]]
+            yield &pointer[indices[id.slot.rawValue]]
         }
     }
 
@@ -37,18 +37,18 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
                 yield nil
                 return
             }
-            yield storage[index]
+            yield pointer[index]
         }
         nonmutating _modify {
             var wrapped: Optional<C.QueriedComponent>
             let index = indices[id.slot.rawValue]
             if index != .notFound {
-                wrapped = Optional(storage[index])
+                wrapped = Optional(pointer[index])
                 yield &wrapped
                 guard let newValue = wrapped else {
                     fatalError("Removal of component through `Optional` not supported.")
                 }
-                storage[index] = newValue
+                pointer[index] = newValue
             } else {
                 wrapped = nil
                 yield &wrapped
@@ -61,18 +61,18 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public subscript(dense denseIndex: Int) -> C.QueriedComponent {
-        _read { yield storage[denseIndex] }
-        nonmutating _modify { yield &storage[denseIndex] }
+        _read { yield pointer[denseIndex] }
+        nonmutating _modify { yield &pointer[denseIndex] }
     }
 
     @inlinable @inline(__always)
     public func accessDense(_ denseIndex: Int) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: storage.elementPointer(denseIndex))
+        SingleTypedAccess(buffer: pointer.advanced(by: denseIndex))
     }
 
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: storage.elementPointer(indices[id.slot.rawValue]))
+        SingleTypedAccess(buffer: pointer.advanced(by: indices[id.slot.rawValue]))
     }
 
     @inlinable @inline(__always)
@@ -85,7 +85,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         guard index != .notFound else {
             return nil
         }
-        return SingleTypedAccess(buffer: storage.elementPointer(indices[id.slot.rawValue]))
+        return SingleTypedAccess(buffer: pointer.advanced(by: indices[id.slot.rawValue]))
     }
 }
 
@@ -94,11 +94,8 @@ extension TypedAccess {
     static var empty: TypedAccess {
         // a harmless instance that never resolves anything
         TypedAccess(
-            storage: UnmanagedContiguousStorage(
-                .passRetained(ContiguousBuffer.create(initialCapacity: 1)),
-                count: 0
-            ),
-            indices: []
+            pointer: .allocate(capacity: 0),
+            indices: UnmanagedPagedStorage(.passRetained(PagedBuffer.create(initialCapacity: 1)), count: 0, pageCount: 0)
         )
     }
 }

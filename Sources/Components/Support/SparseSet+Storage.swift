@@ -100,6 +100,11 @@ public struct ContiguousStorage<Element> {
             elementsPointer.advanced(by: j).initialize(to: iValue)
         }
     }
+
+    @inlinable @inline(__always)
+    public var baseAddress: UnsafeMutablePointer<Element> {
+        buffer.withUnsafeMutablePointerToElements { $0 }
+    }
 }
 
 public final class ContiguousBuffer<Element>: ManagedBuffer<Void, Element> {

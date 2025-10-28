@@ -1,9 +1,6 @@
 // TODO: Support paging for sparse array and also for dense storage.
 
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
-//    @usableFromInline
-//    private(set) var components: ContiguousArray<Component> = []
-
     @usableFromInline
     private(set) var storage: ContiguousStorage<Component> = ContiguousStorage(initialPageCapacity: 1024)
 
@@ -66,6 +63,13 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         _ body: (UnmanagedContiguousStorage<Component>) throws -> R
     ) rethrows -> R {
         try body(UnmanagedContiguousStorage(storage))
+    }
+
+    @inlinable @inline(__always)
+    public mutating func withUnsafeMutablePointer<R>(
+        _ body: (UnsafeMutablePointer<Component>) throws -> R
+    ) rethrows -> R {
+        try body(storage.baseAddress)
     }
 
     /// Returns true if this array contains a component for the given entity.
@@ -217,32 +221,37 @@ public protocol SparseArrayValue: Hashable, Comparable {
 }
 
 public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
+//    @usableFromInline
+//    private(set) var values: ContiguousArray<Value> = [] // TODO: This needs to be paged.
     @usableFromInline
-    private(set) var values: ContiguousArray<Value> = [] // TODO: This needs to be paged.
+    private(set) var values: PagedStorage<Value> = PagedStorage(initialPageCapacity: 4096)
 
     @inlinable @inline(__always)
     public var startIndex: Index {
-        Index(index: values.startIndex)
+        Index(index: 0)
     }
 
     @inlinable @inline(__always)
     public var endIndex: Index {
-        Index(index: values.endIndex)
+        Index(index: values.count)
     }
 
     @inlinable @inline(__always)
     public init(arrayLiteral elements: Value...) {
-        values = ContiguousArray(elements)
+        values = PagedStorage()
+        for element in elements {
+            values.append(element)
+        }
     }
 
     @inlinable @inline(__always)
     public func index(after i: Index) -> Index {
-        Index(index: values.index(after: i.index))
+        Index(index: i.index + 1)
     }
 
     @inlinable @inline(__always)
     public func index(before i: Index) -> Index {
-        Index(index: values.index(before: i.index))
+        Index(index: i.index - 1)
     }
 
     @inlinable @inline(__always)
@@ -269,11 +278,14 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @inline(__always)
     public mutating func append<S>(contentsOf newElements: S) where Element == S.Element, S: Sequence {
-        values.append(contentsOf: newElements)
+//        values.append(contentsOf: newElements)
+        for element in newElements {
+            values.append(element)
+        }
     }
 
     @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumCapacity: Int) {
-        values.reserveCapacity(minimumCapacity)
+//        values.reserveCapacity(minimumCapacity)
     }
 }

@@ -6,7 +6,32 @@ extension Tag {
   @Tag static var performance: Self
 }
 
+struct UnsafePagedStorage<Element> {
+    let baseAddress: UnsafeMutablePointer<UnsafeMutablePointer<Element>>
+    let count: Int
+
+    subscript(index: Int) -> UnsafeMutablePointer<Element> {
+        let page = index >> pageShift
+        let offset = index & pageMask
+        return baseAddress[page].advanced(by: 2).advanced(by: offset)
+    }
+}
+
 @Suite(.tags(.performance)) struct PerformanceTests {
+    @Test func testets() {
+        var buffer = PagedStorage<Int>(initialPageCapacity: 1024)
+        for i in 0..<4096 {
+            buffer.append(i)
+        }
+        let pointer = buffer.unsafeAddress
+        for i in 0..<4 {
+            let page = pointer.advanced(by: i).pointee.advanced(by: 2)
+            for j in 0..<1024 {
+                #expect(page[j] == i * 1024 + j)
+            }
+        }
+    }
+
     @Test func testPerformance() throws {
         let query = Query {
             Write<Transform>.self
