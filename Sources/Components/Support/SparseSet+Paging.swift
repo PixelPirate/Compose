@@ -139,7 +139,6 @@ public struct UnmanagedPagedStorage<Component> {
 
     public var pageCount: Int
 
-    @usableFromInline
     public var pages: UnsafeMutablePointer<UnsafeMutableBufferPointer<Component>>
 
     @inlinable @inline(__always)
@@ -188,7 +187,6 @@ public struct PagedStorage<Element> {
 
     public var pageCount: Int
 
-    @usableFromInline
     public var pages: UnsafeMutableBufferPointer<UnsafeMutableBufferPointer<Element>>
 
     @inlinable @inline(__always)
@@ -196,9 +194,13 @@ public struct PagedStorage<Element> {
         precondition(initialPageCapacity > 0)
         self.count = 0
         self.pageCount = 0
-        var buffer = UnsafeMutableBufferPointer<UnsafeMutableBufferPointer<Element>>.allocate(capacity: initialPageCapacity)
+        let buffer = UnsafeMutableBufferPointer<UnsafeMutableBufferPointer<Element>>.allocate(capacity: initialPageCapacity)
         for index in 0..<initialPageCapacity {
-            buffer.baseAddress!.advanced(by: index).initialize(to: UnsafeMutableBufferPointer<Element>())
+            buffer.baseAddress!.advanced(by: index).initialize(to: UnsafeMutableBufferPointer<Element>(_empty: ()))
+
+            // TODO: One of these two:
+            //UnsafeMutableBufferPointer<Element>(_empty: ())
+            //UnsafeMutableBufferPointer<Element>(start: nil, count: 0)
         }
         self.pages = buffer
     }
@@ -207,9 +209,9 @@ public struct PagedStorage<Element> {
     mutating func reset(initialPageCapacity: Int = defaultInitialPageCapacity) {
         deallocateAllPages()
         precondition(initialPageCapacity > 0)
-        var buffer = UnsafeMutableBufferPointer<UnsafeMutableBufferPointer<Element>>.allocate(capacity: initialPageCapacity)
+        let buffer = UnsafeMutableBufferPointer<UnsafeMutableBufferPointer<Element>>.allocate(capacity: initialPageCapacity)
         for index in 0..<initialPageCapacity {
-            buffer.baseAddress!.advanced(by: index).initialize(to: UnsafeMutableBufferPointer<Element>())
+            buffer.baseAddress!.advanced(by: index).initialize(to: UnsafeMutableBufferPointer<Element>(_empty: ()))
         }
         pages = buffer
         count = 0
@@ -232,7 +234,7 @@ public struct PagedStorage<Element> {
             let required = pageIndex + 1
             ensureCapacity(forPageCount: required)
             for i in pageCount..<required {
-                pages.baseAddress!.advanced(by: i).pointee = UnsafeMutableBufferPointer<Element>()
+                pages.baseAddress!.advanced(by: i).pointee = UnsafeMutableBufferPointer<Element>(_empty: ())
             }
             pageCount = required
         }
@@ -263,7 +265,7 @@ public struct PagedStorage<Element> {
         guard pageIndex < pageCount else { return }
         let pointer = pages.baseAddress!.advanced(by: pageIndex)
         deallocatePage(pointer.pointee)
-        pointer.pointee = UnsafeMutableBufferPointer<Element>()
+        pointer.pointee = UnsafeMutableBufferPointer<Element>(_empty: ())
         shrinkTrailingNilPages()
     }
 
@@ -314,7 +316,7 @@ public struct PagedStorage<Element> {
         let nextIndex = count
         let pageIndex = nextIndex >> pageShift
         let offset = nextIndex & pageMask
-        var page = ensurePage(forPage: pageIndex)
+        let page = ensurePage(forPage: pageIndex)
         guard let base = page.baseAddress else {
             fatalError("Missing page while appending element")
         }
@@ -352,7 +354,7 @@ public struct PagedStorage<Element> {
         if lastOffset == 0 {
             let lastPagePointer = pages.baseAddress!.advanced(by: lastPageIndex)
             deallocatePage(lastPagePointer.pointee)
-            lastPagePointer.pointee = UnsafeMutableBufferPointer<Element>()
+            lastPagePointer.pointee = UnsafeMutableBufferPointer<Element>(_empty: ())
             shrinkTrailingNilPages()
         }
 
@@ -365,14 +367,14 @@ public struct PagedStorage<Element> {
         let lastIndex = count - 1
         let pageIndex = lastIndex >> pageShift
         let offset = lastIndex & pageMask
-        var page = pages.baseAddress!.advanced(by: pageIndex).pointee
+        let page = pages.baseAddress!.advanced(by: pageIndex).pointee
         guard let base = page.baseAddress else {
             fatalError("Missing page while removing last element")
         }
         let removed = base.advanced(by: offset).move()
         if offset == 0 {
             deallocatePage(page)
-            pages.baseAddress!.advanced(by: pageIndex).pointee = UnsafeMutableBufferPointer<Element>()
+            pages.baseAddress!.advanced(by: pageIndex).pointee = UnsafeMutableBufferPointer<Element>(_empty: ())
             pageCount = pageIndex
             shrinkTrailingNilPages()
         }
@@ -415,7 +417,7 @@ public struct PagedStorage<Element> {
         }
         if newCapacity > oldCapacity {
             for index in oldCapacity..<newCapacity {
-                newBase.advanced(by: index).initialize(to: UnsafeMutableBufferPointer<Element>())
+                newBase.advanced(by: index).initialize(to: UnsafeMutableBufferPointer<Element>(_empty: ()))
             }
         }
         pages = newBuffer
@@ -467,7 +469,7 @@ public struct PagedStorage<Element> {
         }
         base.deinitialize(count: pages.count)
         pages.deallocate()
-        pages = UnsafeMutableBufferPointer()
+        pages = UnsafeMutableBufferPointer(_empty: ())
         count = 0
         pageCount = 0
     }
