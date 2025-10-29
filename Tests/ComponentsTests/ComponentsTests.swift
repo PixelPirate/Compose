@@ -2,6 +2,27 @@ import Testing
 @testable import Components
 import Synchronization
 import Atomics
+import Foundation
+
+final class ConcurrentAccessProbe {
+    private let active = ManagedAtomic<Int>(0)
+    private let violation = ManagedAtomic<Bool>(false)
+
+    func enter() {
+        let newValue = active.wrappingIncrementThenLoad(ordering: .acquiring)
+        if newValue > 1 {
+            violation.store(true, ordering: .relaxed)
+        }
+    }
+
+    func leave() {
+        active.wrappingDecrement(ordering: .releasing)
+    }
+
+    var hadViolation: Bool {
+        violation.load(ordering: .relaxed)
+    }
+}
 
 @Test func testQueryPerform() async throws {
     let query = Query {
@@ -92,7 +113,7 @@ import Atomics
     await confirmation(expectedCount: 1) { systemConfirmation in
         await confirmation(expectedCount: 1) { executorConfirmation in
             coordinator.addSystem(.update, system: TestSystem(confirmation: systemConfirmation))
-            #expect(coordinator.systemManager.schedules[.update]?.executor is SingleThreadedExecutor)
+            #expect(coordinator.systemManager.schedules[.update]?.executor is MultiThreadedExecutor)
             coordinator.update(.update) { schedule in
                 schedule.executor = TestExecutor(confirmation: executorConfirmation)
             }
@@ -166,6 +187,260 @@ import Atomics
     let result2 = lock.withLock { $0 }
 
     #expect(result2 == [TestSystem1.id, TestSystem2.id, TestSystem3.id])
+}
+
+@Test func multiThreadedExecutorAvoidsConcurrentComponentMutations() {
+    struct ComponentWriterA: System {
+        static let id = SystemID(name: "ComponentWriterA")
+        nonisolated(unsafe) static let query = Query { Write<Transform>.self }
+
+        let probe: ConcurrentAccessProbe
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            probe.enter()
+            defer { probe.leave() }
+
+            Self.query(context) { (transform: Write<Transform>) in
+                transform.position.x += 1
+            }
+
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+    }
+
+    struct ComponentWriterB: System {
+        static let id = SystemID(name: "ComponentWriterB")
+        nonisolated(unsafe) static let query = ComponentWriterA.query
+
+        let probe: ConcurrentAccessProbe
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            probe.enter()
+            defer { probe.leave() }
+
+            Self.query(context) { (transform: Write<Transform>) in
+                transform.position.x += 1
+            }
+
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+    }
+
+    let probe = ConcurrentAccessProbe()
+    let coordinator = Coordinator()
+    let entityCount = max(2, ProcessInfo.processInfo.processorCount) * 2
+
+    for _ in 0..<entityCount {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero)
+        )
+    }
+
+    coordinator.addSystem(.update, system: ComponentWriterA(probe: probe))
+    coordinator.addSystem(.update, system: ComponentWriterB(probe: probe))
+
+    coordinator.runSchedule(.update)
+
+    #expect(!probe.hadViolation)
+
+    let transforms = Array(Query { Transform.self }.fetchAll(coordinator))
+    #expect(transforms.count == entityCount)
+    #expect(transforms.allSatisfy { $0.position.x == Float(2) })
+}
+
+@Test func multiThreadedExecutorAvoidsConcurrentResourceMutations() {
+    struct SharedCounterResource: Sendable {
+        var value: Int
+    }
+
+    struct ResourceWriterA: System {
+        static let id = SystemID(name: "ResourceWriterA")
+
+        let probe: ConcurrentAccessProbe
+
+        var metadata: SystemMetadata {
+            SystemMetadata(
+                id: Self.id,
+                readSignature: ComponentSignature(),
+                writeSignature: ComponentSignature(),
+                excludedSignature: ComponentSignature(),
+                runAfter: [],
+                resourceAccess: [(ResourceKey(SharedCounterResource.self), .write)]
+            )
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            probe.enter()
+            defer { probe.leave() }
+
+            var counter = context.coordinator[resource: SharedCounterResource.self]
+            counter.value += 1
+            context.coordinator[resource: SharedCounterResource.self] = counter
+
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+    }
+
+    struct ResourceWriterB: System {
+        static let id = SystemID(name: "ResourceWriterB")
+
+        let probe: ConcurrentAccessProbe
+
+        var metadata: SystemMetadata {
+            SystemMetadata(
+                id: Self.id,
+                readSignature: ComponentSignature(),
+                writeSignature: ComponentSignature(),
+                excludedSignature: ComponentSignature(),
+                runAfter: [],
+                resourceAccess: [(ResourceKey(SharedCounterResource.self), .write)]
+            )
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            probe.enter()
+            defer { probe.leave() }
+
+            var counter = context.coordinator[resource: SharedCounterResource.self]
+            counter.value += 1
+            context.coordinator[resource: SharedCounterResource.self] = counter
+
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+    }
+
+    let probe = ConcurrentAccessProbe()
+    let coordinator = Coordinator()
+    coordinator.addRessource(SharedCounterResource(value: 0))
+
+    coordinator.addSystem(.update, system: ResourceWriterA(probe: probe))
+    coordinator.addSystem(.update, system: ResourceWriterB(probe: probe))
+
+    coordinator.runSchedule(.update)
+
+    #expect(!probe.hadViolation)
+
+    let counter = coordinator[resource: SharedCounterResource.self]
+    #expect(counter.value == 2)
+}
+
+@Test func queryPerformParallelRespectsFilteringAndMutatesOnce() {
+    struct ParallelMarker: Component, Sendable {
+        static let componentTag = ComponentTag.makeTag()
+
+        init() {}
+    }
+
+    struct ParallelBlocker: Component, Sendable {
+        static let componentTag = ComponentTag.makeTag()
+
+        init() {}
+    }
+
+    let readQuery = Query {
+        WithEntityID.self
+        Transform.self
+        With<ParallelMarker>.self
+        Without<ParallelBlocker>.self
+    }
+
+    let writeQuery = Query {
+        WithEntityID.self
+        Write<Transform>.self
+        With<ParallelMarker>.self
+        Without<ParallelBlocker>.self
+    }
+
+    let coordinator = Coordinator()
+    let coreCount = max(2, ProcessInfo.processInfo.processorCount)
+    var included: [Entity.ID] = []
+    for _ in 0..<(coreCount * 2) {
+        included.append(
+            coordinator.spawn(
+                Transform(position: .zero, rotation: .zero, scale: .zero),
+                ParallelMarker()
+            )
+        )
+    }
+
+    let excludedID = coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        ParallelMarker(),
+        ParallelBlocker()
+    )
+
+    let missingMarkerID = coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero)
+    )
+
+    _ = coordinator.spawn(ParallelMarker())
+
+    var expected = Set<Entity.ID>()
+    readQuery(coordinator) { (id: Entity.ID, _: Transform) in
+        expected.insert(id)
+    }
+
+    #expect(expected == Set(included))
+
+    let invocationCount = ManagedAtomic<Int>(0)
+    let results = Mutex<Set<Entity.ID>>(Set())
+
+    writeQuery.performParallel(coordinator) { (id: Entity.ID, transform: Write<Transform>) in
+        transform.position.x += 1
+        _ = results.withLock { $0.insert(id) }
+        invocationCount.wrappingIncrement(ordering: .relaxed)
+    }
+
+    let parallelIDs = results.withLock { $0 }
+    #expect(parallelIDs == expected)
+    #expect(invocationCount.load(ordering: .relaxed) == expected.count)
+
+    let transformPairs = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator))
+    let transformsByID = Dictionary(uniqueKeysWithValues: transformPairs)
+
+    for id in included {
+        #expect(transformsByID[id]?.position.x ?? Float(-1) == Float(1))
+    }
+
+    #expect(transformsByID[excludedID]?.position.x ?? Float(-1) == Float(0))
+    #expect(transformsByID[missingMarkerID]?.position.x ?? Float(-1) == Float(0))
+}
+
+@Test func queryPerformParallelOnContextProcessesAllEntities() {
+    let query = Query {
+        Write<Transform>.self
+    }
+
+    let coordinator = Coordinator()
+    let entityCount = max(2, ProcessInfo.processInfo.processorCount) * 2
+
+    for _ in 0..<entityCount {
+        coordinator.spawn(
+            Transform(position: .zero, rotation: .zero, scale: .zero)
+        )
+    }
+
+    let invocationCount = ManagedAtomic<Int>(0)
+    let context = QueryContext(coordinator: coordinator)
+
+    query.performParallel(context) { (transform: Write<Transform>) in
+        transform.position.x += 1
+        invocationCount.wrappingIncrement(ordering: .relaxed)
+    }
+
+    #expect(invocationCount.load(ordering: .relaxed) == entityCount)
+
+    let transforms = Array(Query { Transform.self }.fetchAll(coordinator))
+    #expect(transforms.count == entityCount)
+    #expect(transforms.allSatisfy { $0.position.x == Float(1) })
 }
 
 @Test func mainScheduleRunsAllStages() {
