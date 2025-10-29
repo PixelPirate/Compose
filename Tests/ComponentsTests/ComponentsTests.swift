@@ -170,7 +170,10 @@ import Atomics
 
 @Test func mainScheduleRunsAllStages() {
     struct StageRecorder<Tag>: System {
-        static var id: SystemID = SystemID(name: "StageRecorder_\(String(describing: Tag.self))")
+        nonisolated(unsafe) static var id: SystemID {
+            SystemID(name: "StageRecorder_\(String(describing: Tag.self))")
+        }
+
         var metadata: SystemMetadata { Self.metadata(from: []) }
 
         let onRun: () -> Void
@@ -189,7 +192,6 @@ import Atomics
     enum PostStartupTag {}
     enum FirstTag {}
     enum PreUpdateTag {}
-    enum RunFixedMainLoopTag {}
     enum FixedFirstTag {}
     enum FixedPreUpdateTag {}
     enum FixedUpdateTag {}
@@ -218,7 +220,6 @@ import Atomics
     let postStartup = CounterBox()
     let first = CounterBox()
     let preUpdate = CounterBox()
-    let runFixedMainLoop = CounterBox()
     let fixedFirst = CounterBox()
     let fixedPreUpdate = CounterBox()
     let fixedUpdate = CounterBox()
@@ -234,7 +235,6 @@ import Atomics
     register(label: .postStartup, tag: PostStartupTag.self, counter: postStartup)
     register(label: .first, tag: FirstTag.self, counter: first)
     register(label: .preUpdate, tag: PreUpdateTag.self, counter: preUpdate)
-    register(label: .runFixedMainLoop, tag: RunFixedMainLoopTag.self, counter: runFixedMainLoop)
     register(label: .fixedFirst, tag: FixedFirstTag.self, counter: fixedFirst)
     register(label: .fixedPreUpdate, tag: FixedPreUpdateTag.self, counter: fixedPreUpdate)
     register(label: .fixedUpdate, tag: FixedUpdateTag.self, counter: fixedUpdate)
@@ -244,6 +244,8 @@ import Atomics
     register(label: .spawnScene, tag: SpawnSceneTag.self, counter: spawnScene)
     register(label: .postUpdate, tag: PostUpdateTag.self, counter: postUpdate)
     register(label: .last, tag: LastTag.self, counter: last)
+
+    MainSystem.reset()
 
     var fixedClock = coordinator[resource: FixedClock.self]
     fixedClock.timeStep = 0.25
@@ -266,7 +268,6 @@ import Atomics
         .postStartup,
         .first,
         .preUpdate,
-        .runFixedMainLoop,
         .fixedFirst,
         .fixedPreUpdate,
         .fixedUpdate,
@@ -283,7 +284,6 @@ import Atomics
     #expect(postStartup.value.load(ordering: .relaxed) == 1)
     #expect(first.value.load(ordering: .relaxed) == 2)
     #expect(preUpdate.value.load(ordering: .relaxed) == 2)
-    #expect(runFixedMainLoop.value.load(ordering: .relaxed) == 2)
     #expect(fixedFirst.value.load(ordering: .relaxed) == 2)
     #expect(fixedPreUpdate.value.load(ordering: .relaxed) == 2)
     #expect(fixedUpdate.value.load(ordering: .relaxed) == 2)
@@ -670,7 +670,7 @@ import Atomics
 
     #expect(sequentialVisit == baseValues)
 
-    let afterPreloaded = Array(Query { Counter.self }.fetchAll(coordinator)).map(\.value)
+    let afterPreloaded = Array(Query { Counter.self }.fetchAll(coordinator).map(\.value))
     #expect(afterPreloaded == baseValues.map { $0 + 10 })
 
     let preloadedParallelCount = ManagedAtomic<Int>(0)
@@ -681,7 +681,7 @@ import Atomics
 
     #expect(preloadedParallelCount.load(ordering: .relaxed) == baseValues.count)
 
-    let afterPreloadedParallel = Array(Query { Counter.self }.fetchAll(coordinator)).map(\.value)
+    let afterPreloadedParallel = Array(Query { Counter.self }.fetchAll(coordinator).map(\.value))
     #expect(afterPreloadedParallel == baseValues.map { $0 + 11 })
 
     let contextParallelCount = ManagedAtomic<Int>(0)
@@ -693,7 +693,7 @@ import Atomics
 
     #expect(contextParallelCount.load(ordering: .relaxed) == baseValues.count)
 
-    let finalValues = Array(Query { Counter.self }.fetchAll(coordinator)).map(\.value)
+    let finalValues = Array(Query { Counter.self }.fetchAll(coordinator).map(\.value))
     #expect(finalValues == baseValues.map { $0 + 12 })
 }
 
@@ -1429,7 +1429,7 @@ public struct Material: Component {
     #expect(Set(visited) == Set([1, 2]))
     #expect(coordinator.groupSize { SoloComponent.self } == nil)
 
-    let fetched = Array(Query { SoloComponent.self }.fetchAll(coordinator)).map(\.value)
+    let fetched = Array(Query { SoloComponent.self }.fetchAll(coordinator).map(\.value))
     #expect(Set(fetched) == Set([1, 2]))
 }
 

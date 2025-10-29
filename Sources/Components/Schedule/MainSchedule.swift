@@ -68,4 +68,8 @@ struct MainSystem: System {
             context.coordinator.runSchedule(order)
         }
     }
+
+    static func reset() {
+        _ = Self.first.exchange(true, ordering: .sequentiallyConsistent)
+    }
 }
