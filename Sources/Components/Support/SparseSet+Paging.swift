@@ -1,4 +1,38 @@
 @usableFromInline
+struct PageCursor<Element> {
+    @usableFromInline var lastPageIndex: Int = -1
+    @usableFromInline var elements: UnsafeMutablePointer<Element>? = nil
+
+    @usableFromInline
+    init(lastPageIndex: Int = -1, elements: UnsafeMutablePointer<Element>? = nil) {
+        self.lastPageIndex = lastPageIndex
+        self.elements = elements
+    }
+}
+
+extension UnmanagedPagedStorage {
+    @inlinable @inline(__always)
+    func load(at index: Int, using cursor: inout PageCursor<Component>) -> Component {
+        let pageIndex = index >> pageShift
+        let offset = index & pageMask
+        if cursor.lastPageIndex != pageIndex {
+            cursor.elements = pages._withUnsafeGuaranteedRef { buf in
+                buf.withElements(atPage: pageIndex) { pagePtr in
+                    pagePtr.pointee.withUnsafeMutablePointerToElements { $0 }
+                }
+            }
+            cursor.lastPageIndex = pageIndex
+        }
+        return cursor.elements!.advanced(by: offset).pointee
+    }
+
+    @inlinable @inline(__always)
+    func isNotFound(at index: Int, using cursor: inout PageCursor<ContiguousArray.Index>) -> Bool where Component == ContiguousArray.Index {
+        load(at: index, using: &cursor) == .notFound
+    }
+}
+
+@usableFromInline
 let defaultInitialPageCapacity = 1
 
 @usableFromInline

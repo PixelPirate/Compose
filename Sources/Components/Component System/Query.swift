@@ -226,11 +226,16 @@ extension Query {
     public func fetchOne(_ context: some QueryContextConvertible) -> (repeat (each T).ReadOnlyResolvedType)? {
         let context = context.queryContext
         let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
+        var otherCursors = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: otherComponents.count)
+        var excludedCursors = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: excludedComponents.count)
+
         return withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            for slot in baseSlots where Self.passes(
-                slot: slot,
-                otherComponents: otherComponents,
-                excludedComponents: excludedComponents
+            for slot in baseSlots where Self.passesWithCursors(
+                raw: slot.rawValue,
+                other: otherComponents,
+                excluded: excludedComponents,
+                otherCursors: &otherCursors,
+                excludedCursors: &excludedCursors
             ) {
                 return (
                     repeat (each T).makeReadOnlyResolved(
@@ -394,23 +399,70 @@ extension Query {
 }
 
 extension Query {
+//    @inlinable @inline(__always)
+//    static func passes(
+//        slot: SlotIndex,
+//        otherComponents: [UnmanagedPagedStorage<ContiguousArray.Index>],
+//        excludedComponents: [UnmanagedPagedStorage<ContiguousArray.Index>]
+//    ) -> Bool {
+//        let slotRaw = slot.rawValue
+//
+//        for component in otherComponents where component[slotRaw] == .notFound {
+//            // Entity does not have all required components, skip.
+//            return false
+//        }
+//        for component in excludedComponents where component[slotRaw] != .notFound {
+//            // Entity has at least one excluded component, skip.
+//            return false
+//        }
+//
+//        return true
+//    }
+
+//    @inlinable @inline(__always)
+//    static func passes(
+//        slot: SlotIndex,
+//        otherComponents: [UnmanagedPagedStorage<ContiguousArray.Index>],
+//        excludedComponents: [UnmanagedPagedStorage<ContiguousArray.Index>]
+//    ) -> Bool {
+//        let i = slot.rawValue
+//        // One cursor per array
+//        var cursorsOther = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: otherComponents.count)
+//        var cursorsEx = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: excludedComponents.count)
+//
+//        // Required
+//        var k = 0
+//        while k < otherComponents.count {
+//            if otherComponents[k].isNotFound(at: i, using: &cursorsOther[k]) { return false }
+//            k &+= 1
+//        }
+//        // Excluded
+//        k = 0
+//        while k < excludedComponents.count {
+//            if !excludedComponents[k].isNotFound(at: i, using: &cursorsEx[k]) { return false }
+//            k &+= 1
+//        }
+//        return true
+//    }
+
     @inlinable @inline(__always)
-    static func passes(
-        slot: SlotIndex,
-        otherComponents: [UnmanagedPagedStorage<ContiguousArray.Index>],
-        excludedComponents: [UnmanagedPagedStorage<ContiguousArray.Index>]
+    static func passesWithCursors(
+        raw i: Int,
+        other: [UnmanagedPagedStorage<ContiguousArray.Index>],
+        excluded: [UnmanagedPagedStorage<ContiguousArray.Index>],
+        otherCursors: inout [PageCursor<ContiguousArray.Index>],
+        excludedCursors: inout [PageCursor<ContiguousArray.Index>]
     ) -> Bool {
-        let slotRaw = slot.rawValue
-
-        for component in otherComponents where component[slotRaw] == .notFound {
-            // Entity does not have all required components, skip.
-            return false
+        var k = 0
+        while k < other.count {
+            if other[k].isNotFound(at: i, using: &otherCursors[k]) { return false }
+            k &+= 1
         }
-        for component in excludedComponents where component[slotRaw] != .notFound {
-            // Entity has at least one excluded component, skip.
-            return false
+        k = 0
+        while k < excluded.count {
+            if !excluded[k].isNotFound(at: i, using: &excludedCursors[k]) { return false }
+            k &+= 1
         }
-
         return true
     }
 
@@ -418,12 +470,17 @@ extension Query {
     public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
+        var otherCursors = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: otherComponents.count)
+        var excludedCursors = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: excludedComponents.count)
+
         withUnsafePointer(to: context.coordinator.indices) { indices in
             withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                for slot in baseSlots where Self.passes(
-                    slot: slot,
-                    otherComponents: otherComponents,
-                    excludedComponents: excludedComponents
+                for slot in baseSlots where Self.passesWithCursors(
+                    raw: slot.rawValue,
+                    other: otherComponents,
+                    excluded: excludedComponents,
+                    otherCursors: &otherCursors,
+                    excludedCursors: &excludedCursors
                 ) {
                     let id = Entity.ID(
                         slot: SlotIndex(rawValue: slot.rawValue),

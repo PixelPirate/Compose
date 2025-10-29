@@ -10,26 +10,151 @@ struct UnsafePagedStorage<Element> {
     let baseAddress: UnsafeMutablePointer<UnsafeMutablePointer<Element>>
     let count: Int
 
-    subscript(index: Int) -> UnsafeMutablePointer<Element> {
-        let page = index >> pageShift
-        let offset = index & pageMask
-        return baseAddress[page].advanced(by: 2).advanced(by: offset)
+
+    @inlinable @inline(__always)
+    subscript(index: Int) -> Element {
+        @_transparent
+        unsafeAddress {
+            let page = index >> pageShift
+            let offset = index & pageMask
+            let pageBase = baseAddress[page]
+            let pagePointer = UnsafePointer<Element>(
+                UnsafeRawPointer(pageBase)
+                    .advanced(by: MemoryLayout<Int64>.stride * 2)
+                    .assumingMemoryBound(to: Element.self)
+            )
+            return pagePointer.advanced(by: offset)
+        }
+
+        @_transparent
+        unsafeMutableAddress {
+            let page = index >> pageShift
+            let offset = index & pageMask
+            let pageBase = baseAddress[page]
+            let pagePointer = UnsafeMutablePointer<Element>(
+                mutating: UnsafeRawPointer(pageBase)
+                    .advanced(by: MemoryLayout<Int64>.stride * 2)
+                    .assumingMemoryBound(to: Element.self)
+            )
+            return pagePointer.advanced(by: offset)
+        }
     }
 }
 
 @Suite(.tags(.performance)) struct PerformanceTests {
     @Test func testets() {
-        var buffer = PagedStorage<Int>(initialPageCapacity: 1024)
+        var buffer = PagedStorage<SIMD3<Int>>(initialPageCapacity: 1024)
         for i in 0..<4096 {
-            buffer.append(i)
+            buffer.append(.init(i, i, i))
         }
-        let pointer = buffer.unsafeAddress
-        for i in 0..<4 {
-            let page = pointer.advanced(by: i).pointee.advanced(by: 2)
-            for j in 0..<1024 {
-                #expect(page[j] == i * 1024 + j)
+        let clock = ContinuousClock()
+        let directDuration = clock.measure {
+            let pointer = buffer.unsafeAddress
+            for i in [0, 1, 2, 3].shuffled() {
+                let buffer = pointer.advanced(by: i).pointee
+                let page = UnsafeMutablePointer<SIMD3<Int>>(
+                    mutating: UnsafeRawPointer(buffer)
+                        .advanced(by: MemoryLayout<Int64>.stride * 2)
+                        .assumingMemoryBound(to: SIMD3<Int>.self)
+                )
+                for j in (0..<1024).map({ $0 }).shuffled() {
+                    #expect(page[j] == .init(i * 1024 + j, i * 1024 + j, i * 1024 + j))
+                }
             }
         }
+
+        let wrappedDuration = clock.measure {
+            let pointer = buffer.unsafeAddress
+            let x = UnsafePagedStorage(baseAddress: pointer, count: 4096)
+            for i in (0..<4096).map({ $0 }).shuffled() {
+                #expect(x[i] == .init(i, i, i))
+            }
+        }
+
+        var contBuffer = ContiguousStorage<SIMD3<Int>>(initialPageCapacity: 1024)
+        for i in 0..<4096 {
+            contBuffer.append(.init(i, i, i))
+        }
+        let contDuration = clock.measure {
+            let contPointer = contBuffer.baseAddress
+            for i in (0..<4096).map({ $0 }).shuffled() {
+                #expect(contPointer[i] == .init(i, i, i))
+            }
+        }
+
+        let unmanagedDuration = clock.measure {
+            let unmanaged = UnmanagedPagedStorage(buffer)
+            for i in (0..<4096).map({ $0 }).shuffled() {
+                #expect(unmanaged[i] == .init(i, i, i))
+            }
+        }
+
+        print("Direct:", directDuration, "Wrapped:", wrappedDuration, "Cont:", contDuration, "Unmanaged:", unmanagedDuration)
+    }
+    @Test func paged_vs_contiguous_random_probes_interleaved() {
+        let N = 1_000_000
+        let K = 300_000
+        var rng = SystemRandomNumberGenerator()
+
+        // Build 3 “required” maps and 1 “excluded” map
+        var contA = ContiguousArray<Int>(repeating: .notFound, count: N)
+        var contB = ContiguousArray<Int>(repeating: .notFound, count: N)
+        var contC = ContiguousArray<Int>(repeating: .notFound, count: N)
+        var contX = ContiguousArray<Int>(repeating: .notFound, count: N)
+
+        // Flip entries to simulate presence
+        for i in stride(from: 0, to: N, by: 3) { contA[i] = i }
+        for i in stride(from: 1, to: N, by: 3) { contB[i] = i }
+        for i in stride(from: 2, to: N, by: 3) { contC[i] = i }
+        for i in stride(from: 5, to: N, by: 5) { contX[i] = i } // excluded
+
+        // Build paged copies
+        var pagA = PagedStorage<Int>(initialPageCapacity: 1024)
+        var pagB = PagedStorage<Int>(initialPageCapacity: 1024)
+        var pagC = PagedStorage<Int>(initialPageCapacity: 1024)
+        var pagX = PagedStorage<Int>(initialPageCapacity: 1024)
+        for i in 0..<N {
+            pagA.append(contA[i])
+            pagB.append(contB[i])
+            pagC.append(contC[i])
+            pagX.append(contX[i])
+        }
+        let uA = UnmanagedPagedStorage(pagA)
+        let uB = UnmanagedPagedStorage(pagB)
+        let uC = UnmanagedPagedStorage(pagC)
+        let uX = UnmanagedPagedStorage(pagX)
+
+        // Precompute random indices once
+        let queries: [Int] = (0..<K).map { _ in Int.random(in: 0..<N, using: &rng) }
+
+        // Simple blackhole
+        @inline(__always) func sink<T>(_ x: T) { withUnsafeBytes(of: x) { _ = $0 } }
+
+        func passesContig(_ i: Int) -> Bool {
+            contA[i] != .notFound &&
+            contB[i] != .notFound &&
+            contC[i] != .notFound &&
+            contX[i] == .notFound
+        }
+        func passesPaged(_ i: Int) -> Bool {
+            uA[i] != .notFound &&
+            uB[i] != .notFound &&
+            uC[i] != .notFound &&
+            uX[i] == .notFound
+        }
+
+        let clock = ContinuousClock()
+        let tContig = clock.measure {
+            var count = 0
+            for q in queries { if passesContig(q) { count &+= 1 } }
+            sink(count)
+        }
+        let tPaged = clock.measure {
+            var count = 0
+            for q in queries { if passesPaged(q) { count &+= 1 } }
+            sink(count)
+        }
+        print("Random interleaved: contiguous:", tContig, "paged:", tPaged)
     }
 
     @Test func testPerformance() throws {

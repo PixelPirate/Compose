@@ -156,6 +156,32 @@ public final class ContiguousBuffer<Element>: ManagedBuffer<Void, Element> {
         }
     }
 
+    @_transparent
+    internal mutating func _ensureFreeCapacity(_ freeCapacity: Int) {
+        guard _storage.freeCapacity < freeCapacity else { return }
+        _ensureFreeCapacitySlow(freeCapacity)
+    }
+
+    @_transparent
+    internal func _grow(freeCapacity: Int) -> Int {
+        Swift.max(
+            count + freeCapacity,
+            _growDynamicArrayCapacity(capacity))
+    }
+
+    @inlinable
+    internal mutating func _ensureFreeCapacitySlow(_ freeCapacity: Int) {
+        let newCapacity = _grow(freeCapacity: freeCapacity)
+        reallocate(capacity: newCapacity)
+    }
+    @_transparent
+    internal func _growDynamicArrayCapacity(_ capacity: Int) -> Int {
+        // A growth factor of 1.5 seems like a reasonable compromise between
+        // over-allocating memory and wasting cycles on repeatedly resizing storage.
+        let c = (3 &* UInt(bitPattern: capacity) &+ 1) / 2
+        return Int(bitPattern: c)
+    }
+
     @usableFromInline @inline(__always)
     func nextCapacity(current: Int, needed: Int) -> Int {
         var cap = max(current, 0)

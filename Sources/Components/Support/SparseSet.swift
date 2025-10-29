@@ -20,7 +20,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     public var indices: Range<Int> {
-        0..<storage.count
+        Range(uncheckedBounds: (0, storage.count))
     }
 
     @inlinable @inline(__always)
