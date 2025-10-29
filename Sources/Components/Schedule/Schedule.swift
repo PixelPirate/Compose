@@ -28,7 +28,7 @@ public struct Schedule {
     internal var systems: [any System]
 
     @inlinable
-    public init(label: ScheduleLabel, systems: [any System] = [], executor: any Executor = SingleThreadedExecutor()) {
+    public init(label: ScheduleLabel, systems: [any System] = [], executor: any Executor = MultiThreadedExecutor()) {
         self.label = label
         self.executor = executor
         self.systems = systems
