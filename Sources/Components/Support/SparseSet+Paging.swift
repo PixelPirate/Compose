@@ -18,7 +18,7 @@ extension UnmanagedPagedStorage {
         if cursor.lastPageIndex != pageIndex {
             cursor.elements = pages._withUnsafeGuaranteedRef { buf in
                 buf.withElements(atPage: pageIndex) { pagePtr in
-                    pagePtr.pointee.withUnsafeMutablePointerToElements { $0 }
+                    pagePtr.pointee?.withUnsafeMutablePointerToElements { $0 }
                 }
             }
             cursor.lastPageIndex = pageIndex
@@ -61,8 +61,8 @@ extension UnsafePagedStorage {
 
     @inlinable
     func missingPageValue() -> Element {
-        if Element.self == ContiguousArray.Index.self {
-            return unsafeBitCast(ContiguousArray.Index.notFound, to: Element.self)
+        if Element.self == ContiguousArray<Void>.Index.self {
+            return unsafeBitCast(ContiguousArray<Void>.Index.notFound, to: Element.self)
         }
         fatalError("Attempted to access a missing page in UnsafePagedStorage for type \(Element.self)")
     }
@@ -280,7 +280,7 @@ public struct PagedStorage<Element> {
         let offsetJ = j & pageMask
         if pageIndexI == pageIndexJ {
             pages.withElements(atPage: pageIndexI) { pagePointer in
-                pagePointer.pointee.withUnsafeMutablePointerToElements { elementsPointer in
+                pagePointer.pointee?.withUnsafeMutablePointerToElements { elementsPointer in
                     let iValue = elementsPointer.advanced(by: offsetI).move()
                     elementsPointer.moveInitialize(from: elementsPointer.advanced(by: offsetJ), count: 1)
                     elementsPointer.advanced(by: offsetJ).initialize(to: iValue)
@@ -290,8 +290,8 @@ public struct PagedStorage<Element> {
             pages.withUnsafeMutablePointerToElements { pagesPointer in
                 let pageIPointer = pagesPointer.advanced(by: pageIndexI)
                 let pageJPointer = pagesPointer.advanced(by: pageIndexJ)
-                pageIPointer.pointee.withUnsafeMutablePointerToElements { elementsIPointer in
-                    pageJPointer.pointee.withUnsafeMutablePointerToElements { elementsJPointer in
+                pageIPointer.pointee?.withUnsafeMutablePointerToElements { elementsIPointer in
+                    pageJPointer.pointee?.withUnsafeMutablePointerToElements { elementsJPointer in
                         let iValue = elementsIPointer.advanced(by: offsetI).move()
                         elementsIPointer.moveInitialize(from: elementsJPointer.advanced(by: offsetJ), count: 1)
                         elementsJPointer.advanced(by: offsetJ).initialize(to: iValue)

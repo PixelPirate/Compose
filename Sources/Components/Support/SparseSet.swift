@@ -211,7 +211,7 @@ public protocol SparseArrayValue: Hashable, Comparable {
     var index: Array.Index { get }
 
     @inlinable @inline(__always)
-    static var notFound: Array.Index { get }
+    static var notFound: Self { get }
 
     @inlinable @inline(__always)
     init(index: Array.Index)

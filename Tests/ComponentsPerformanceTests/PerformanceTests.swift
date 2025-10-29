@@ -31,7 +31,7 @@ extension Tag {
 
         let wrappedDuration = clock.measure {
             let pointer = buffer.unsafeAddress
-            let x = UnsafePagedStorage(baseAddress: pointer, count: 4096, pageCount: buffer.pageCount)
+            let x = UnsafePagedStorage<SIMD3<Int>>(baseAddress: pointer, count: 4096, pageCount: buffer.pageCount)
             for i in (0..<4096).map({ $0 }).shuffled() {
                 #expect(x[i] == .init(i, i, i))
             }
@@ -57,6 +57,7 @@ extension Tag {
 
         print("Direct:", directDuration, "Wrapped:", wrappedDuration, "Cont:", contDuration, "Unmanaged:", unmanagedDuration)
     }
+
     @Test func paged_vs_contiguous_random_probes_interleaved() {
         let N = 1_000_000
         let K = 300_000
@@ -1302,7 +1303,7 @@ public struct Person: Component {
         storage.pages.withUnsafeMutablePointerToElements { pagesPointer in
             for pageIndex in 0..<storage.pageCount-1 {
                 let page = pagesPointer.advanced(by: pageIndex).pointee
-                page.withUnsafeMutablePointerToElements { elementsPointer in
+                page?.withUnsafeMutablePointerToElements { elementsPointer in
                     for index in 0..<1024 {
                         elementsPointer.advanced(by: index).pointee.value *= -1
                     }
@@ -1312,7 +1313,7 @@ public struct Person: Component {
             let lastPageIndex = lastIndex >> pageShift
             let lastOffset = lastIndex & pageMask
             let lastPage = pagesPointer.advanced(by: lastPageIndex).pointee
-            lastPage.withUnsafeMutablePointerToElements { elementsPointer in
+            lastPage?.withUnsafeMutablePointerToElements { elementsPointer in
                 for index in 0...lastOffset {
                     elementsPointer.advanced(by: index).pointee.value *= -1
                 }
