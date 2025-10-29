@@ -88,10 +88,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     mutating public func ensureEntity(_ slot: SlotIndex) {
-        if !slots.contains(index: slot) {
-            let missingCount = (slot.index + 1) - slots.count
-            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
-        }
+        // Capacity is now grown on demand when assigning values.
     }
 
     @inlinable @inline(__always)
@@ -225,6 +222,8 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 //    private(set) var values: ContiguousArray<Value> = [] // TODO: This needs to be paged.
     @usableFromInline
     private(set) var values: PagedStorage<Value> = PagedStorage(initialPageCapacity: 4096)
+    @usableFromInline
+    var pageOccupancy: [Int: Int] = [:]
 
     @inlinable @inline(__always)
     public var startIndex: Index {
@@ -239,8 +238,11 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
     @inlinable @inline(__always)
     public init(arrayLiteral elements: Value...) {
         values = PagedStorage()
+        pageOccupancy = [:]
+        var index = 0
         for element in elements {
-            values.append(element)
+            self[Index(index: index)] = element
+            index += 1
         }
     }
 
@@ -263,24 +265,75 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @inline(__always)
     public subscript(index: Index) -> Value {
-        _read {
-            yield values[index.index]
+        get {
+            let raw = index.index
+            guard raw < values.count else { return .notFound }
+            let pageIndex = raw >> pageShift
+            guard let page = values.page(at: pageIndex) else { return .notFound }
+            let offset = raw & pageMask
+            return page.value(at: offset)
         }
-        _modify {
-            yield &values[index.index]
+        set {
+            let raw = index.index
+            let pageIndex = raw >> pageShift
+            let offset = raw & pageMask
+
+            if newValue == .notFound {
+                guard let page = values.page(at: pageIndex) else { return }
+                page.withUnsafeMutablePointerToElements { pointer in
+                    let slot = pointer.advanced(by: offset)
+                    if slot.pointee == .notFound {
+                        return
+                    }
+                    slot.pointee = .notFound
+                }
+                if let current = pageOccupancy[pageIndex] {
+                    if current <= 1 {
+                        pageOccupancy.removeValue(forKey: pageIndex)
+                        values.removePage(at: pageIndex)
+                    } else {
+                        pageOccupancy[pageIndex] = current - 1
+                    }
+                }
+                values.shrinkTrailingNilPages()
+                return
+            }
+
+            var page = values.page(at: pageIndex)
+            if page == nil {
+                page = values.ensurePage(forPage: pageIndex)
+                page!.withUnsafeMutablePointerToElements { pointer in
+                    pointer.initialize(repeating: .notFound, count: pageCapacity)
+                }
+                pageOccupancy[pageIndex] = 0
+            }
+            guard let existingPage = page else { return }
+            existingPage.withUnsafeMutablePointerToElements { pointer in
+                let slot = pointer.advanced(by: offset)
+                if slot.pointee == .notFound {
+                    pageOccupancy[pageIndex, default: 0] += 1
+                }
+                slot.pointee = newValue
+            }
+            values.updateCountForPageIndex(pageIndex)
         }
     }
 
     @inlinable @inline(__always)
     public func contains(index: Index) -> Bool {
-        index.index < values.count
+        let raw = index.index
+        guard raw < values.count else { return false }
+        let pageIndex = raw >> pageShift
+        return values.page(at: pageIndex) != nil
     }
 
     @inlinable @inline(__always)
     public mutating func append<S>(contentsOf newElements: S) where Element == S.Element, S: Sequence {
 //        values.append(contentsOf: newElements)
+        var next = count
         for element in newElements {
-            values.append(element)
+            self[Index(index: next)] = element
+            next += 1
         }
     }
 

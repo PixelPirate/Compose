@@ -16,12 +16,13 @@ extension Tag {
         let directDuration = clock.measure {
             let pointer = buffer.unsafeAddress
             for i in [0, 1, 2, 3].shuffled() {
-                let buffer = pointer.advanced(by: i).pointee
-                let page = UnsafeMutablePointer<SIMD3<Int>>(
-                    mutating: UnsafeRawPointer(buffer)
-                        .advanced(by: MemoryLayout<Int64>.stride * 2)
-                        .assumingMemoryBound(to: SIMD3<Int>.self)
-                )
+                guard let base = pointer.advanced(by: i).pointee else {
+                    #expect(Bool(false), "Missing page")
+                    continue
+                }
+                let page = base
+                    .advanced(by: MemoryLayout<Int64>.stride * 2)
+                    .assumingMemoryBound(to: SIMD3<Int>.self)
                 for j in (0..<1024).map({ $0 }).shuffled() {
                     #expect(page[j] == .init(i * 1024 + j, i * 1024 + j, i * 1024 + j))
                 }
@@ -30,7 +31,7 @@ extension Tag {
 
         let wrappedDuration = clock.measure {
             let pointer = buffer.unsafeAddress
-            let x = UnsafePagedStorage(baseAddress: pointer, count: 4096)
+            let x = UnsafePagedStorage(baseAddress: pointer, count: 4096, pageCount: buffer.pageCount)
             for i in (0..<4096).map({ $0 }).shuffled() {
                 #expect(x[i] == .init(i, i, i))
             }

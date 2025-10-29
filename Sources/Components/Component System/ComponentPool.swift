@@ -1,7 +1,6 @@
 public struct ComponentPool {
     @usableFromInline
     private(set) var components: [ComponentTag: AnyComponentArray] = [:]
-    private var ensuredEntityID: Entity.ID?
 
     public init(components: [ComponentTag : AnyComponentArray] = [:]) {
         self.components = components
@@ -18,19 +17,10 @@ public struct ComponentPool {
 
 extension ComponentPool {
     @usableFromInline
-    mutating func ensureSparseSetCount(includes entityID: Entity.ID) {
-        for component in components.values {
-            component.ensureEntity(entityID)
-        }
-        ensuredEntityID = entityID
-    }
-
-    @usableFromInline
     mutating func append<C: Component>(_ component: C, for entityID: Entity.ID) {
         let array = components[C.componentTag] ?? {
             var newArray = AnyComponentArray(ComponentArray<C>())
             newArray.reserveCapacity(minimumComponentCapacity: 50, minimumSlotCapacity: 500)
-            newArray.ensureEntity(ensuredEntityID ?? entityID)
             return newArray
         }()
         array.append(component, id: entityID)
@@ -112,7 +102,7 @@ extension ComponentPool {
                 } else {
                     return candidates.filter { slot in
                         excludedArrays.allSatisfy { componentArray in
-                            componentArray.entityToComponents.count < slot.rawValue || componentArray.entityToComponents[slot.rawValue] == .notFound
+                            componentArray.entityToComponents.count <= slot.rawValue || componentArray.entityToComponents[slot.rawValue] == .notFound
                         }
                     }
                 }
@@ -133,7 +123,7 @@ extension ComponentPool {
             } else {
                 return smallest.componentsToEntites.filter { slot in
                     excludedArrays.allSatisfy { componentArray in
-                        componentArray.entityToComponents.count < slot.rawValue || componentArray.entityToComponents[slot.rawValue] == .notFound
+                        componentArray.entityToComponents.count <= slot.rawValue || componentArray.entityToComponents[slot.rawValue] == .notFound
                     }
                 }
             }
@@ -195,7 +185,7 @@ extension ComponentPool {
 
         for tag in query.excludedComponents {
             // If any tag is missing or empty, we can skip this exclude.
-            guard let array = self.components[tag] else {
+            guard let array = self.components[tag], slot.rawValue < array.entityToComponents.count else {
                 continue
             }
             guard array.entityToComponents[slot.rawValue] == .notFound else {
