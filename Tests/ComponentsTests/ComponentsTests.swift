@@ -9,14 +9,14 @@ final class ConcurrentAccessProbe {
     private let violation = ManagedAtomic<Bool>(false)
 
     func enter() {
-        let newValue = active.wrappingIncrement(ordering: .acquiring)
+        let newValue = active.wrappingIncrementThenLoad(ordering: .acquiring)
         if newValue > 1 {
             violation.store(true, ordering: .relaxed)
         }
     }
 
     func leave() {
-        _ = active.wrappingDecrement(ordering: .releasing)
+        active.wrappingDecrement(ordering: .releasing)
     }
 
     var hadViolation: Bool {
@@ -113,7 +113,7 @@ final class ConcurrentAccessProbe {
     await confirmation(expectedCount: 1) { systemConfirmation in
         await confirmation(expectedCount: 1) { executorConfirmation in
             coordinator.addSystem(.update, system: TestSystem(confirmation: systemConfirmation))
-            #expect(coordinator.systemManager.schedules[.update]?.executor is SingleThreadedExecutor)
+            #expect(coordinator.systemManager.schedules[.update]?.executor is MultiThreadedExecutor)
             coordinator.update(.update) { schedule in
                 schedule.executor = TestExecutor(confirmation: executorConfirmation)
             }
@@ -192,20 +192,12 @@ final class ConcurrentAccessProbe {
 @Test func multiThreadedExecutorAvoidsConcurrentComponentMutations() {
     struct ComponentWriterA: System {
         static let id = SystemID(name: "ComponentWriterA")
-        static let query = Query { Write<Transform>.self }
+        nonisolated(unsafe) static let query = Query { Write<Transform>.self }
 
         let probe: ConcurrentAccessProbe
 
         var metadata: SystemMetadata {
-            let scheduling = Self.query.schedulingMetadata
-            return SystemMetadata(
-                id: Self.id,
-                readSignature: scheduling.readSignature,
-                writeSignature: scheduling.writeSignature,
-                excludedSignature: scheduling.excludedSignature,
-                runAfter: [],
-                resourceAccess: []
-            )
+            Self.metadata(from: [Self.query.schedulingMetadata])
         }
 
         func run(context: Components.QueryContext, commands: inout Components.Commands) {
@@ -222,20 +214,12 @@ final class ConcurrentAccessProbe {
 
     struct ComponentWriterB: System {
         static let id = SystemID(name: "ComponentWriterB")
-        static let query = ComponentWriterA.query
+        nonisolated(unsafe) static let query = ComponentWriterA.query
 
         let probe: ConcurrentAccessProbe
 
         var metadata: SystemMetadata {
-            let scheduling = Self.query.schedulingMetadata
-            return SystemMetadata(
-                id: Self.id,
-                readSignature: scheduling.readSignature,
-                writeSignature: scheduling.writeSignature,
-                excludedSignature: scheduling.excludedSignature,
-                runAfter: [],
-                resourceAccess: []
-            )
+            Self.metadata(from: [Self.query.schedulingMetadata])
         }
 
         func run(context: Components.QueryContext, commands: inout Components.Commands) {
@@ -400,7 +384,7 @@ final class ConcurrentAccessProbe {
     _ = coordinator.spawn(ParallelMarker())
 
     var expected = Set<Entity.ID>()
-    readQuery(coordinator) { (id: Entity.ID, _: Transform, _: ParallelMarker) in
+    readQuery(coordinator) { (id: Entity.ID, _: Transform) in
         expected.insert(id)
     }
 
@@ -409,9 +393,9 @@ final class ConcurrentAccessProbe {
     let invocationCount = ManagedAtomic<Int>(0)
     let results = Mutex<Set<Entity.ID>>(Set())
 
-    writeQuery.performParallel(coordinator) { (id: Entity.ID, transform: Write<Transform>, _: ParallelMarker) in
+    writeQuery.performParallel(coordinator) { (id: Entity.ID, transform: Write<Transform>) in
         transform.position.x += 1
-        results.withLock { $0.insert(id) }
+        _ = results.withLock { $0.insert(id) }
         invocationCount.wrappingIncrement(ordering: .relaxed)
     }
 
