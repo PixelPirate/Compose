@@ -34,9 +34,6 @@ public protocol AnyComponentArrayBox: AnyObject {
     var componentsToEntites: ContiguousArray<SlotIndex> { get }
 
     @inlinable @inline(__always)
-    func ensureEntity(_ entityID: Entity.ID)
-
-    @inlinable @inline(__always)
     func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int)
 }
 
@@ -73,7 +70,7 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     @inlinable @inline(__always)
     var entityToComponents: UnsafePagedStorage<ContiguousArray.Index> {
         _read {
-            yield UnsafePagedStorage(base.slots.values)
+            yield UnsafePagedStorage(base.slots.view)
         }
     }
 
@@ -82,11 +79,6 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
         _read {
             yield base.keys
         }
-    }
-
-    @inlinable @inline(__always)
-    func ensureEntity(_ entityID: Entity.ID) {
-        base.ensureEntity(entityID.slot)
     }
 
     @inlinable @inline(__always)
@@ -164,11 +156,6 @@ public struct AnyComponentArray {
         return try typed.base.withUnsafeMutablePointer { storage in
             try body(storage, indices)
         }
-    }
-
-    @inlinable @inline(__always)
-    func ensureEntity(_ entityID: Entity.ID) {
-        base.ensureEntity(entityID)
     }
 
     @inlinable @inline(__always)

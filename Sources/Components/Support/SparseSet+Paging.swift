@@ -35,71 +35,116 @@ extension UnmanagedPagedStorage {
 extension UnsafePagedStorage {
     @inlinable @inline(__always)
     func load(at index: Int, using cursor: inout PageCursor<Element>) -> Element {
-        let pageIndex = index >> pageShift
-        let offset = index & pageMask
-        if cursor.lastPageIndex != pageIndex {
-            let pageBase = baseAddress[pageIndex]
-            let pagePointer = UnsafeMutablePointer<Element>(
-                mutating: UnsafeRawPointer(pageBase)
-                    .advanced(by: MemoryLayout<Int64>.stride * 2)
-                    .assumingMemoryBound(to: Element.self)
-            )
-            cursor.elements = pagePointer
-            cursor.lastPageIndex = pageIndex
+        switch backing {
+        case let .paged(base, count):
+            precondition(index < count)
+            let pageIndex = index >> pageShift
+            let offset = index & pageMask
+            if cursor.lastPageIndex != pageIndex {
+                let pageBase = base[pageIndex]
+                let pagePointer = UnsafeMutablePointer<Element>(
+                    mutating: UnsafeRawPointer(pageBase)
+                        .advanced(by: MemoryLayout<Int64>.stride * 2)
+                        .assumingMemoryBound(to: Element.self)
+                )
+                cursor.elements = pagePointer
+                cursor.lastPageIndex = pageIndex
+            }
+            return cursor.elements!.advanced(by: offset).pointee
+        case let .sparse(view):
+            cursor.lastPageIndex = -1
+            cursor.elements = nil
+            return view[index]
         }
-        return cursor.elements!.advanced(by: offset).pointee
     }
 
     @inlinable @inline(__always)
     func isNotFound(at index: Int, using cursor: inout PageCursor<ContiguousArray.Index>) -> Bool where Element == ContiguousArray.Index {
-        load(at: index, using: &cursor) == .notFound
+        switch backing {
+        case .paged:
+            return load(at: index, using: &cursor) == .notFound
+        case let .sparse(view):
+            cursor.lastPageIndex = -1
+            cursor.elements = nil
+            return view[index] == .notFound
+        }
     }
 }
 
 public struct UnsafePagedStorage<Element> {
     @usableFromInline
-    let baseAddress: UnsafeMutablePointer<UnsafeMutablePointer<Element>>
+    enum Backing {
+        case paged(base: UnsafeMutablePointer<UnsafeMutablePointer<Element>>, count: Int)
+        case sparse(SparseArrayView<Element>)
+    }
+
     @usableFromInline
-    let count: Int
+    let backing: Backing
 
     @inlinable @inline(__always)
     public init(baseAddress: UnsafeMutablePointer<UnsafeMutablePointer<Element>>, count: Int) {
-        self.baseAddress = baseAddress
-        self.count = count
+        self.backing = .paged(base: baseAddress, count: count)
     }
 
     @inlinable @inline(__always)
     public init(_ storage: PagedStorage<Element>) {
         let pointer = storage.unsafeAddress
-        self = UnsafePagedStorage(baseAddress: pointer, count: storage.count)
+        self.init(baseAddress: pointer, count: storage.count)
+    }
+
+    @inlinable @inline(__always)
+    public init(_ view: SparseArrayView<Element>) {
+        self.backing = .sparse(view)
+    }
+
+    @inlinable @inline(__always)
+    public var count: Int {
+        switch backing {
+        case let .paged(_, count):
+            return count
+        case let .sparse(view):
+            return view.count
+        }
     }
 
     @inlinable @inline(__always)
     public subscript(index: Int) -> Element {
-        @_transparent
-        unsafeAddress {
-            let page = index >> pageShift
-            let offset = index & pageMask
-            let pageBase = baseAddress[page]
-            let pagePointer = UnsafePointer<Element>(
-                UnsafeRawPointer(pageBase)
-                    .advanced(by: MemoryLayout<Int64>.stride * 2)
-                    .assumingMemoryBound(to: Element.self)
-            )
-            return pagePointer.advanced(by: offset)
-        }
+        element(at: index)
+    }
 
-        @_transparent
-        unsafeMutableAddress {
+    @inlinable @inline(__always)
+    func element(at index: Int) -> Element {
+        switch backing {
+        case let .paged(base, count):
+            precondition(index < count)
             let page = index >> pageShift
             let offset = index & pageMask
-            let pageBase = baseAddress[page]
-            let pagePointer = UnsafeMutablePointer<Element>(
+            let pageBase = base[page]
+            return UnsafeRawPointer(pageBase)
+                .advanced(by: MemoryLayout<Int64>.stride * 2)
+                .assumingMemoryBound(to: Element.self)
+                .advanced(by: offset)
+                .pointee
+        case let .sparse(view):
+            return view[index]
+        }
+    }
+
+    @usableFromInline @inline(__always)
+    func pagePointer(for index: Int) -> UnsafeMutablePointer<Element>? {
+        switch backing {
+        case let .paged(base, count):
+            guard index < count else { return nil }
+            let page = index >> pageShift
+            let offset = index & pageMask
+            let pageBase = base[page]
+            return UnsafeMutablePointer<Element>(
                 mutating: UnsafeRawPointer(pageBase)
                     .advanced(by: MemoryLayout<Int64>.stride * 2)
                     .assumingMemoryBound(to: Element.self)
-            )
-            return pagePointer.advanced(by: offset)
+            ).advanced(by: offset)
+        case .sparse:
+            return nil
         }
     }
 }

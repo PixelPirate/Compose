@@ -87,13 +87,6 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     }
 
     @inlinable @inline(__always)
-    mutating public func ensureEntity(_ slot: SlotIndex) {
-        if !slots.contains(index: slot) {
-            let missingCount = (slot.index + 1) - slots.count
-            slots.append(contentsOf: repeatElement(.notFound, count: missingCount))
-        }
-    }
-
     @inlinable @inline(__always)
     public mutating func append(_ component: Component, to slot: SlotIndex) {
         let index = componentIndex(slot)
@@ -220,11 +213,191 @@ public protocol SparseArrayValue: Hashable, Comparable {
     init(index: Array.Index)
 }
 
-public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
-//    @usableFromInline
-//    private(set) var values: ContiguousArray<Value> = [] // TODO: This needs to be paged.
+@usableFromInline
+final class SparseArrayPage<Value: SparseArrayValue> {
     @usableFromInline
-    private(set) var values: PagedStorage<Value> = PagedStorage(initialPageCapacity: 4096)
+    let buffer: PageBuffer<Value>
+
+    @usableFromInline
+    let elements: UnsafeMutablePointer<Value>
+
+    @usableFromInline
+    init() {
+        buffer = PageBuffer<Value>.createPage()
+        elements = buffer.withUnsafeMutablePointerToElements { pointer in
+            pointer.initialize(repeating: Value(index: Value.notFound), count: pageCapacity)
+            return pointer
+        }
+    }
+
+    deinit {
+        elements.deinitialize(count: pageCapacity)
+    }
+
+    @usableFromInline @inline(__always)
+    func value(at offset: Int) -> Value {
+        elements.advanced(by: offset).pointee
+    }
+
+    @usableFromInline @inline(__always)
+    func update(_ value: Value, at offset: Int) -> Value {
+        let pointer = elements.advanced(by: offset)
+        let previous = pointer.pointee
+        pointer.pointee = value
+        return previous
+    }
+    @usableFromInline @inline(__always)
+    func assign(from other: SparseArrayPage<Value>) {
+        elements.assign(from: other.elements, count: pageCapacity)
+    }
+}
+
+@usableFromInline
+final class SparseArrayStorage<Value: SparseArrayValue> {
+    @usableFromInline
+    var pages: ContiguousArray<SparseArrayPage<Value>?>
+
+    @usableFromInline
+    var occupancies: ContiguousArray<Int>
+
+    @usableFromInline
+    init() {
+        pages = []
+        occupancies = []
+    }
+
+    @usableFromInline
+    init(copying other: SparseArrayStorage<Value>) {
+        occupancies = other.occupancies
+        pages = ContiguousArray(other.pages.map { page -> SparseArrayPage<Value>? in
+            guard let page else { return nil }
+            let copy = SparseArrayPage<Value>()
+            copy.assign(from: page)
+            return copy
+        })
+    }
+
+    @usableFromInline @inline(__always)
+    func ensurePage(at pageIndex: Int) -> SparseArrayPage<Value> {
+        if pageIndex >= pages.count {
+            let missing = pageIndex + 1 - pages.count
+            pages.append(contentsOf: repeatElement(nil, count: missing))
+            occupancies.append(contentsOf: repeatElement(0, count: missing))
+        }
+
+        if let existing = pages[pageIndex] {
+            return existing
+        }
+
+        let page = SparseArrayPage<Value>()
+        pages[pageIndex] = page
+        return page
+    }
+
+    @usableFromInline @inline(__always)
+    func value(at index: Int) -> Value {
+        let pageIndex = index >> pageShift
+        guard pageIndex < pages.count, let page = pages[pageIndex] else {
+            return Value(index: Value.notFound)
+        }
+        let offset = index & pageMask
+        return page.value(at: offset)
+    }
+
+    @usableFromInline @inline(__always)
+    func contains(index: Int) -> Bool {
+        let pageIndex = index >> pageShift
+        guard pageIndex < pages.count else { return false }
+        return pages[pageIndex] != nil
+    }
+
+    @usableFromInline @inline(__always)
+    func set(_ value: Value, at index: Int) {
+        let pageIndex = index >> pageShift
+        let offset = index & pageMask
+
+        if value.index == Value.notFound {
+            guard pageIndex < pages.count, let page = pages[pageIndex] else {
+                return
+            }
+            let previous = page.update(value, at: offset)
+            if previous.index != Value.notFound {
+                occupancies[pageIndex] &-= 1
+                if occupancies[pageIndex] == 0 {
+                    pages[pageIndex] = nil
+                    trimTrailingEmptyPages()
+                }
+            }
+            return
+        }
+
+        let page = ensurePage(at: pageIndex)
+        let previous = page.update(value, at: offset)
+        if previous.index == Value.notFound {
+            occupancies[pageIndex] &+= 1
+        }
+    }
+
+    @usableFromInline
+    func trimTrailingEmptyPages() {
+        while let last = pages.last, last == nil {
+            pages.removeLast()
+            occupancies.removeLast()
+        }
+    }
+
+    @usableFromInline @inline(__always)
+    var capacity: Int {
+        pages.count * pageCapacity
+    }
+}
+
+public struct SparseArrayView<Value: SparseArrayValue> {
+    @usableFromInline
+    let storage: Unmanaged<SparseArrayStorage<Value>>
+
+    @usableFromInline
+    init(_ storage: SparseArrayStorage<Value>) {
+        self.storage = .passUnretained(storage)
+    }
+
+    @inlinable @inline(__always)
+    public var count: Int {
+        storage._withUnsafeGuaranteedRef { $0.capacity }
+    }
+
+    @inlinable @inline(__always)
+    public subscript(index: Int) -> Value {
+        storage._withUnsafeGuaranteedRef { $0.value(at: index) }
+    }
+
+    @inlinable @inline(__always)
+    public func contains(index: Int) -> Bool {
+        storage._withUnsafeGuaranteedRef { $0.contains(index: index) }
+    }
+}
+
+public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
+    @usableFromInline
+    var storage: SparseArrayStorage<Value> = SparseArrayStorage()
+
+    @usableFromInline
+    mutating func ensureUniqueStorage() {
+        if !isKnownUniquelyReferenced(&storage) {
+            storage = SparseArrayStorage(copying: storage)
+        }
+    }
+
+    @inlinable @inline(__always)
+    public init() {}
+
+    @inlinable @inline(__always)
+    public init(arrayLiteral elements: Value...) {
+        self.init()
+        for (index, element) in elements.enumerated() {
+            self[Index(index: index)] = element
+        }
+    }
 
     @inlinable @inline(__always)
     public var startIndex: Index {
@@ -233,15 +406,7 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @inline(__always)
     public var endIndex: Index {
-        Index(index: values.count)
-    }
-
-    @inlinable @inline(__always)
-    public init(arrayLiteral elements: Value...) {
-        values = PagedStorage()
-        for element in elements {
-            values.append(element)
-        }
+        Index(index: storage.capacity)
     }
 
     @inlinable @inline(__always)
@@ -256,36 +421,30 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @inline(__always)
     public var count: Int {
-        _read {
-            yield values.count
-        }
+        storage.capacity
     }
 
     @inlinable @inline(__always)
     public subscript(index: Index) -> Value {
-        _read {
-            yield values[index.index]
-        }
-        _modify {
-            yield &values[index.index]
+        get { storage.value(at: index.index) }
+        set {
+            ensureUniqueStorage()
+            storage.set(newValue, at: index.index)
         }
     }
 
     @inlinable @inline(__always)
     public func contains(index: Index) -> Bool {
-        index.index < values.count
-    }
-
-    @inlinable @inline(__always)
-    public mutating func append<S>(contentsOf newElements: S) where Element == S.Element, S: Sequence {
-//        values.append(contentsOf: newElements)
-        for element in newElements {
-            values.append(element)
-        }
+        storage.contains(index: index.index)
     }
 
     @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumCapacity: Int) {
-//        values.reserveCapacity(minimumCapacity)
+        // Reserving capacity is a no-op for the sparse array. Pages are allocated on demand.
+    }
+
+    @inlinable @inline(__always)
+    public var view: SparseArrayView<Value> {
+        SparseArrayView(storage)
     }
 }
