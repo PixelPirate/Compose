@@ -156,56 +156,48 @@ public final class ContiguousBuffer<Element>: ManagedBuffer<Void, Element> {
         }
     }
 
-    @_transparent
-    internal mutating func _ensureFreeCapacity(_ freeCapacity: Int) {
-        guard _storage.freeCapacity < freeCapacity else { return }
-        _ensureFreeCapacitySlow(freeCapacity)
+    @usableFromInline @inline(__always)
+    internal func ensureCapacity(_ capacity: Int, storage: inout ContiguousStorage<Element>) {
+        guard storage.capacity < capacity else { return }
+        ensureCapacitySlow(capacity, storage: &storage)
     }
 
-    @_transparent
-    internal func _grow(freeCapacity: Int) -> Int {
+    @usableFromInline @inline(__always)
+    internal func grow(capacity: Int) -> Int {
         Swift.max(
-            count + freeCapacity,
-            _growDynamicArrayCapacity(capacity))
+            capacity,
+            growDynamicArrayCapacity(capacity))
     }
 
-    @inlinable
-    internal mutating func _ensureFreeCapacitySlow(_ freeCapacity: Int) {
-        let newCapacity = _grow(freeCapacity: freeCapacity)
-        reallocate(capacity: newCapacity)
+    @usableFromInline @inline(__always)
+    internal func ensureCapacitySlow(_ capacity: Int, storage: inout ContiguousStorage<Element>) {
+        let newCapacity = grow(capacity: capacity)
+        reallocate(newCapacity, storage: &storage)
     }
-    @_transparent
-    internal func _growDynamicArrayCapacity(_ capacity: Int) -> Int {
-        // A growth factor of 1.5 seems like a reasonable compromise between
-        // over-allocating memory and wasting cycles on repeatedly resizing storage.
+
+    @usableFromInline @inline(__always)
+    internal func growDynamicArrayCapacity(_ capacity: Int) -> Int {
+        // Growth factor of 1.5
         let c = (3 &* UInt(bitPattern: capacity) &+ 1) / 2
         return Int(bitPattern: c)
     }
 
     @usableFromInline @inline(__always)
-    func nextCapacity(current: Int, needed: Int) -> Int {
-        var cap = max(current, 0)
-        if cap >= needed { return cap }
-        if cap == 0 { cap = max(1024, needed) }
-        while cap < needed { cap &+= max(cap >> 1, 16) } // ~1.5× growth
-        return cap
+    internal func reallocate(_ capacity: Int, storage: inout ContiguousStorage<Element>) {
+        let newBuffer = ContiguousBuffer.create(initialCapacity: capacity)
+        withUnsafeMutablePointerToElements { source in
+            newBuffer.withUnsafeMutablePointerToElements { destination in
+                destination.moveInitialize(from: source, count: storage.count)
+            }
+        }
+        storage.buffer = newBuffer
+        storage.capacity = capacity
     }
 
     @inlinable @inline(__always) @discardableResult
     public func append(_ element: Element, storage: inout ContiguousStorage<Element>) -> Int {
-        precondition(self === storage.buffer)
-
-        var buffer = self
         let nextIndex = storage.count
-
-        if nextIndex >= storage.capacity {
-            buffer = buffer.ensureCapacity(
-                forIndex: nextIndex,
-                storage: &storage
-            )
-        }
-
-        precondition(nextIndex < storage.capacity)
+        let buffer = ensureCapacity(forIndex: nextIndex, storage: &storage)
 
         buffer.withUnsafeMutablePointerToElements { elements in
             elements.advanced(by: nextIndex).initialize(to: element)
@@ -252,19 +244,7 @@ public final class ContiguousBuffer<Element>: ManagedBuffer<Void, Element> {
 
     @inlinable @inline(__always)
     func ensureCapacity(forIndex requiredIndex: Int, storage: inout ContiguousStorage<Element>) -> ContiguousBuffer {
-        if requiredIndex < storage.capacity {
-            return self
-        }
-
-        let newCapacity = nextCapacity(current: storage.capacity, needed: requiredIndex + 1)
-        let newBuffer = ContiguousBuffer.create(initialCapacity: newCapacity)
-        withUnsafeMutablePointerToElements { source in
-            newBuffer.withUnsafeMutablePointerToElements { destination in
-                destination.moveInitialize(from: source, count: storage.count)
-            }
-        }
-        storage.buffer = newBuffer
-        storage.capacity = newCapacity
-        return newBuffer
+        ensureCapacity(requiredIndex, storage: &storage)
+        return storage.buffer
     }
 }
