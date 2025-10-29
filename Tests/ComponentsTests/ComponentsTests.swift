@@ -1,6 +1,7 @@
 import Testing
 @testable import Components
 import Synchronization
+import Atomics
 
 @Test func testQueryPerform() async throws {
     let query = Query {
@@ -165,6 +166,163 @@ import Synchronization
     let result2 = lock.withLock { $0 }
 
     #expect(result2 == [TestSystem1.id, TestSystem2.id, TestSystem3.id])
+}
+
+@Test func mainScheduleRunsAllStages() {
+    struct StageRecorder<Tag>: System {
+        static var id: SystemID = SystemID(name: "StageRecorder_\(String(describing: Tag.self))")
+        var metadata: SystemMetadata { Self.metadata(from: []) }
+
+        let onRun: () -> Void
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            onRun()
+        }
+    }
+
+    final class CounterBox {
+        let value = ManagedAtomic<Int>(0)
+    }
+
+    enum PreStartupTag {}
+    enum StartupTag {}
+    enum PostStartupTag {}
+    enum FirstTag {}
+    enum PreUpdateTag {}
+    enum RunFixedMainLoopTag {}
+    enum FixedFirstTag {}
+    enum FixedPreUpdateTag {}
+    enum FixedUpdateTag {}
+    enum FixedPostUpdateTag {}
+    enum FixedLastTag {}
+    enum UpdateTag {}
+    enum SpawnSceneTag {}
+    enum PostUpdateTag {}
+    enum LastTag {}
+
+    let coordinator = Coordinator()
+    let order = Mutex<[ScheduleLabel]>([])
+
+    func register<Tag>(label: ScheduleLabel, tag _: Tag.Type, counter: CounterBox) {
+        coordinator.addSystem(label, system: StageRecorder<Tag> {
+            let previous = counter.value.load(ordering: .relaxed)
+            if previous == 0 {
+                order.withLock { $0.append(label) }
+            }
+            counter.value.wrappingIncrement(ordering: .relaxed)
+        })
+    }
+
+    let preStartup = CounterBox()
+    let startup = CounterBox()
+    let postStartup = CounterBox()
+    let first = CounterBox()
+    let preUpdate = CounterBox()
+    let runFixedMainLoop = CounterBox()
+    let fixedFirst = CounterBox()
+    let fixedPreUpdate = CounterBox()
+    let fixedUpdate = CounterBox()
+    let fixedPostUpdate = CounterBox()
+    let fixedLast = CounterBox()
+    let update = CounterBox()
+    let spawnScene = CounterBox()
+    let postUpdate = CounterBox()
+    let last = CounterBox()
+
+    register(label: .preStartup, tag: PreStartupTag.self, counter: preStartup)
+    register(label: .startup, tag: StartupTag.self, counter: startup)
+    register(label: .postStartup, tag: PostStartupTag.self, counter: postStartup)
+    register(label: .first, tag: FirstTag.self, counter: first)
+    register(label: .preUpdate, tag: PreUpdateTag.self, counter: preUpdate)
+    register(label: .runFixedMainLoop, tag: RunFixedMainLoopTag.self, counter: runFixedMainLoop)
+    register(label: .fixedFirst, tag: FixedFirstTag.self, counter: fixedFirst)
+    register(label: .fixedPreUpdate, tag: FixedPreUpdateTag.self, counter: fixedPreUpdate)
+    register(label: .fixedUpdate, tag: FixedUpdateTag.self, counter: fixedUpdate)
+    register(label: .fixedPostUpdate, tag: FixedPostUpdateTag.self, counter: fixedPostUpdate)
+    register(label: .fixedLast, tag: FixedLastTag.self, counter: fixedLast)
+    register(label: .update, tag: UpdateTag.self, counter: update)
+    register(label: .spawnScene, tag: SpawnSceneTag.self, counter: spawnScene)
+    register(label: .postUpdate, tag: PostUpdateTag.self, counter: postUpdate)
+    register(label: .last, tag: LastTag.self, counter: last)
+
+    var fixedClock = coordinator[resource: FixedClock.self]
+    fixedClock.timeStep = 0.25
+    coordinator[resource: FixedClock.self] = fixedClock
+
+    func advanceWorld(by amount: Double) {
+        coordinator[resource: WorldClock.self] = coordinator[resource: WorldClock.self].advancing(by: amount)
+    }
+
+    advanceWorld(by: 0.25)
+    coordinator.run()
+
+    advanceWorld(by: 0.25)
+    coordinator.run()
+
+    let firstRunOrder = order.withLock { $0 }
+    #expect(firstRunOrder == [
+        .preStartup,
+        .startup,
+        .postStartup,
+        .first,
+        .preUpdate,
+        .runFixedMainLoop,
+        .fixedFirst,
+        .fixedPreUpdate,
+        .fixedUpdate,
+        .fixedPostUpdate,
+        .fixedLast,
+        .update,
+        .spawnScene,
+        .postUpdate,
+        .last
+    ])
+
+    #expect(preStartup.value.load(ordering: .relaxed) == 1)
+    #expect(startup.value.load(ordering: .relaxed) == 1)
+    #expect(postStartup.value.load(ordering: .relaxed) == 1)
+    #expect(first.value.load(ordering: .relaxed) == 2)
+    #expect(preUpdate.value.load(ordering: .relaxed) == 2)
+    #expect(runFixedMainLoop.value.load(ordering: .relaxed) == 2)
+    #expect(fixedFirst.value.load(ordering: .relaxed) == 2)
+    #expect(fixedPreUpdate.value.load(ordering: .relaxed) == 2)
+    #expect(fixedUpdate.value.load(ordering: .relaxed) == 2)
+    #expect(fixedPostUpdate.value.load(ordering: .relaxed) == 2)
+    #expect(fixedLast.value.load(ordering: .relaxed) == 2)
+    #expect(update.value.load(ordering: .relaxed) == 2)
+    #expect(spawnScene.value.load(ordering: .relaxed) == 2)
+    #expect(postUpdate.value.load(ordering: .relaxed) == 2)
+    #expect(last.value.load(ordering: .relaxed) == 2)
+}
+
+@Test func customScheduleExecution() {
+    struct CustomSystem: System {
+        static let id = SystemID(name: "CustomSystem")
+        var metadata: SystemMetadata { Self.metadata(from: []) }
+
+        let counter: ManagedAtomic<Int>
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            counter.wrappingIncrement(ordering: .relaxed)
+        }
+    }
+
+    let customLabel = ScheduleLabel()
+    let coordinator = Coordinator()
+    let counter = ManagedAtomic<Int>(0)
+
+    coordinator.addSchedule(Schedule(label: customLabel))
+    coordinator.addSystem(customLabel, system: CustomSystem(counter: counter))
+
+    coordinator.runSchedule(customLabel)
+
+    coordinator.update(customLabel) { schedule in
+        schedule.executor = MultiThreadedExecutor()
+    }
+
+    coordinator.runSchedule(customLabel)
+
+    #expect(counter.load(ordering: .relaxed) == 2)
 }
 
 @Test func testManyComponents() async {
@@ -485,6 +643,97 @@ import Synchronization
     }
 
     #expect(iterCount == performCount)
+}
+
+@Test func queryExecutionVariants() throws {
+    struct Counter: Component, Sendable, Equatable {
+        static let componentTag = ComponentTag.makeTag()
+
+        var value: Int
+    }
+
+    let coordinator = Coordinator()
+    let baseValues = Array(0..<32)
+    for value in baseValues {
+        coordinator.spawn(Counter(value: value))
+    }
+
+    let query = Query {
+        Write<Counter>.self
+    }
+
+    var sequentialVisit: [Int] = []
+    query(preloaded: coordinator) { (counter: Write<Counter>) in
+        sequentialVisit.append(counter.value)
+        counter.value += 10
+    }
+
+    #expect(sequentialVisit == baseValues)
+
+    let afterPreloaded = Array(Query { Counter.self }.fetchAll(coordinator)).map(\.value)
+    #expect(afterPreloaded == baseValues.map { $0 + 10 })
+
+    let preloadedParallelCount = ManagedAtomic<Int>(0)
+    query(preloadedParallel: coordinator) { (counter: Write<Counter>) in
+        counter.value += 1
+        preloadedParallelCount.wrappingIncrement(ordering: .relaxed)
+    }
+
+    #expect(preloadedParallelCount.load(ordering: .relaxed) == baseValues.count)
+
+    let afterPreloadedParallel = Array(Query { Counter.self }.fetchAll(coordinator)).map(\.value)
+    #expect(afterPreloadedParallel == baseValues.map { $0 + 11 })
+
+    let contextParallelCount = ManagedAtomic<Int>(0)
+    let context = coordinator.queryContext
+    query(parallel: context) { (counter: Write<Counter>) in
+        counter.value += 1
+        contextParallelCount.wrappingIncrement(ordering: .relaxed)
+    }
+
+    #expect(contextParallelCount.load(ordering: .relaxed) == baseValues.count)
+
+    let finalValues = Array(Query { Counter.self }.fetchAll(coordinator)).map(\.value)
+    #expect(finalValues == baseValues.map { $0 + 12 })
+}
+
+@Test func queryCombinationsCoverAllPairs() {
+    struct PairComponent: Component, Sendable {
+        static let componentTag = ComponentTag.makeTag()
+
+        var value: Int
+    }
+
+    let coordinator = Coordinator()
+    let values = [10, 20, 30, 40]
+    for value in values {
+        coordinator.spawn(PairComponent(value: value))
+    }
+
+    let query = Query {
+        WithEntityID.self
+        PairComponent.self
+    }
+
+    var seenPairs: Set<String> = []
+    var invocationCount = 0
+    query(combinations: coordinator) { lhs, rhs in
+        let (lhsID, lhsComponent) = lhs.values
+        let (rhsID, rhsComponent) = rhs.values
+
+        #expect(lhsID != rhsID)
+
+        let (minValue, maxValue) = lhsComponent.value < rhsComponent.value
+            ? (lhsComponent.value, rhsComponent.value)
+            : (rhsComponent.value, lhsComponent.value)
+
+        seenPairs.insert("\(minValue)-\(maxValue)")
+        invocationCount += 1
+    }
+
+    let expectedPairs = values.count * (values.count - 1) / 2
+    #expect(invocationCount == expectedPairs)
+    #expect(seenPairs.count == expectedPairs)
 }
 
 @Test func fetchAll() throws {
@@ -1157,6 +1406,31 @@ public struct Material: Component {
 @Test func testBitSetIteration() {
     let components = ComponentSignature(Transform.componentTag, Material.componentTag, Gravity.componentTag)
     #expect(Set(components.tags) == Set([Transform.componentTag, Material.componentTag, Gravity.componentTag]))
+}
+
+@Test func performGroupFallbackWithoutMatchingGroup() {
+    struct SoloComponent: Component, Sendable, Equatable {
+        static let componentTag = ComponentTag.makeTag()
+
+        var value: Int
+    }
+
+    let coordinator = Coordinator()
+    coordinator.spawn(SoloComponent(value: 1))
+    coordinator.spawn(SoloComponent(value: 2))
+
+    var visited: [Int] = []
+    Query {
+        SoloComponent.self
+    }.performGroup(coordinator) { (component: SoloComponent) in
+        visited.append(component.value)
+    }
+
+    #expect(Set(visited) == Set([1, 2]))
+    #expect(coordinator.groupSize { SoloComponent.self } == nil)
+
+    let fetched = Array(Query { SoloComponent.self }.fetchAll(coordinator)).map(\.value)
+    #expect(Set(fetched) == Set([1, 2]))
 }
 
 @Test func nonOwningGroup_basic() throws {
