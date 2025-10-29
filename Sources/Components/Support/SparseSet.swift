@@ -237,7 +237,7 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @inline(__always)
     public init(arrayLiteral elements: Value...) {
-        values = PagedStorage()
+        values.reset()
         pageOccupancy = [:]
         var index = 0
         for element in elements {
@@ -269,9 +269,9 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
             let raw = index.index
             guard raw < values.count else { return .notFound }
             let pageIndex = raw >> pageShift
-            guard let page = values.page(at: pageIndex) else { return .notFound }
+            guard let page = values.page(at: pageIndex), let base = page.baseAddress else { return .notFound }
             let offset = raw & pageMask
-            return page.value(at: offset)
+            return base[offset]
         }
         set {
             let raw = index.index
@@ -279,14 +279,12 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
             let offset = raw & pageMask
 
             if newValue == .notFound {
-                guard let page = values.page(at: pageIndex) else { return }
-                page.withUnsafeMutablePointerToElements { pointer in
-                    let slot = pointer.advanced(by: offset)
-                    if slot.pointee == .notFound {
-                        return
-                    }
-                    slot.pointee = .notFound
+                guard let page = values.page(at: pageIndex), let base = page.baseAddress else { return }
+                let slot = base.advanced(by: offset)
+                if slot.pointee == .notFound {
+                    return
                 }
+                slot.pointee = .notFound
                 if let current = pageOccupancy[pageIndex] {
                     if current <= 1 {
                         pageOccupancy.removeValue(forKey: pageIndex)
@@ -301,20 +299,20 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
             var page = values.page(at: pageIndex)
             if page == nil {
-                page = values.ensurePage(forPage: pageIndex)
-                page!.withUnsafeMutablePointerToElements { pointer in
-                    pointer.initialize(repeating: .notFound, count: pageCapacity)
+                var initializedPage = values.ensurePage(forPage: pageIndex)
+                guard let base = initializedPage.baseAddress else {
+                    fatalError("Failed to allocate page for SparseArray")
                 }
+                base.initialize(repeating: .notFound, count: pageCapacity)
                 pageOccupancy[pageIndex] = 0
+                page = initializedPage
             }
-            guard let existingPage = page else { return }
-            existingPage.withUnsafeMutablePointerToElements { pointer in
-                let slot = pointer.advanced(by: offset)
-                if slot.pointee == .notFound {
-                    pageOccupancy[pageIndex, default: 0] += 1
-                }
-                slot.pointee = newValue
+            guard let existingPage = page, let base = existingPage.baseAddress else { return }
+            let slot = base.advanced(by: offset)
+            if slot.pointee == .notFound {
+                pageOccupancy[pageIndex, default: 0] += 1
             }
+            slot.pointee = newValue
             values.updateCountForPageIndex(pageIndex)
         }
     }

@@ -16,15 +16,13 @@ extension Tag {
         let directDuration = clock.measure {
             let pointer = buffer.unsafeAddress
             for i in [0, 1, 2, 3].shuffled() {
-                guard let base = pointer.advanced(by: i).pointee else {
+                let pageBuffer = pointer.advanced(by: i).pointee
+                guard let base = pageBuffer.baseAddress else {
                     #expect(Bool(false), "Missing page")
                     continue
                 }
-                let page = base
-                    .advanced(by: MemoryLayout<Int64>.stride * 2)
-                    .assumingMemoryBound(to: SIMD3<Int>.self)
                 for j in (0..<1024).map({ $0 }).shuffled() {
-                    #expect(page[j] == .init(i * 1024 + j, i * 1024 + j, i * 1024 + j))
+                    #expect(base[j] == .init(i * 1024 + j, i * 1024 + j, i * 1024 + j))
                 }
             }
         }
@@ -1290,7 +1288,7 @@ public struct Person: Component {
     }
     var storage = PagedStorage<TestComponent>(initialPageCapacity: 8)
     for value in 0..<1_000_000 {
-        storage.pages.append(TestComponent(value: value), storage: &storage)
+        storage.append(TestComponent(value: value))
     }
 
     let clock = ContinuousClock()
@@ -1300,23 +1298,24 @@ public struct Person: Component {
         }
     }
     let duration3 = clock.measure {
-        storage.pages.withUnsafeMutablePointerToElements { pagesPointer in
-            for pageIndex in 0..<storage.pageCount-1 {
+        let pagesPointer = storage.unsafeAddress
+        if storage.pageCount > 1 {
+            for pageIndex in 0..<(storage.pageCount - 1) {
                 let page = pagesPointer.advanced(by: pageIndex).pointee
-                page?.withUnsafeMutablePointerToElements { elementsPointer in
-                    for index in 0..<1024 {
-                        elementsPointer.advanced(by: index).pointee.value *= -1
-                    }
-                }
-            }
-            let lastIndex = storage.count - 1
-            let lastPageIndex = lastIndex >> pageShift
-            let lastOffset = lastIndex & pageMask
-            let lastPage = pagesPointer.advanced(by: lastPageIndex).pointee
-            lastPage?.withUnsafeMutablePointerToElements { elementsPointer in
-                for index in 0...lastOffset {
+                guard let elementsPointer = page.baseAddress else { continue }
+                for index in 0..<pageCapacity {
                     elementsPointer.advanced(by: index).pointee.value *= -1
                 }
+            }
+        }
+        guard storage.count > 0 else { return }
+        let lastIndex = storage.count - 1
+        let lastPageIndex = lastIndex >> pageShift
+        let lastOffset = lastIndex & pageMask
+        let lastPage = pagesPointer.advanced(by: lastPageIndex).pointee
+        if let elementsPointer = lastPage.baseAddress {
+            for index in 0...lastOffset {
+                elementsPointer.advanced(by: index).pointee.value *= -1
             }
         }
     }
