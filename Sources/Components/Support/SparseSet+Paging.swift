@@ -45,8 +45,8 @@ extension UnmanagedPagedStorage {
 
 extension UnsafePagedStorage {
     @inlinable @inline(__always)
-    func load(at index: Int, using cursor: inout PageCursor<Element>) -> Element {
-        guard index < count else { return missingPageValue() }
+    func load(at index: Int, using cursor: inout PageCursor<Element>) -> Element where Element == ContiguousArray.Index {
+        guard index < count else { return missingPageValue() } // TODO: This seems incorrect, e.g.: spawn(a,b), spawn(a), spawn(a,b). Now b has count 2 for index 2.
         let pageIndex = index >> pageShift
         let offset = index & pageMask
         if cursor.lastPageIndex != pageIndex {
@@ -68,7 +68,12 @@ extension UnsafePagedStorage {
         load(at: index, using: &cursor) == .notFound
     }
 
-    @inlinable
+    @inlinable @inline(__always)
+    func missingPageValue() -> Element where Element == ContiguousArray.Index {
+        .notFound
+    }
+
+    @inlinable @inline(__always)
     func missingPageValue() -> Element {
         if Element.self == ContiguousArray<Void>.Index.self {
             return unsafeBitCast(ContiguousArray<Void>.Index.notFound, to: Element.self)
@@ -98,6 +103,9 @@ public struct UnsafePagedStorage<Element> {
         self = UnsafePagedStorage(baseAddress: pointer, count: storage.count, pageCount: storage.pageCount)
     }
 
+    //@_transparent
+    //unsafeAddress
+    //unsafeMutableAddress {
     @inlinable @inline(__always)
     public subscript(index: Int) -> Element {
         _read {
@@ -170,10 +178,10 @@ public struct UnmanagedPagedStorage<Component> {
 
     @inlinable @inline(__always)
     public func elementPointer(_ index: Int) -> UnsafeMutablePointer<Component> {
-        precondition(index < count)
+        assert(index < count)
         let pageIndex = index >> pageShift
         let offset = index & pageMask
-        precondition(pageIndex < pageCount)
+        assert(pageIndex < pageCount)
         let page = pages.advanced(by: pageIndex).pointee
         guard let base = page.baseAddress else {
             fatalError("Missing page while requesting pointer")

@@ -444,6 +444,7 @@ extension Query {
     public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
+        // TODO: Use RigidArray or TailAllocated here
         var otherCursors = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: otherComponents.count)
         var excludedCursors = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: excludedComponents.count)
 

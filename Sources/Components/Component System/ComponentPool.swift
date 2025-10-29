@@ -357,7 +357,7 @@ extension ComponentPool {
 }
 
 @discardableResult
-@usableFromInline
+@usableFromInline @inline(__always)
 func withTypedBuffers<each C: ComponentResolving, R>(
     _ pool: inout ComponentPool,
     _ body: (repeat TypedAccess<each C>) throws -> R
