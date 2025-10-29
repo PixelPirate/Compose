@@ -7,10 +7,10 @@
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var pointer: UnsafeMutablePointer<C.QueriedComponent>
-    @usableFromInline internal var indices: UnmanagedPagedStorage<ContiguousArray.Index>
+    @usableFromInline internal var indices: UnsafePagedStorage<ContiguousArray.Index>
 
     @usableFromInline
-    init(pointer: UnsafeMutablePointer<C.QueriedComponent>, indices: UnmanagedPagedStorage<ContiguousArray.Index>) {
+    init(pointer: UnsafeMutablePointer<C.QueriedComponent>, indices: UnsafePagedStorage<ContiguousArray.Index>) {
         self.pointer = pointer
         self.indices = indices
     }
@@ -95,7 +95,7 @@ extension TypedAccess {
         // a harmless instance that never resolves anything
         TypedAccess(
             pointer: .allocate(capacity: 0),
-            indices: UnmanagedPagedStorage(.passRetained(PagedBuffer.create(initialCapacity: 1)), count: 0, pageCount: 0)
+            indices: UnsafePagedStorage(PagedStorage(initialPageCapacity: 1))
         )
     }
 }

@@ -402,8 +402,8 @@ extension Query {
 //    @inlinable @inline(__always)
 //    static func passes(
 //        slot: SlotIndex,
-//        otherComponents: [UnmanagedPagedStorage<ContiguousArray.Index>],
-//        excludedComponents: [UnmanagedPagedStorage<ContiguousArray.Index>]
+//        otherComponents: [UnsafePagedStorage<ContiguousArray.Index>],
+//        excludedComponents: [UnsafePagedStorage<ContiguousArray.Index>]
 //    ) -> Bool {
 //        let slotRaw = slot.rawValue
 //
@@ -419,37 +419,11 @@ extension Query {
 //        return true
 //    }
 
-//    @inlinable @inline(__always)
-//    static func passes(
-//        slot: SlotIndex,
-//        otherComponents: [UnmanagedPagedStorage<ContiguousArray.Index>],
-//        excludedComponents: [UnmanagedPagedStorage<ContiguousArray.Index>]
-//    ) -> Bool {
-//        let i = slot.rawValue
-//        // One cursor per array
-//        var cursorsOther = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: otherComponents.count)
-//        var cursorsEx = Array(repeating: PageCursor<ContiguousArray<Void>.Index>(), count: excludedComponents.count)
-//
-//        // Required
-//        var k = 0
-//        while k < otherComponents.count {
-//            if otherComponents[k].isNotFound(at: i, using: &cursorsOther[k]) { return false }
-//            k &+= 1
-//        }
-//        // Excluded
-//        k = 0
-//        while k < excludedComponents.count {
-//            if !excludedComponents[k].isNotFound(at: i, using: &cursorsEx[k]) { return false }
-//            k &+= 1
-//        }
-//        return true
-//    }
-
     @inlinable @inline(__always)
     static func passesWithCursors(
         raw i: Int,
-        other: [UnmanagedPagedStorage<ContiguousArray.Index>],
-        excluded: [UnmanagedPagedStorage<ContiguousArray.Index>],
+        other: [UnsafePagedStorage<ContiguousArray.Index>],
+        excluded: [UnsafePagedStorage<ContiguousArray.Index>],
         otherCursors: inout [PageCursor<ContiguousArray.Index>],
         excludedCursors: inout [PageCursor<ContiguousArray.Index>]
     ) -> Bool {

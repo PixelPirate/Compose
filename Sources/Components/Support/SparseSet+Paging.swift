@@ -32,6 +32,78 @@ extension UnmanagedPagedStorage {
     }
 }
 
+extension UnsafePagedStorage {
+    @inlinable @inline(__always)
+    func load(at index: Int, using cursor: inout PageCursor<Element>) -> Element {
+        let pageIndex = index >> pageShift
+        let offset = index & pageMask
+        if cursor.lastPageIndex != pageIndex {
+            let pageBase = baseAddress[pageIndex]
+            let pagePointer = UnsafeMutablePointer<Element>(
+                mutating: UnsafeRawPointer(pageBase)
+                    .advanced(by: MemoryLayout<Int64>.stride * 2)
+                    .assumingMemoryBound(to: Element.self)
+            )
+            cursor.elements = pagePointer
+            cursor.lastPageIndex = pageIndex
+        }
+        return cursor.elements!.advanced(by: offset).pointee
+    }
+
+    @inlinable @inline(__always)
+    func isNotFound(at index: Int, using cursor: inout PageCursor<ContiguousArray.Index>) -> Bool where Element == ContiguousArray.Index {
+        load(at: index, using: &cursor) == .notFound
+    }
+}
+
+public struct UnsafePagedStorage<Element> {
+    @usableFromInline
+    let baseAddress: UnsafeMutablePointer<UnsafeMutablePointer<Element>>
+    @usableFromInline
+    let count: Int
+
+    @inlinable @inline(__always)
+    public init(baseAddress: UnsafeMutablePointer<UnsafeMutablePointer<Element>>, count: Int) {
+        self.baseAddress = baseAddress
+        self.count = count
+    }
+
+    @inlinable @inline(__always)
+    public init(_ storage: PagedStorage<Element>) {
+        let pointer = storage.unsafeAddress
+        self = UnsafePagedStorage(baseAddress: pointer, count: storage.count)
+    }
+
+    @inlinable @inline(__always)
+    public subscript(index: Int) -> Element {
+        @_transparent
+        unsafeAddress {
+            let page = index >> pageShift
+            let offset = index & pageMask
+            let pageBase = baseAddress[page]
+            let pagePointer = UnsafePointer<Element>(
+                UnsafeRawPointer(pageBase)
+                    .advanced(by: MemoryLayout<Int64>.stride * 2)
+                    .assumingMemoryBound(to: Element.self)
+            )
+            return pagePointer.advanced(by: offset)
+        }
+
+        @_transparent
+        unsafeMutableAddress {
+            let page = index >> pageShift
+            let offset = index & pageMask
+            let pageBase = baseAddress[page]
+            let pagePointer = UnsafeMutablePointer<Element>(
+                mutating: UnsafeRawPointer(pageBase)
+                    .advanced(by: MemoryLayout<Int64>.stride * 2)
+                    .assumingMemoryBound(to: Element.self)
+            )
+            return pagePointer.advanced(by: offset)
+        }
+    }
+}
+
 @usableFromInline
 let defaultInitialPageCapacity = 1
 
@@ -66,20 +138,22 @@ public struct UnmanagedPagedStorage<Component> {
     }
 
     @inlinable @inline(__always)
-    public subscript(_ index: Int) -> Component {
-        @inlinable @inline(__always)
-        _read {
-            yield pages.takeUnretainedValue()[index, pageCount, count]
+    public subscript(index: Int) -> Component {
+        @_transparent
+        unsafeAddress {
+            UnsafePointer(pages._withUnsafeGuaranteedRef { $0.getUnsafePointer(index, pageCount: pageCount, count: count) })
         }
-        @inlinable @inline(__always)
-        nonmutating _modify {
-            yield &pages.takeUnretainedValue()[index, pageCount, count]
+
+        @_transparent
+        unsafeMutableAddress {
+            pages._withUnsafeGuaranteedRef {
+                $0.getUnsafePointer(index, pageCount: pageCount, count: count)
+            }
         }
     }
 
     @inlinable @inline(__always)
     public func elementPointer(_ index: Int) -> UnsafeMutablePointer<Component> {
-//        pages.takeUnretainedValue().getPointer(index, pageCount: pageCount, count: count)
         pages._withUnsafeGuaranteedRef { x in
             x.getPointer(index, pageCount: pageCount, count: count)
         }
@@ -224,6 +298,7 @@ public final class PageBuffer<Element>: ManagedBuffer<Void, Element> {
     }
 }
 
+// TODO: Since I'm fighting so much with ARC and indirection. Just use an UnsafeBufferPointer instead of ManagedBuffer. See RigidArray.
 public final class PagedBuffer<Element>: ManagedBuffer<Void, PageBuffer<Element>> {
     @inlinable @inline(__always)
     public static func create(initialCapacity: Int = defaultInitialCapacity) -> PagedBuffer {
@@ -281,28 +356,29 @@ public final class PagedBuffer<Element>: ManagedBuffer<Void, PageBuffer<Element>
     }
 
     @inlinable @inline(__always)
+    public func getUnsafePointer(_ index: Int, pageCount: Int, count: Int) -> UnsafeMutablePointer<Element> {
+        assert(index >= 0)
+        assert(index < count)
+        let pageIndex = index >> pageShift
+        assert(pageIndex < pageCount)
+        let offset = index & pageMask
+        return withUnsafeMutablePointerToElements { pagesPointer in
+            pagesPointer[pageIndex].withUnsafeMutablePointerToElements { elementsPointer in
+                elementsPointer.advanced(by: offset)
+            }
+        }
+    }
+
+    @inlinable @inline(__always)
     public subscript(_ index: Int, pageCount: Int, count: Int) -> Element {
         @inlinable @inline(__always)
-        _read {
-            yield get(index, pageCount: pageCount, count: count)
+        unsafeAddress {
+            UnsafePointer(getUnsafePointer(index, pageCount: pageCount, count: count))
         }
-        @inlinable @inline(__always)
-        _modify {
-            let pageIndex = index >> pageShift
-            let offset = index & pageMask
 
-            let pointer = withUnsafeMutablePointerToElements { pagesPointer in
-                pagesPointer[pageIndex].withUnsafeMutablePointerToElements { elementsPointer in
-                    elementsPointer.advanced(by: offset)
-                }
-            }
-            yield &pointer.pointee
-//                precondition(index < count)
-//                let pageIndex = index >> pageShift
-//                let offset = index & pageMask
-//                precondition(pageIndex < pageCount)
-//                let page = page(at: pageIndex)
-//                yield &page[offset]
+        @inlinable @inline(__always)
+        unsafeMutableAddress {
+            getUnsafePointer(index, pageCount: pageCount, count: count)
         }
     }
 

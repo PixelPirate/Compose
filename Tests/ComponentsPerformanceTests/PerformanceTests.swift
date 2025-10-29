@@ -6,41 +6,6 @@ extension Tag {
   @Tag static var performance: Self
 }
 
-struct UnsafePagedStorage<Element> {
-    let baseAddress: UnsafeMutablePointer<UnsafeMutablePointer<Element>>
-    let count: Int
-
-
-    @inlinable @inline(__always)
-    subscript(index: Int) -> Element {
-        @_transparent
-        unsafeAddress {
-            let page = index >> pageShift
-            let offset = index & pageMask
-            let pageBase = baseAddress[page]
-            let pagePointer = UnsafePointer<Element>(
-                UnsafeRawPointer(pageBase)
-                    .advanced(by: MemoryLayout<Int64>.stride * 2)
-                    .assumingMemoryBound(to: Element.self)
-            )
-            return pagePointer.advanced(by: offset)
-        }
-
-        @_transparent
-        unsafeMutableAddress {
-            let page = index >> pageShift
-            let offset = index & pageMask
-            let pageBase = baseAddress[page]
-            let pagePointer = UnsafeMutablePointer<Element>(
-                mutating: UnsafeRawPointer(pageBase)
-                    .advanced(by: MemoryLayout<Int64>.stride * 2)
-                    .assumingMemoryBound(to: Element.self)
-            )
-            return pagePointer.advanced(by: offset)
-        }
-    }
-}
-
 @Suite(.tags(.performance)) struct PerformanceTests {
     @Test func testets() {
         var buffer = PagedStorage<SIMD3<Int>>(initialPageCapacity: 1024)
@@ -124,6 +89,11 @@ struct UnsafePagedStorage<Element> {
         let uC = UnmanagedPagedStorage(pagC)
         let uX = UnmanagedPagedStorage(pagX)
 
+        let pA = UnsafePagedStorage(pagA)
+        let pB = UnsafePagedStorage(pagA)
+        let pC = UnsafePagedStorage(pagA)
+        let pX = UnsafePagedStorage(pagA)
+
         // Precompute random indices once
         let queries: [Int] = (0..<K).map { _ in Int.random(in: 0..<N, using: &rng) }
 
@@ -142,6 +112,12 @@ struct UnsafePagedStorage<Element> {
             uC[i] != .notFound &&
             uX[i] == .notFound
         }
+        func passesUnsafePaged(_ i: Int) -> Bool {
+            pA[i] != .notFound &&
+            pB[i] != .notFound &&
+            pC[i] != .notFound &&
+            pX[i] == .notFound
+        }
 
         let clock = ContinuousClock()
         let tContig = clock.measure {
@@ -154,7 +130,12 @@ struct UnsafePagedStorage<Element> {
             for q in queries { if passesPaged(q) { count &+= 1 } }
             sink(count)
         }
-        print("Random interleaved: contiguous:", tContig, "paged:", tPaged)
+        let tUnsafePaged = clock.measure {
+            var count = 0
+            for q in queries { if passesUnsafePaged(q) { count &+= 1 } }
+            sink(count)
+        }
+        print("Random interleaved: contiguous:", tContig, "paged:", tPaged, "unsafe paged:", tUnsafePaged)
     }
 
     @Test func testPerformance() throws {
