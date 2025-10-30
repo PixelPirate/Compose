@@ -677,6 +677,235 @@ final class ConcurrentAccessProbe {
     }
 }
 
+@usableFromInline
+struct PagedSlotToDenseView {
+    @usableFromInline
+    let pages: UnsafeBufferPointer<UnsafePointer<Int>>
+
+    @usableFromInline
+    static let pageShift = 12
+
+    @usableFromInline
+    static let pageSize = 1 << pageShift // 4096
+
+    @usableFromInline
+    static let pageMask = pageSize - 1
+
+    @inlinable @inline(__always)
+    init(view base: UnsafeMutableBufferPointer<UnsafeMutablePointer<Int>>) {
+        pages = UnsafeBufferPointer(
+            base.withMemoryRebound(to: UnsafePointer<Int>.self) { $0 }
+        )
+    }
+
+    @inlinable @inline(__always)
+    subscript(slot: Int) -> Int {
+        @_transparent
+        unsafeAddress {
+            let page = slot >> Self.pageShift
+            let offset = slot & Self.pageMask
+            return UnsafePointer(pages[page].advanced(by: offset))
+        }
+    }
+}
+
+@usableFromInline
+struct PagedSlotToDenseTest {
+    @usableFromInline
+    var pages: UnsafeMutableBufferPointer<UnsafeMutablePointer<Int>>
+
+    @usableFromInline
+    var liveCounts: UnsafeMutableBufferPointer<Int>
+
+    @usableFromInline
+    nonisolated(unsafe) static let emptyPage = makeEmptyPage()
+
+    @usableFromInline
+    static let pageShift = 12
+
+    @usableFromInline
+    static let pageSize = 1 << pageShift // 4096
+
+    @usableFromInline
+    static let pageMask = pageSize - 1
+
+    @inlinable @inline(__always)
+    init() {
+        pages = .allocate(capacity: 1)
+        pages.initialize(repeating: Self.emptyPage)
+
+        liveCounts = .allocate(capacity: 1)
+        liveCounts.initialize(repeating: 0)
+    }
+
+    @_transparent
+    var view: PagedSlotToDenseView {
+        PagedSlotToDenseView(view: pages)
+    }
+
+    @inlinable @inline(__always)
+    func deallocate() {
+        for page in pages where page != Self.emptyPage {
+            page.deallocate()
+        }
+        pages.deallocate()
+        liveCounts.deallocate()
+    }
+
+    @inlinable @inline(__always)
+    mutating func ensureCapacity(forSlot slot: Int) {
+        let requiredPage = slot >> Self.pageShift
+        if requiredPage >= pages.count {
+            let newCount = requiredPage &+ 1
+            let newPages = UnsafeMutableBufferPointer<UnsafeMutablePointer<Int>>.allocate(capacity: newCount)
+            let uninitialisedIndex = newPages.moveInitialize(fromContentsOf: pages)
+            newPages
+                .baseAddress
+                .unsafelyUnwrapped
+                .advanced(by: uninitialisedIndex)
+                .initialize(
+                    repeating: Self.emptyPage,
+                    count: newCount - uninitialisedIndex
+                )
+            pages.deallocate()
+            pages = newPages
+
+            let newLive = UnsafeMutableBufferPointer<Int>.allocate(capacity: newCount)
+            let uninitialisedLiveIndex = newLive.moveInitialize(fromContentsOf: liveCounts)
+            newLive
+                .baseAddress
+                .unsafelyUnwrapped
+                .advanced(by: uninitialisedLiveIndex)
+                .initialize(repeating: 0, count: newCount - uninitialisedIndex)
+            liveCounts.deallocate()
+            liveCounts = newLive
+        }
+    }
+
+    @inlinable @inline(__always)
+    subscript(slot: Int) -> Int {
+        @_transparent
+        unsafeAddress {
+            let page = slot >> Self.pageShift
+            let offset = slot & Self.pageMask
+            precondition(page < pages.count, "Page \(page) is out of bounds.")
+            return UnsafePointer(pages[page].advanced(by: offset))
+        }
+
+        @_transparent
+        mutating _modify {
+            let pageIndex = slot >> Self.pageShift
+            let offset = slot & Self.pageMask
+            precondition(pageIndex < pages.count, "Page \(pageIndex) is out of bounds.")
+
+            var page = pages[pageIndex]
+            if page == Self.emptyPage {
+                let newPage = Self.makeEmptyPage()
+                pages[pageIndex] = newPage
+                page = newPage
+            }
+
+            let pointer = page.advanced(by: offset)
+            let oldValue = pointer.pointee
+            yield &pointer.pointee
+            let newValue = pointer.pointee
+
+            if oldValue == .notFound, newValue != .notFound {
+                liveCounts[pageIndex] &+= 1
+            } else if oldValue != .notFound, newValue == .notFound {
+                liveCounts[pageIndex] &-= 1
+                if liveCounts[pageIndex] == 0 {
+                    pages[pageIndex] = Self.emptyPage
+                    page.deallocate()
+                }
+            }
+        }
+    }
+
+    @inlinable @inline(__always)
+    static func makeEmptyPage() -> UnsafeMutablePointer<Int> {
+        let page = UnsafeMutablePointer<Int>.allocate(capacity: Self.pageSize)
+        page.initialize(repeating: .notFound, count: Self.pageSize)
+        return page
+    }
+}
+
+class MySet {
+    let storage: PagedSlotToDenseTest
+
+    init(storage: consuming PagedSlotToDenseTest) {
+        self.storage = storage
+    }
+}
+
+@Test func test() {
+    print(MemoryLayout<SIMD4<Int32>>.size)
+    print(
+        "UnsafePointer",
+        MemoryLayout<UnsafePointer<SIMD4<Int32>>>.size,
+        MemoryLayout<UnsafePointer<SIMD4<Int32>>?>.size
+    )
+    print(
+        "UnsafeMutablePointer",
+        MemoryLayout<UnsafeMutablePointer<SIMD4<Int32>>>.size,
+        MemoryLayout<UnsafeMutablePointer<SIMD4<Int32>>?>.size
+    )
+    print(
+        "UnsafeRawPointer",
+        MemoryLayout<UnsafeRawPointer>.size,
+        MemoryLayout<UnsafeRawPointer?>.size
+    )
+    print(
+        "UnsafeMutableRawPointer",
+        MemoryLayout<UnsafeMutableRawPointer>.size,
+        MemoryLayout<UnsafeMutableRawPointer?>.size
+    )
+    print(
+        "UnsafeBufferPointer",
+        MemoryLayout<UnsafeBufferPointer<SIMD4<Int32>>>.size,
+        MemoryLayout<UnsafeBufferPointer<SIMD4<Int32>>?>.size
+    )
+    print(
+        "UnsafeMutableBufferPointer",
+        MemoryLayout<UnsafeMutableBufferPointer<SIMD4<Int32>>>.size,
+        MemoryLayout<UnsafeMutableBufferPointer<SIMD4<Int32>>?>.size
+    )
+    print(
+        "UnsafeRawBufferPointer",
+        MemoryLayout<UnsafeRawBufferPointer>.size,
+        MemoryLayout<UnsafeRawBufferPointer?>.size
+    )
+    print(
+        "UnsafeMutableRawBufferPointer",
+        MemoryLayout<UnsafeMutableRawBufferPointer>.size,
+        MemoryLayout<UnsafeMutableRawBufferPointer?>.size
+    )
+    print(
+        "Int",
+        MemoryLayout<Int>.size,
+        MemoryLayout<Int?>.size,
+    )
+    print(
+        "Int64",
+        MemoryLayout<Int64>.size,
+        MemoryLayout<Int64?>.size,
+    )
+    print(
+        "Int32",
+        MemoryLayout<Int32>.size,
+        MemoryLayout<Int32?>.size,
+    )
+
+//    let t = PagedSlotToDenseTest(pages: .init(header: .init(trailingCount: 2), repeating: 42))
+//
+//
+//    let b = UnsafeMutableBufferPointer<SIMD4<Int32>>(start: nil, count: 0)
+//    print(b.baseAddress)
+//
+//    b.initialize(repeating: .one)
+//    print(b.baseAddress)
+}
+
 @Test func addRemove() throws {
     let coordinator = Coordinator()
     for _ in 0..<100 {
