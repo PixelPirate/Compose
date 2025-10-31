@@ -411,19 +411,18 @@ struct PagedDense<Element> {
     }
 }
 
-
 public struct DenseSpan2<Element> {
     @usableFromInline
-    let buffer: UnsafeBufferPointer<Element>
+    let buffer: UnsafeMutablePointer<Element>
 
     @inlinable @inline(__always)
     init(view base: UnsafeMutableBufferPointer<Element>) {
-        buffer = UnsafeBufferPointer(base)
+        buffer = base.baseAddress.unsafelyUnwrapped
     }
 
     @inlinable @_transparent
     public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
-        UnsafeMutablePointer(mutating: buffer.baseAddress.unsafelyUnwrapped.advanced(by: index))
+        buffer.advanced(by: index)
     }
 
     @inlinable @inline(__always)
@@ -501,26 +500,26 @@ struct PagedDense2<Element> {
         buffer = newBuffer
     }
 
-    @usableFromInline @inline(__always)
+    @inlinable @inline(__always)
     mutating func ensureCapacity(_ capacity: Int) {
         guard buffer.count < capacity else { return }
         ensureCapacitySlow(capacity)
     }
 
-    @usableFromInline @inline(__always)
+    @inlinable @inline(__always)
     func grow(capacity: Int) -> Int {
         Swift.max(
             capacity,
             growDynamicArrayCapacity(capacity))
     }
 
-    @usableFromInline @inline(__always)
+    @inlinable @inline(__always)
     mutating func ensureCapacitySlow(_ capacity: Int) {
         let newCapacity = grow(capacity: capacity)
         reallocate(newCapacity)
     }
 
-    @usableFromInline @inline(__always)
+    @inlinable @inline(__always)
     func growDynamicArrayCapacity(_ capacity: Int) -> Int {
         // Growth factor of 1.5
         let c = (3 &* UInt(bitPattern: capacity) &+ 1) / 2
@@ -543,7 +542,7 @@ struct PagedDense2<Element> {
 
     @inlinable @_transparent
     func mutablePointer(for index: Int) -> UnsafeMutablePointer<Element> {
-        precondition(index < count, "Index \(index) is out of bounds.")
+        assert(index < count, "Index \(index) is out of bounds.")
         return buffer.baseAddress.unsafelyUnwrapped.advanced(by: index)
     }
 
