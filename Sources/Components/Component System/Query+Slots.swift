@@ -1,11 +1,3 @@
-//
-//  Query+Slots.swift
-//  Components
-//
-//  Created by Patrick Horlebein on 12.10.25.
-//
-
-// TODO: Instead of fully rebuilding can we keep the cache up to date more efficiently?
 extension Query {
     @usableFromInline @inline(__always)
     internal func getCachedArrays(_ coordinator: Coordinator)

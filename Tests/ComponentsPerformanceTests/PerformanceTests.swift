@@ -7,135 +7,33 @@ extension Tag {
 }
 
 @Suite(.tags(.performance)) struct PerformanceTests {
-    @Test func testets() {
-        var buffer = PagedStorage<SIMD3<Int>>(initialPageCapacity: 1024)
-        for i in 0..<4096 {
-            buffer.append(.init(i, i, i))
-        }
+    @Test func testContiguousAgainstSparse() {
         let clock = ContinuousClock()
-        let directDuration = clock.measure {
-            let pointer = buffer.unsafeAddress
-            for i in [0, 1, 2, 3].shuffled() {
-                let pageBuffer = pointer.advanced(by: i).pointee
-                guard let base = pageBuffer.baseAddress else {
-                    #expect(Bool(false), "Missing page")
-                    continue
-                }
-                for j in (0..<1024).map({ $0 }).shuffled() {
-                    #expect(base[j] == .init(i * 1024 + j, i * 1024 + j, i * 1024 + j))
-                }
-            }
-        }
 
-        let wrappedDuration = clock.measure {
-            let pointer = buffer.unsafeAddress
-            let x = UnsafePagedStorage<SIMD3<Int>>(baseAddress: pointer, count: 4096, pageCount: buffer.pageCount)
-            for i in (0..<4096).map({ $0 }).shuffled() {
-                #expect(x[i] == .init(i, i, i))
-            }
-        }
-
-        var contBuffer = ContiguousStorage<SIMD3<Int>>(initialPageCapacity: 1024)
+        var contBuffer = ContiguousStorage<ContiguousArray<Void>.Index>(initialPageCapacity: 1024)
         for i in 0..<4096 {
-            contBuffer.append(.init(i, i, i))
+            contBuffer.append(i)
         }
         let contDuration = clock.measure {
             let contPointer = contBuffer.baseAddress
             for i in (0..<4096).map({ $0 }).shuffled() {
-                #expect(contPointer[i] == .init(i, i, i))
+                #expect(contPointer[i] == i)
             }
         }
 
-        let unmanagedDuration = clock.measure {
-            let unmanaged = UnmanagedPagedStorage(buffer)
+        var sparse: SparseArray<ContiguousArray.Index, Int> = []
+        sparse.ensureCapacity(forIndex: 4095)
+        for i in 0..<4096 {
+            sparse[i] = i
+        }
+        let sparseDuration = clock.measure {
+            let span = sparse.view
             for i in (0..<4096).map({ $0 }).shuffled() {
-                #expect(unmanaged[i] == .init(i, i, i))
+                #expect(span[i] == i)
             }
         }
 
-        print("Direct:", directDuration, "Wrapped:", wrappedDuration, "Cont:", contDuration, "Unmanaged:", unmanagedDuration)
-    }
-
-    @Test func paged_vs_contiguous_random_probes_interleaved() {
-        let N = 1_000_000
-        let K = 300_000
-        var rng = SystemRandomNumberGenerator()
-
-        // Build 3 “required” maps and 1 “excluded” map
-        var contA = ContiguousArray<Int>(repeating: .notFound, count: N)
-        var contB = ContiguousArray<Int>(repeating: .notFound, count: N)
-        var contC = ContiguousArray<Int>(repeating: .notFound, count: N)
-        var contX = ContiguousArray<Int>(repeating: .notFound, count: N)
-
-        // Flip entries to simulate presence
-        for i in stride(from: 0, to: N, by: 3) { contA[i] = i }
-        for i in stride(from: 1, to: N, by: 3) { contB[i] = i }
-        for i in stride(from: 2, to: N, by: 3) { contC[i] = i }
-        for i in stride(from: 5, to: N, by: 5) { contX[i] = i } // excluded
-
-        // Build paged copies
-        var pagA = PagedStorage<Int>(initialPageCapacity: 1024)
-        var pagB = PagedStorage<Int>(initialPageCapacity: 1024)
-        var pagC = PagedStorage<Int>(initialPageCapacity: 1024)
-        var pagX = PagedStorage<Int>(initialPageCapacity: 1024)
-        for i in 0..<N {
-            pagA.append(contA[i])
-            pagB.append(contB[i])
-            pagC.append(contC[i])
-            pagX.append(contX[i])
-        }
-        let uA = UnmanagedPagedStorage(pagA)
-        let uB = UnmanagedPagedStorage(pagB)
-        let uC = UnmanagedPagedStorage(pagC)
-        let uX = UnmanagedPagedStorage(pagX)
-
-        let pA = UnsafePagedStorage(pagA)
-        let pB = UnsafePagedStorage(pagA)
-        let pC = UnsafePagedStorage(pagA)
-        let pX = UnsafePagedStorage(pagA)
-
-        // Precompute random indices once
-        let queries: [Int] = (0..<K).map { _ in Int.random(in: 0..<N, using: &rng) }
-
-        // Simple blackhole
-        @inline(__always) func sink<T>(_ x: T) { withUnsafeBytes(of: x) { _ = $0 } }
-
-        func passesContig(_ i: Int) -> Bool {
-            contA[i] != .notFound &&
-            contB[i] != .notFound &&
-            contC[i] != .notFound &&
-            contX[i] == .notFound
-        }
-        func passesPaged(_ i: Int) -> Bool {
-            uA[i] != .notFound &&
-            uB[i] != .notFound &&
-            uC[i] != .notFound &&
-            uX[i] == .notFound
-        }
-        func passesUnsafePaged(_ i: Int) -> Bool {
-            pA[i] != .notFound &&
-            pB[i] != .notFound &&
-            pC[i] != .notFound &&
-            pX[i] == .notFound
-        }
-
-        let clock = ContinuousClock()
-        let tContig = clock.measure {
-            var count = 0
-            for q in queries { if passesContig(q) { count &+= 1 } }
-            sink(count)
-        }
-        let tPaged = clock.measure {
-            var count = 0
-            for q in queries { if passesPaged(q) { count &+= 1 } }
-            sink(count)
-        }
-        let tUnsafePaged = clock.measure {
-            var count = 0
-            for q in queries { if passesUnsafePaged(q) { count &+= 1 } }
-            sink(count)
-        }
-        print("Random interleaved: contiguous:", tContig, "paged:", tPaged, "unsafe paged:", tUnsafePaged)
+        print("Contiguous:", contDuration, "Sparse:", sparseDuration)
     }
 
     @Test func testPerformance() throws {
@@ -1286,9 +1184,10 @@ public struct Person: Component {
         static let componentTag = ComponentTag.makeTag()
         var value: Int
     }
-    var storage = PagedStorage<TestComponent>(initialPageCapacity: 8)
+    var storage = SparseSet<TestComponent, Int>()
+    storage.ensureEntity(999_999)
     for value in 0..<1_000_000 {
-        storage.append(TestComponent(value: value))
+        storage.append(TestComponent(value: value), to: value)
     }
 
     let clock = ContinuousClock()
@@ -1297,36 +1196,11 @@ public struct Person: Component {
             storage[index].value *= -1
         }
     }
-    let duration3 = clock.measure {
-        let pagesPointer = storage.unsafeAddress
-        if storage.pageCount > 1 {
-            for pageIndex in 0..<(storage.pageCount - 1) {
-                let page = pagesPointer.advanced(by: pageIndex).pointee
-                guard let elementsPointer = page.baseAddress else { continue }
-                for index in 0..<pageCapacity {
-                    elementsPointer.advanced(by: index).pointee.value *= -1
-                }
-            }
-        }
-        guard storage.count > 0 else { return }
-        let lastIndex = storage.count - 1
-        let lastPageIndex = lastIndex >> pageShift
-        let lastOffset = lastIndex & pageMask
-        let lastPage = pagesPointer.advanced(by: lastPageIndex).pointee
-        if let elementsPointer = lastPage.baseAddress {
-            for index in 0...lastOffset {
-                elementsPointer.advanced(by: index).pointee.value *= -1
-            }
-        }
-    }
-    // 0.014s
-    // 0.0017
+    // 0.0011
     print("Dur get:", duration)
-    // 0.0005
-    print("Dur loop:", duration3)
 
     for index in 0..<storage.count {
-        #expect(storage[index].value == index * +1)
+        #expect(storage[index].value == index * -1)
     }
 
     var storage2 = ContiguousArray<TestComponent>()
@@ -1339,7 +1213,7 @@ public struct Person: Component {
             storage2[index].value *= -1
         }
     }
-    // 0.0013
+    // 0.0011
     print("Dur array:", duration2)
 
     for index in 0..<storage2.count {

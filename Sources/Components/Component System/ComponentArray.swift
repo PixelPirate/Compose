@@ -73,8 +73,7 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     @inlinable @inline(__always)
     var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> {
         _read {
-            yield base.slots.values.view
-//            UnsafePagedStorage(base.slots.values)
+            yield base.slots.view
         }
     }
 

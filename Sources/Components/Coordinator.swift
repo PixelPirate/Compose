@@ -20,7 +20,6 @@ public struct ResourceKey: Hashable {
 public final class Coordinator {
     @usableFromInline
     var pool = ComponentPool()
-    //var tables = ArchetypePool()
 
     @usableFromInline
     var indices = IndexRegistry()

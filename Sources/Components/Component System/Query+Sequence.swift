@@ -1,10 +1,3 @@
-//
-//  Query+Sequence.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 10.10.25.
-//
-
 public struct LazyQuerySequence<each T: ComponentResolving>: Sequence {
     @usableFromInline
     internal let entityIDs: [Entity.ID]

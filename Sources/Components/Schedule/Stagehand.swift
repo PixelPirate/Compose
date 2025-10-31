@@ -15,7 +15,7 @@ final class Stagehand {
 
     /// Greedy packing into conflict-free parallel stages
     @usableFromInline
-    func buildStages() -> [ScheduledStage] { // TODO: Cache stages as one single [any System] until systems change.
+    func buildStages() -> [ScheduledStage] {
         // Work on a mutable list of unscheduled systems
         var unscheduled: [any System] = Array(systems)
         var scheduledIDs = Set<SystemID>()

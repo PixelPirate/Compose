@@ -1,10 +1,3 @@
-//
-//  Query+Plan.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 10.10.25.
-//
-
 public struct QueryMetadata {
     public let readSignature: ComponentSignature
     public let writeSignature: ComponentSignature

@@ -42,7 +42,6 @@ extension System {
     }
 }
 
-// TODO: Signatures must include optional components to correctly schedule system!
 public struct SystemMetadata {
     public let id: SystemID
     public let readSignature: ComponentSignature

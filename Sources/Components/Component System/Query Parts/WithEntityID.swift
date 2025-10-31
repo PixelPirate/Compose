@@ -1,10 +1,3 @@
-//
-//  WithEntityID.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 10.10.25.
-//
-
 public struct WithEntityID: Component, Sendable {
     public static var componentTag: ComponentTag { ComponentTag(rawValue: -1) }
     public typealias ResolvedType = Entity.ID

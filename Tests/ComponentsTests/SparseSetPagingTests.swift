@@ -8,67 +8,87 @@ import Testing
     }
 
     @Test func testAppendAcrossPages() {
-        var storage = PagedStorage<TestComponent>()
-        let total = pageCapacity + 10
+        var storage = SparseSet<TestComponent, Int>()
+        let total = PagedSlotToDenseConstants.pageSize + 10
+        storage.ensureEntity(total - 1)
         for value in 0..<total {
-            storage.append(TestComponent(value: value))
+            storage.append(TestComponent(value: value), to: value)
         }
 
         #expect(storage.count == total)
-        #expect(storage.pageCount == 2)
+        #expect(storage.slotPages == 2)
 
         for index in 0..<total {
             #expect(storage[index] == TestComponent(value: index))
         }
     }
 
-    @Test func testRemoveAcrossPages() {
-        var storage = PagedStorage<TestComponent>()
-        let total = pageCapacity * 2
+    @Test func testRemoveAcrossSparsePages() {
+        var storage = SparseSet<TestComponent, Int>()
+        let total = PagedSlotToDenseConstants.pageSize * 2
+        storage.ensureEntity(total - 1)
+
+        #expect(storage.slots.values.liveCounts[0] == 0)
+        #expect(storage.slots.values.liveCounts[1] == 0)
+
         for value in 0..<total {
-            storage.append(TestComponent(value: value))
+            storage.append(TestComponent(value: value), to: value)
         }
 
-        #expect(storage.count == pageCapacity * 2)
-        #expect(storage.pageCount == 2)
+        #expect(storage.count == PagedSlotToDenseConstants.pageSize * 2)
+        #expect(storage.slotPages == 2)
+        #expect(storage.liveSlotPages == 2)
+        #expect(storage.slots.values.liveCounts[0] == 4096)
+        #expect(storage.slots.values.liveCounts[1] == 4096)
 
-        let removed = storage.remove(at: pageCapacity / 2)
-        #expect(removed == TestComponent(value: pageCapacity / 2))
-        #expect(storage[pageCapacity / 2] == TestComponent(value: total - 1))
+        let removedFirstOnLastPage = storage.remove(PagedSlotToDenseConstants.pageSize)
+        #expect(removedFirstOnLastPage == TestComponent(value: PagedSlotToDenseConstants.pageSize))
+        #expect(storage[PagedSlotToDenseConstants.pageSize] == TestComponent(value: total - 1))
         #expect(storage.count == total - 1)
-        #expect(storage.pageCount == 2)
+        #expect(storage.slotPages == 2)
+        #expect(storage.liveSlotPages == 2)
+        #expect(storage.slots.values.liveCounts[0] == 4096)
+        #expect(storage.slots.values.liveCounts[1] == 4095)
 
-        let removedCrossPage = storage.remove(at: pageCapacity - 1)
-        #expect(removedCrossPage == TestComponent(value: pageCapacity - 1))
-        #expect(storage[pageCapacity - 1] == TestComponent(value: total - 2))
+        let removedCrossPage = storage.remove(PagedSlotToDenseConstants.pageSize - 1)
+        #expect(removedCrossPage == TestComponent(value: PagedSlotToDenseConstants.pageSize - 1))
+        #expect(storage[PagedSlotToDenseConstants.pageSize - 1] == TestComponent(value: total - 2))
         #expect(storage.count == total - 2)
+        #expect(storage.slotPages == 2)
+        #expect(storage.liveSlotPages == 2)
+        #expect(storage.slots.values.liveCounts[0] == 4095)
+        #expect(storage.slots.values.liveCounts[1] == 4095)
 
         // Removing all elements should release pages.
-        while storage.count > 0 {
-            _ = storage.remove(at: storage.count - 1)
+        while let slot = storage.keys.last {
+            _ = storage.remove(slot)
         }
         #expect(storage.count == 0)
-        #expect(storage.pageCount == 0)
+        #expect(storage.keys.isEmpty)
+        #expect(storage.liveSlotPages == 0)
+        #expect(storage.slotPages == 2)
     }
 
     @Test func testAppendTriggersCapacityGrowth() {
-        var storage = PagedStorage<TestComponent>(initialPageCapacity: 1)
+        var storage = SparseSet<TestComponent, Int>()
         let pagesToCreate = 8
-        let total = pagesToCreate * pageCapacity
+        let total = pagesToCreate * PagedSlotToDenseConstants.pageSize
+        storage.ensureEntity(total - 1)
         for value in 0..<total {
-            storage.append(TestComponent(value: value))
+            storage.append(TestComponent(value: value), to: value)
         }
-        #expect(storage.pageCount == pagesToCreate)
+        #expect(storage.slotPages == pagesToCreate)
         #expect(storage.count == total)
-        for index in stride(from: total - 1, through: 0, by: -pageCapacity) {
+        for index in stride(from: total - 1, through: 0, by: -PagedSlotToDenseConstants.pageSize) {
             #expect(storage[index] == TestComponent(value: index))
         }
     }
 
     @Test func testPerformance() {
-        var storage = PagedStorage<TestComponent>(initialPageCapacity: 8)
+        var storage = SparseSet<TestComponent, Int>()
+        storage.ensureEntity(1_999_999)
         for value in 0..<2_000_000 {
-            storage.append(TestComponent(value: value))
+            storage.append(TestComponent(value: value), to: value)
         }
 
         let clock = ContinuousClock()

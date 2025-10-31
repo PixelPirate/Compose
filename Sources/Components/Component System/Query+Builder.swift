@@ -1,10 +1,3 @@
-//
-//  Query+Builder.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 10.10.25.
-//
-
 public struct BuiltQuery<each T: Component & ComponentResolving> {
     @usableFromInline
     let composite: Query<repeat each T>
@@ -16,7 +9,8 @@ public enum QueryBuilder {
         BuiltQuery(
             composite: Query<C>(
                 backstageComponents: [],
-                excludedComponents: []
+                excludedComponents: [],
+                isQueryingForEntityID: false
             )
         )
     }
@@ -25,7 +19,8 @@ public enum QueryBuilder {
         BuiltQuery(
             composite: Query<Write<C>>(
                 backstageComponents: [],
-                excludedComponents: []
+                excludedComponents: [],
+                isQueryingForEntityID: false
             )
         )
     }
@@ -34,7 +29,8 @@ public enum QueryBuilder {
         BuiltQuery(
             composite: Query< >(
                 backstageComponents: [C.componentTag],
-                excludedComponents: []
+                excludedComponents: [],
+                isQueryingForEntityID: false
             )
         )
     }
@@ -43,7 +39,18 @@ public enum QueryBuilder {
         BuiltQuery(
             composite: Query< >(
                 backstageComponents: [],
-                excludedComponents: [C.componentTag]
+                excludedComponents: [C.componentTag],
+                isQueryingForEntityID: false
+            )
+        )
+    }
+
+    public static func buildExpression(_ c: WithEntityID.Type) -> BuiltQuery<WithEntityID> {
+        BuiltQuery(
+            composite: Query<WithEntityID>(
+                backstageComponents: [],
+                excludedComponents: [],
+                isQueryingForEntityID: true
             )
         )
     }
@@ -62,7 +69,8 @@ public enum QueryBuilder {
                     backstageComponents:
                         accumulated.composite.backstageComponents.union(next.composite.backstageComponents),
                     excludedComponents:
-                        accumulated.composite.excludedComponents.union(next.composite.excludedComponents)
+                        accumulated.composite.excludedComponents.union(next.composite.excludedComponents),
+                    isQueryingForEntityID: accumulated.composite.isQueryingForEntityID || next.composite.isQueryingForEntityID
                 )
         )
     }

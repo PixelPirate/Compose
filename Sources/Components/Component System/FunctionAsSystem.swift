@@ -1,10 +1,3 @@
-//
-//  FunctionAsSystem.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 10.10.25.
-//
-
 /*
 // This sadly can not work with the current version of Swift. Revisit when we support multiple type packs in type definitions.
 protocol SystemParameter {

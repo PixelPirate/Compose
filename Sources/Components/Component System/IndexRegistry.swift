@@ -69,11 +69,13 @@ struct IndexRegistry {
 
     @inlinable @inline(__always)
     subscript(generationFor index: SlotIndex) -> UInt32 {
-        _read {
-            yield generation[index.rawValue]
+        @_transparent
+        unsafeAddress {
+            generation.withUnsafeBufferPointer { $0.baseAddress.unsafelyUnwrapped.advanced(by: index.rawValue) }
         }
-        _modify {
-            yield &generation[index.rawValue]
+        @_transparent
+        unsafeMutableAddress {
+            generation.withUnsafeMutableBufferPointer { $0.baseAddress.unsafelyUnwrapped.advanced(by: index.rawValue)}
         }
     }
 

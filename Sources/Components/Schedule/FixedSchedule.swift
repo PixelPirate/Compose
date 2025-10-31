@@ -31,7 +31,6 @@ struct RunFixedMainLoopSystem: System {
         let delta = context.coordinator[resource: WorldClock.self].delta
         context.coordinator[resource: FixedClock.self].accumulate(delta)
 
-        // TODO: Fix this. Endless loop.
         while context.coordinator[resource: FixedClock.self].expend() {
             context.coordinator.runSchedule(.fixedMain)
         }

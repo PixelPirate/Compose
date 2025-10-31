@@ -1,23 +1,3 @@
-//
-//  UnmanagedPagedStorage.swift
-//  Components
-//
-//  Created by Patrick Horlebein on 27.10.25.
-//
-
-
-//@usableFromInline
-//let defaultInitialPageCapacity = 1
-//
-//@usableFromInline
-//let defaultInitialCapacity = 1
-//
-//public let pageShift = 10 // 10 -> 1024, 20 -> 1M
-//
-//public let pageCapacity = 1 << pageShift
-//
-//public let pageMask = pageCapacity - 1
-
 public struct UnmanagedContiguousStorage<Element> {
     public var count: Int
     public var buffer: Unmanaged<ContiguousBuffer<Element>>

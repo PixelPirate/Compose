@@ -109,7 +109,6 @@ extension ComponentPool {
                 } else {
                     return candidates.filter { slot in
                         excludedArrays.allSatisfy { componentArray in
-//                            componentArray.entityToComponents.count <= slot.rawValue ||
                             componentArray.entityToComponents[slot] == .notFound
                         }
                     }
@@ -131,7 +130,6 @@ extension ComponentPool {
             } else {
                 return smallest.componentsToEntites.filter { slot in
                     excludedArrays.allSatisfy { componentArray in
-//                        componentArray.entityToComponents.count <= slot.rawValue ||
                         componentArray.entityToComponents[slot] == .notFound
                     }
                 }
@@ -378,12 +376,14 @@ func withTypedBuffers<each C: ComponentResolving, R>(
 
     @inline(__always)
     func tryMakeAccess<D: ComponentResolving>(_ type: D.Type) -> TypedAccess<D> {
-        guard D.QueriedComponent.self != Never.self else { return TypedAccess<D>.empty }
+        guard D.QueriedComponent.self != Never.self else {
+            return TypedAccess<D>.empty // Returning empty is okay, since the virtual components does not access any storage.
+        }
         guard let anyArray = pool.components[D.QueriedComponent.componentTag] else {
             guard D.self is any OptionalQueriedComponent.Type else {
                 fatalError("Unknown component.")
             }
-            return TypedAccess<D>.empty
+            return TypedAccess<D>.empty // Returning empty is okay, since if there are no components, no access should be made.
         }
         var result: TypedAccess<D>? = nil
         anyArray.withBuffer(D.QueriedComponent.self) { pointer, entitiesToIndices in

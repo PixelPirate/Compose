@@ -1,10 +1,3 @@
-//
-//  TypedAccess.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 10.10.25.
-//
-
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var pointer: UnsafeMutablePointer<C.QueriedComponent>
     @usableFromInline internal var indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
@@ -28,10 +21,6 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @inlinable @inline(__always)
     public subscript(optional id: Entity.ID) -> C.QueriedComponent? {
         _read {
-//            guard id.slot.rawValue < indices.count else {
-//                yield nil
-//                return
-//            }
             let index = indices[checked: id.slot]
             guard index != .notFound else {
                 yield nil
@@ -77,10 +66,6 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public func optionalAccess(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent>? {
-        // TODO: Fix warning.
-//        guard id.slot.rawValue < indices.count else {
-//            return nil
-//        }
         let index = indices[checked: id.slot]
         guard index != .notFound else {
             return nil
@@ -92,14 +77,11 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 extension TypedAccess {
     @inlinable @inline(__always)
     static var empty: TypedAccess {
-        // a harmless instance that never resolves anything
         TypedAccess(
             pointer: .allocate(capacity: 0),
             indices: SlotsSpan(
                 view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
-                // TODO: Have a global "always empty" span which always ensures capacity using only the shared empty page. And remove the [checked:] subscript
             )
-//                UnsafePagedStorage(PagedStorage(initialPageCapacity: 1))
         )
     }
 }

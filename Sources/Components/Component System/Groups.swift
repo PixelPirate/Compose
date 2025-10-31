@@ -98,20 +98,6 @@ extension Groups {
     }
 }
 
-// MARK: - SparseSet helpers for grouping (swap & index helpers)
-
-extension SparseSet {
-    /// Returns the dense index for the given slot if present.
-    @inlinable @inline(__always)
-    internal func denseIndex(for slot: SlotIndex) -> Int? {
-        assert(slots.indices.contains(slot))
-//        if slots.contains(index: slot) {
-            return slots[slot]
-//        }
-//        return nil
-    }
-}
-
 // MARK: - AnyComponentArray helper to access underlying typed SparseSet
 
 extension AnyComponentArray {
@@ -126,17 +112,6 @@ extension AnyComponentArray {
         let box = Unmanaged.passUnretained(base as! ComponentArrayBox<C>)
         return try body(&box.takeUnretainedValue().base)
     }
-
-    /// Execute a closure with a read-only view of the "dense index -> SlotIndex" mapping.
-    /// Useful to determine which entity slot is stored at a given dense position.
-//    @inlinable @inline(__always)
-//    func _withComponentsToSlots<C: Component, R>(
-//        _ type: C.Type,
-//        _ body: (ContiguousArray<SlotIndex>) throws -> R
-//    ) rethrows -> R {
-//        let typed = base as! ComponentArrayBox<C>
-//        return try body(typed.componentsToEntites)
-//    }
 }
 
 //struct Both<each Queried> {
@@ -366,7 +341,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
                         var j = 0
                         while j < self.size {
                             let desiredSlot = primaryPacked[j]
-                            if let currentIndex = otherSet.denseIndex(for: desiredSlot), currentIndex != j {
+                            let currentIndex = otherSet.slots[desiredSlot]
+                            if currentIndex != .notFound, currentIndex != j {
                                 otherSet.swapDenseAt(currentIndex, j)
                             }
                             j &+= 1
@@ -406,7 +382,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
         for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
             primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
-                guard let idx = primarySet.denseIndex(for: entity.slot) else { return }
+                let idx = primarySet.slots[entity.slot]
+                guard idx != .notFound else { return }
 
                 if excludedComponents.contains(tag) {
                     // If tag is excluded and entity is in packed prefix, swap it out
@@ -438,7 +415,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
                 if tag == self.primary { continue }
                 guard var otherArray = coordinator.pool.components[tag] else { continue }
                 otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                    if let ci = otherSet.denseIndex(for: p.slot), ci != p.targetIndex {
+                    let ci = otherSet.slots[p.slot]
+                    if ci != .notFound, ci != p.targetIndex {
                         otherSet.swapDenseAt(ci, p.targetIndex)
                     }
                 }
@@ -470,7 +448,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
         for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
             primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
-                guard let idx = primarySet.denseIndex(for: entity.slot) else { return }
+                let idx = primarySet.slots[entity.slot]
+                guard idx != .notFound else { return }
 
                 if excludedComponents.contains(tag) {
                     // If excluded tag removed and entity is outside packed prefix, include if now valid
@@ -501,7 +480,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
                 if tag == self.primary { continue }
                 guard var otherArray = coordinator.pool.components[tag] else { continue }
                 otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
-                    if let ci = otherSet.denseIndex(for: p.slot), ci != p.targetIndex {
+                    let ci = otherSet.slots[p.slot]
+                    if ci != .notFound, ci != p.targetIndex {
                         otherSet.swapDenseAt(ci, p.targetIndex)
                     }
                 }

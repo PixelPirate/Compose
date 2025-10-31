@@ -1,10 +1,3 @@
-//
-//  OptionalWrite.swift
-//  Components
-//
-//  Created by Patrick Horlebein (extern) on 10.10.25.
-//
-
 public struct OptionalWrite<C: Component>: WritableComponent, OptionalQueriedComponent, Sendable {
     public typealias Queried = C
 
