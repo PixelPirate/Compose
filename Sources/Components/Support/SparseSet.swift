@@ -2,7 +2,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 //    @usableFromInline
 //    private(set) var storage: ContiguousStorage<Component> = ContiguousStorage(initialPageCapacity: 1024)
     @usableFromInline
-    private(set) var storage: PagedDense<Component> = PagedDense()
+    private(set) var storage: PagedDense2<Component> = PagedDense2()
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
@@ -73,7 +73,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 //    }
 
     @inlinable @_transparent
-    public var view: DenseSpan<Component> {
+    public var view: DenseSpan2<Component> {
         _read {
             yield storage.view
         }

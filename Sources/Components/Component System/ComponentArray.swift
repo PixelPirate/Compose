@@ -158,7 +158,7 @@ public struct AnyComponentArray {
     @inlinable @inline(__always)
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (DenseSpan<C>, SlotsSpan<ContiguousArray.Index, SlotIndex>) throws -> Result
+        _ body: (DenseSpan2<C>, SlotsSpan<ContiguousArray.Index, SlotIndex>) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents

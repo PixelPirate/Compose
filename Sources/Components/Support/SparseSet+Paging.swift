@@ -381,10 +381,7 @@ struct PagedDense<Element> {
 
     @inlinable @_transparent
     func pointer(for index: Int) -> UnsafePointer<Element> {
-        precondition(index < count, "Index \(index) is out of bounds.")
-        let page = index >> PagedDenseConstants.pageShift
-        let offset = index & PagedDenseConstants.pageMask
-        return UnsafePointer(pages[page].advanced(by: offset))
+        UnsafePointer(mutablePointer(for: index))
     }
 
     @inlinable @_transparent
@@ -411,5 +408,155 @@ struct PagedDense<Element> {
     @inlinable @inline(__always)
     static func makeEmptyPage() -> UnsafeMutablePointer<Element> {
         UnsafeMutablePointer<Element>.allocate(capacity: PagedDenseConstants.pageSize)
+    }
+}
+
+
+public struct DenseSpan2<Element> {
+    @usableFromInline
+    let buffer: UnsafeBufferPointer<Element>
+
+    @inlinable @inline(__always)
+    init(view base: UnsafeMutableBufferPointer<Element>) {
+        buffer = UnsafeBufferPointer(base)
+    }
+
+    @inlinable @_transparent
+    public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
+        UnsafeMutablePointer(mutating: buffer.baseAddress.unsafelyUnwrapped.advanced(by: index))
+    }
+
+    @inlinable @inline(__always)
+    public subscript(index: Int) -> Element {
+        @_transparent
+        unsafeAddress {
+            UnsafePointer(mutablePointer(at: index))
+        }
+
+        @_transparent
+        nonmutating unsafeMutableAddress {
+            mutablePointer(at: index)
+        }
+    }
+}
+
+@usableFromInline
+struct PagedDense2<Element> {
+    @usableFromInline
+    var buffer: UnsafeMutableBufferPointer<Element>
+
+    @usableFromInline
+    var count: Int = 0
+
+    @inlinable @inline(__always)
+    init() {
+        buffer = .allocate(capacity: 1024)
+    }
+
+    @inlinable @_transparent
+    var view: DenseSpan2<Element> {
+        _read {
+            yield DenseSpan2(view: buffer)
+        }
+    }
+
+    @inlinable @inline(__always)
+    func deallocate() {
+        for index in 0..<count {
+            buffer.deinitializeElement(at: index)
+        }
+        buffer.deallocate()
+    }
+
+    @inlinable @inline(__always)
+    mutating func append(_ element: Element) {
+        let index = count
+        ensureCapacity(count + 1)
+        buffer.initializeElement(at: index, to: element)
+        count += 1
+    }
+
+    @inlinable @inline(__always)
+    mutating func removeLast() -> Element {
+        precondition(count > 0)
+        let index = count - 1
+        let removed = buffer.moveElement(from: index)
+        count -= 1
+        return removed
+    }
+
+    @inlinable @inline(__always)
+    public mutating func swapAt(_ i: Int, _ j: Int) {
+        buffer.swapAt(i, j)
+    }
+
+    @inlinable @inline(__always)
+    mutating func compact() {
+        guard count < buffer.count else {
+            return
+        }
+        let newBuffer = UnsafeMutableBufferPointer<Element>.allocate(capacity: count)
+        _ = newBuffer.moveInitialize(fromContentsOf: buffer[..<count])
+        buffer.deallocate()
+        buffer = newBuffer
+    }
+
+    @usableFromInline @inline(__always)
+    mutating func ensureCapacity(_ capacity: Int) {
+        guard buffer.count < capacity else { return }
+        ensureCapacitySlow(capacity)
+    }
+
+    @usableFromInline @inline(__always)
+    func grow(capacity: Int) -> Int {
+        Swift.max(
+            capacity,
+            growDynamicArrayCapacity(capacity))
+    }
+
+    @usableFromInline @inline(__always)
+    mutating func ensureCapacitySlow(_ capacity: Int) {
+        let newCapacity = grow(capacity: capacity)
+        reallocate(newCapacity)
+    }
+
+    @usableFromInline @inline(__always)
+    func growDynamicArrayCapacity(_ capacity: Int) -> Int {
+        // Growth factor of 1.5
+        let c = (3 &* UInt(bitPattern: capacity) &+ 1) / 2
+        return Int(bitPattern: c)
+    }
+
+    @inlinable @inline(__always)
+    mutating func reallocate(_ capacity: Int) {
+        precondition(capacity > buffer.count)
+        let newBuffer = UnsafeMutableBufferPointer<Element>.allocate(capacity: capacity)
+        _ = newBuffer.moveInitialize(fromContentsOf: buffer)
+        buffer.deallocate()
+        buffer = newBuffer
+    }
+
+    @inlinable @_transparent
+    func pointer(for index: Int) -> UnsafePointer<Element> {
+        UnsafePointer(mutablePointer(for: index))
+    }
+
+    @inlinable @_transparent
+    func mutablePointer(for index: Int) -> UnsafeMutablePointer<Element> {
+        precondition(index < count, "Index \(index) is out of bounds.")
+        return buffer.baseAddress.unsafelyUnwrapped.advanced(by: index)
+    }
+
+    @inlinable @inline(__always)
+    subscript(index: Int) -> Element {
+        @_transparent
+        unsafeAddress {
+            pointer(for: index)
+        }
+
+        @_transparent
+        unsafeMutableAddress {
+            mutablePointer(for: index)
+        }
     }
 }

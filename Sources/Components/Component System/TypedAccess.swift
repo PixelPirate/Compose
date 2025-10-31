@@ -1,9 +1,9 @@
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
-    @usableFromInline internal var pointer: DenseSpan<C.QueriedComponent>
+    @usableFromInline internal var pointer: DenseSpan2<C.QueriedComponent>
     @usableFromInline internal var indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
 
     @usableFromInline
-    init(pointer: DenseSpan<C.QueriedComponent>, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>) {
+    init(pointer: DenseSpan2<C.QueriedComponent>, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>) {
         self.pointer = pointer
         self.indices = indices
     }
@@ -78,8 +78,8 @@ extension TypedAccess {
     @inlinable @inline(__always)
     static var empty: TypedAccess {
         TypedAccess(
-            pointer: DenseSpan(
-                view: UnsafeMutableBufferPointer<UnsafeMutablePointer<C.QueriedComponent>>(start: nil, count: 0)
+            pointer: DenseSpan2(
+                view: UnsafeMutableBufferPointer<C.QueriedComponent>(start: nil, count: 0)
             ),
             indices: SlotsSpan(
                 view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
