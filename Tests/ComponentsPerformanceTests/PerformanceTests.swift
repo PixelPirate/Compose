@@ -392,9 +392,9 @@ extension Tag {
 
         //~0.012, 0.007, 0.007 seconds
         print("Pre-Group Perform:", duration3_1, duration3_2, duration3_3)
-        print("Pre-Group:", duration1, duration2, duration3)
+        print("Pre-Group Preloaded:", duration1, duration2, duration3)
         print("Group-Build:", groupDuration)
-        print("Post-Group:", duration2_1, duration2_2, duration2_3)
+        print("Post-Group Preloaded:", duration2_1, duration2_2, duration2_3)
         print("Post-Group Specialised:", duration5_1, duration5_2, duration5_3)
         print("Post-Group Perform:", duration4_1, duration4_2, duration4_3)
     }

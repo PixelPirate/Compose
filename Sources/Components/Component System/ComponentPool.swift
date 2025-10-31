@@ -17,10 +17,17 @@ public struct ComponentPool {
 
 extension ComponentPool {
     @usableFromInline
+    mutating func ensureSparseSetCount(includes entityID: Entity.ID) {
+        for component in components.values {
+            component.ensureEntity(entityID)
+        }
+    }
+
+    @usableFromInline
     mutating func append<C: Component>(_ component: C, for entityID: Entity.ID) {
         let array = components[C.componentTag] ?? {
             var newArray = AnyComponentArray(ComponentArray<C>())
-            newArray.reserveCapacity(minimumComponentCapacity: 50, minimumSlotCapacity: 500)
+            newArray.reserveCapacity(minimumComponentCapacity: 50, minimumSlotCapacity: entityID.slot.index + 1)
             return newArray
         }()
         array.append(component, id: entityID)
@@ -102,7 +109,8 @@ extension ComponentPool {
                 } else {
                     return candidates.filter { slot in
                         excludedArrays.allSatisfy { componentArray in
-                            componentArray.entityToComponents.count <= slot.rawValue || componentArray.entityToComponents[slot.rawValue] == .notFound
+//                            componentArray.entityToComponents.count <= slot.rawValue ||
+                            componentArray.entityToComponents[slot] == .notFound
                         }
                     }
                 }
@@ -123,7 +131,8 @@ extension ComponentPool {
             } else {
                 return smallest.componentsToEntites.filter { slot in
                     excludedArrays.allSatisfy { componentArray in
-                        componentArray.entityToComponents.count <= slot.rawValue || componentArray.entityToComponents[slot.rawValue] == .notFound
+//                        componentArray.entityToComponents.count <= slot.rawValue ||
+                        componentArray.entityToComponents[slot] == .notFound
                     }
                 }
             }
@@ -138,12 +147,12 @@ extension ComponentPool {
         for slot in smallest.componentsToEntites {
             var presentInAll = true
             for sparseList in others {
-                if sparseList[slot.rawValue] == .notFound {
+                if sparseList[slot] == .notFound {
                     presentInAll = false
                     break
                 }
             }
-            for excluded in excludedArrays where excluded.entityToComponents[slot.rawValue] != .notFound {
+            for excluded in excludedArrays where excluded.entityToComponents[slot] != .notFound {
                 presentInAll = false
                 break
             }
@@ -170,7 +179,7 @@ extension ComponentPool {
             let tag = component.QueriedComponent.componentTag
             guard
                 let array = self.components[tag],
-                array.entityToComponents[slot.rawValue] != .notFound
+                array.entityToComponents[slot] != .notFound
             else {
                 return false
             }
@@ -178,17 +187,17 @@ extension ComponentPool {
 
         for tag in query.backstageComponents {
             // If any tag is missing or empty, there can be no matches.
-            guard let array = self.components[tag], array.entityToComponents[slot.rawValue] != .notFound else {
+            guard let array = self.components[tag], array.entityToComponents[slot] != .notFound else {
                 return false
             }
         }
 
         for tag in query.excludedComponents {
             // If any tag is missing or empty, we can skip this exclude.
-            guard let array = self.components[tag], slot.rawValue < array.entityToComponents.count else {
+            guard let array = self.components[tag]/*, slot.rawValue < array.entityToComponents.count*/ else {
                 continue
             }
-            guard array.entityToComponents[slot.rawValue] == .notFound else {
+            guard array.entityToComponents[slot] == .notFound else {
                 return false
             }
         }
@@ -204,7 +213,7 @@ extension ComponentPool {
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
     )
-    -> (base: ContiguousArray<SlotIndex>, others: [UnsafePagedStorage<ContiguousArray.Index>], excluded: [UnsafePagedStorage<ContiguousArray.Index>])
+    -> (base: ContiguousArray<SlotIndex>, others: [SlotsSpan<ContiguousArray.Index, SlotIndex>], excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>])
     {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []

@@ -91,6 +91,9 @@ public final class Coordinator {
         }
         let newEntity = indices.allocateID()
 
+        // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
+        pool.ensureSparseSetCount(includes: newEntity)
+
         for component in repeat each components {
             pool.append(component, for: newEntity)
         }
@@ -114,6 +117,9 @@ public final class Coordinator {
         let newEntity = indices.allocateID()
         let signature = ComponentSignature()
         setSpawnedSignature(newEntity, signature: signature)
+
+        // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
+        pool.ensureSparseSetCount(includes: newEntity)
 
         return newEntity
     }

@@ -7,10 +7,10 @@
 
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var pointer: UnsafeMutablePointer<C.QueriedComponent>
-    @usableFromInline internal var indices: UnsafePagedStorage<ContiguousArray.Index>
+    @usableFromInline internal var indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
 
     @usableFromInline
-    init(pointer: UnsafeMutablePointer<C.QueriedComponent>, indices: UnsafePagedStorage<ContiguousArray.Index>) {
+    init(pointer: UnsafeMutablePointer<C.QueriedComponent>, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>) {
         self.pointer = pointer
         self.indices = indices
     }
@@ -18,21 +18,21 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C.QueriedComponent {
         _read {
-            yield pointer[indices[id.slot.rawValue]]
+            yield pointer[indices[id.slot]]
         }
         nonmutating _modify {
-            yield &pointer[indices[id.slot.rawValue]]
+            yield &pointer[indices[id.slot]]
         }
     }
 
     @inlinable @inline(__always)
     public subscript(optional id: Entity.ID) -> C.QueriedComponent? {
         _read {
-            guard id.slot.rawValue < indices.count else {
-                yield nil
-                return
-            }
-            let index = indices[id.slot.rawValue]
+//            guard id.slot.rawValue < indices.count else {
+//                yield nil
+//                return
+//            }
+            let index = indices[checked: id.slot]
             guard index != .notFound else {
                 yield nil
                 return
@@ -41,7 +41,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         }
         nonmutating _modify {
             var wrapped: Optional<C.QueriedComponent>
-            let index = indices[id.slot.rawValue]
+            let index = indices[id.slot]
             if index != .notFound {
                 wrapped = Optional(pointer[index])
                 yield &wrapped
@@ -72,20 +72,20 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: pointer.advanced(by: indices[id.slot.rawValue]))
+        SingleTypedAccess(buffer: pointer.advanced(by: indices[id.slot]))
     }
 
     @inlinable @inline(__always)
     public func optionalAccess(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent>? {
         // TODO: Fix warning.
-        guard id.slot.rawValue < indices.count else {
-            return nil
-        }
-        let index = indices[id.slot.rawValue]
+//        guard id.slot.rawValue < indices.count else {
+//            return nil
+//        }
+        let index = indices[checked: id.slot]
         guard index != .notFound else {
             return nil
         }
-        return SingleTypedAccess(buffer: pointer.advanced(by: indices[id.slot.rawValue]))
+        return SingleTypedAccess(buffer: pointer.advanced(by: indices[id.slot]))
     }
 }
 
@@ -95,7 +95,11 @@ extension TypedAccess {
         // a harmless instance that never resolves anything
         TypedAccess(
             pointer: .allocate(capacity: 0),
-            indices: UnsafePagedStorage(PagedStorage(initialPageCapacity: 1))
+            indices: SlotsSpan(
+                view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
+                // TODO: Have a global "always empty" span which always ensures capacity using only the shared empty page. And remove the [checked:] subscript
+            )
+//                UnsafePagedStorage(PagedStorage(initialPageCapacity: 1))
         )
     }
 }

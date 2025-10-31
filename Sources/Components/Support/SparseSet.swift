@@ -34,7 +34,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     public mutating func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
 //        components.reserveCapacity(minimumComponentCapacity)
         keys.reserveCapacity(minimumComponentCapacity)
-        slots.reserveCapacity(minimumCapacity: minimumSlotCapacity)
+        slots.ensureCapacity(forIndex: SlotIndex(index: minimumSlotCapacity - 1))
     }
 
     @inlinable @inline(__always)
@@ -88,7 +88,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     mutating public func ensureEntity(_ slot: SlotIndex) {
-        // Capacity is now grown on demand when assigning values.
+        slots.ensureCapacity(forIndex: slot)
     }
 
     @inlinable @inline(__always)
@@ -220,10 +220,13 @@ public protocol SparseArrayValue: Hashable, Comparable {
 public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
 //    @usableFromInline
 //    private(set) var values: ContiguousArray<Value> = [] // TODO: This needs to be paged.
+//    @usableFromInline
+//    private(set) var values: PagedStorage<Value> = PagedStorage(initialPageCapacity: 4096)
     @usableFromInline
-    private(set) var values: PagedStorage<Value> = PagedStorage(initialPageCapacity: 4096)
-    @usableFromInline
-    var pageOccupancy: [Int: Int] = [:]
+    private(set) var values: PagedSlotToDense<Value, Index> = PagedSlotToDense()
+
+//    @usableFromInline
+//    var pageOccupancy: [Int: Int] = [:]
 
     @inlinable @inline(__always)
     public var startIndex: Index {
@@ -237,11 +240,9 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @inline(__always)
     public init(arrayLiteral elements: Value...) {
-        values.reset()
-        pageOccupancy = [:]
         var index = 0
         for element in elements {
-            self[Index(index: index)] = element
+            values[Index(index: index)] = element
             index += 1
         }
     }
@@ -265,65 +266,74 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @inline(__always)
     public subscript(index: Index) -> Value {
-        get {
-            let raw = index.index
-            guard raw < values.count else { return .notFound }
-            let pageIndex = raw >> pageShift
-            guard let page = values.page(at: pageIndex), let base = page.baseAddress else { return .notFound }
-            let offset = raw & pageMask
-            return base[offset]
+        @_transparent
+        unsafeAddress {
+            values.pointer(for: index)
         }
-        set {
-            let raw = index.index
-            let pageIndex = raw >> pageShift
-            let offset = raw & pageMask
 
-            if newValue == .notFound {
-                guard let page = values.page(at: pageIndex), let base = page.baseAddress else { return }
-                let slot = base.advanced(by: offset)
-                if slot.pointee == .notFound {
-                    return
-                }
-                slot.pointee = .notFound
-                if let current = pageOccupancy[pageIndex] {
-                    if current <= 1 {
-                        pageOccupancy.removeValue(forKey: pageIndex)
-                        values.removePage(at: pageIndex)
-                    } else {
-                        pageOccupancy[pageIndex] = current - 1
-                    }
-                }
-                values.shrinkTrailingNilPages()
-                return
-            }
-
-            var page = values.page(at: pageIndex)
-            if page == nil {
-                var initializedPage = values.ensurePage(forPage: pageIndex)
-                guard let base = initializedPage.baseAddress else {
-                    fatalError("Failed to allocate page for SparseArray")
-                }
-                base.initialize(repeating: .notFound, count: pageCapacity)
-                pageOccupancy[pageIndex] = 0
-                page = initializedPage
-            }
-            guard let existingPage = page, let base = existingPage.baseAddress else { return }
-            let slot = base.advanced(by: offset)
-            if slot.pointee == .notFound {
-                pageOccupancy[pageIndex, default: 0] += 1
-            }
-            slot.pointee = newValue
-            values.updateCountForPageIndex(pageIndex)
+        @_transparent
+        mutating _modify {
+            yield &values[index]
         }
+//        get {
+//            let raw = index.index
+//            guard raw < values.count else { return .notFound }
+//            let pageIndex = raw >> pageShift
+//            guard let page = values.page(at: pageIndex), let base = page.baseAddress else { return .notFound }
+//            let offset = raw & pageMask
+//            return base[offset]
+//        }
+//        set {
+//            let raw = index.index
+//            let pageIndex = raw >> pageShift
+//            let offset = raw & pageMask
+//
+//            if newValue == .notFound {
+//                guard let page = values.page(at: pageIndex), let base = page.baseAddress else { return }
+//                let slot = base.advanced(by: offset)
+//                if slot.pointee == .notFound {
+//                    return
+//                }
+//                slot.pointee = .notFound
+//                if let current = pageOccupancy[pageIndex] {
+//                    if current <= 1 {
+//                        pageOccupancy.removeValue(forKey: pageIndex)
+//                        values.removePage(at: pageIndex)
+//                    } else {
+//                        pageOccupancy[pageIndex] = current - 1
+//                    }
+//                }
+//                values.shrinkTrailingNilPages()
+//                return
+//            }
+//
+//            var page = values.page(at: pageIndex)
+//            if page == nil {
+//                var initializedPage = values.ensurePage(forPage: pageIndex)
+//                guard let base = initializedPage.baseAddress else {
+//                    fatalError("Failed to allocate page for SparseArray")
+//                }
+//                base.initialize(repeating: .notFound, count: pageCapacity)
+//                pageOccupancy[pageIndex] = 0
+//                page = initializedPage
+//            }
+//            guard let existingPage = page, let base = existingPage.baseAddress else { return }
+//            let slot = base.advanced(by: offset)
+//            if slot.pointee == .notFound {
+//                pageOccupancy[pageIndex, default: 0] += 1
+//            }
+//            slot.pointee = newValue
+//            values.updateCountForPageIndex(pageIndex)
+//        }
     }
 
-    @inlinable @inline(__always)
-    public func contains(index: Index) -> Bool {
-        let raw = index.index
-        guard raw < values.count else { return false }
-        let pageIndex = raw >> pageShift
-        return values.page(at: pageIndex) != nil
-    }
+//    @inlinable @inline(__always)
+//    public func contains(index: Index) -> Bool {
+//        let raw = index.index
+//        guard raw < values.count else { return false }
+//        let pageIndex = raw >> pageShift
+//        return values.page(at: pageIndex) != nil
+//    }
 
     @inlinable @inline(__always)
     public mutating func append<S>(contentsOf newElements: S) where Element == S.Element, S: Sequence {
@@ -336,7 +346,7 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
     }
 
     @inlinable @inline(__always)
-    public mutating func reserveCapacity(minimumCapacity: Int) {
-//        values.reserveCapacity(minimumCapacity)
+    public mutating func ensureCapacity(forIndex index: Index) {
+        values.ensureCapacity(forSlot: index)
     }
 }

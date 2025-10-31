@@ -28,7 +28,7 @@ public protocol AnyComponentArrayBox: AnyObject {
     func `set`(_: Entity.ID, newValue: any Component) -> Void
 
     @inlinable @inline(__always)
-    var entityToComponents: UnsafePagedStorage<ContiguousArray.Index> { get }
+    var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> { get }
 
     @inlinable @inline(__always)
     var componentsToEntites: ContiguousArray<SlotIndex> { get }
@@ -71,9 +71,10 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     }
 
     @inlinable @inline(__always)
-    var entityToComponents: UnsafePagedStorage<ContiguousArray.Index> {
+    var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> {
         _read {
-            yield UnsafePagedStorage(base.slots.values)
+            yield base.slots.values.view
+//            UnsafePagedStorage(base.slots.values)
         }
     }
 
@@ -137,7 +138,7 @@ public struct AnyComponentArray {
     }
 
     @usableFromInline
-    var entityToComponents: UnsafePagedStorage<ContiguousArray.Index> {
+    var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> {
         _read {
             yield base.entityToComponents
         }
@@ -157,7 +158,7 @@ public struct AnyComponentArray {
 
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (UnsafeMutablePointer<C>, UnsafePagedStorage<ContiguousArray.Index>) throws -> Result
+        _ body: (UnsafeMutablePointer<C>, SlotsSpan<ContiguousArray.Index, SlotIndex>) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents
