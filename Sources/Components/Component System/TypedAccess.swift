@@ -1,20 +1,28 @@
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var pointer: DenseSpan<C.QueriedComponent>
     @usableFromInline internal var indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
+    @usableFromInline internal var cursor: UnsafeMutablePointer<DenseSpanCursor<C.QueriedComponent>>?
 
     @usableFromInline
-    init(pointer: DenseSpan<C.QueriedComponent>, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>) {
+    init(
+        pointer: DenseSpan<C.QueriedComponent>,
+        indices: SlotsSpan<ContiguousArray.Index, SlotIndex>,
+        cursor: UnsafeMutablePointer<DenseSpanCursor<C.QueriedComponent>>? = nil
+    ) {
         self.pointer = pointer
         self.indices = indices
+        self.cursor = cursor
     }
 
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C.QueriedComponent {
         _read {
-            yield pointer[indices[id.slot]]
+            let denseIndex = indices[id.slot]
+            yield pointerForDenseIndex(denseIndex).pointee
         }
         nonmutating _modify {
-            yield &pointer[indices[id.slot]]
+            let denseIndex = indices[id.slot]
+            yield &pointerForDenseIndex(denseIndex).pointee
         }
     }
 
@@ -26,18 +34,18 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
                 yield nil
                 return
             }
-            yield pointer[index]
+            yield pointerForDenseIndex(index).pointee
         }
         nonmutating _modify {
             var wrapped: Optional<C.QueriedComponent>
             let index = indices[id.slot]
             if index != .notFound {
-                wrapped = Optional(pointer[index])
+                wrapped = Optional(pointerForDenseIndex(index).pointee)
                 yield &wrapped
                 guard let newValue = wrapped else {
                     fatalError("Removal of component through `Optional` not supported.")
                 }
-                pointer[index] = newValue
+                pointerForDenseIndex(index).pointee = newValue
             } else {
                 wrapped = nil
                 yield &wrapped
@@ -50,18 +58,18 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public subscript(dense denseIndex: Int) -> C.QueriedComponent {
-        _read { yield pointer[denseIndex] }
-        nonmutating _modify { yield &pointer[denseIndex] }
+        _read { yield pointerForDenseIndex(denseIndex).pointee }
+        nonmutating _modify { yield &pointerForDenseIndex(denseIndex).pointee }
     }
 
     @inlinable @inline(__always)
     public func accessDense(_ denseIndex: Int) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: pointer.mutablePointer(at: denseIndex))
+        SingleTypedAccess(buffer: pointerForDenseIndex(denseIndex))
     }
 
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: pointer.mutablePointer(at: indices[id.slot]))
+        SingleTypedAccess(buffer: pointerForDenseIndex(indices[id.slot]))
     }
 
     @inlinable @inline(__always)
@@ -70,7 +78,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         guard index != .notFound else {
             return nil
         }
-        return SingleTypedAccess(buffer: pointer.mutablePointer(at: indices[id.slot]))
+        return SingleTypedAccess(buffer: pointerForDenseIndex(indices[id.slot]))
     }
 }
 
@@ -83,8 +91,26 @@ extension TypedAccess {
             ),
             indices: SlotsSpan(
                 view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
-            )
+            ),
+            cursor: nil
         )
+    }
+}
+
+extension TypedAccess {
+    @inlinable @inline(__always)
+    func withCursor(
+        _ cursor: UnsafeMutablePointer<DenseSpanCursor<C.QueriedComponent>>
+    ) -> TypedAccess<C> {
+        TypedAccess(pointer: pointer, indices: indices, cursor: cursor)
+    }
+
+    @inlinable @inline(__always)
+    func pointerForDenseIndex(_ index: Int) -> UnsafeMutablePointer<C.QueriedComponent> {
+        if let cursor {
+            return cursor.pointee.pointer(for: index, pages: pointer.pages)
+        }
+        return pointer.mutablePointer(at: index)
     }
 }
 

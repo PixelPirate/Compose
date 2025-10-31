@@ -426,7 +426,13 @@ extension Query {
         // TODO: Use RigidArray or TailAllocated here
 
         withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+            withTypedBuffers(&context.coordinator.pool) { (rawAccessors: repeat TypedAccess<each T>) in
+                var cursors = (repeat DenseSpanCursor<(each T).QueriedComponent>())
+                let accessors: (repeat TypedAccess<each T>) = (
+                    repeat withUnsafeMutablePointer(to: &each cursors) { pointer in
+                        (each rawAccessors).withCursor(pointer)
+                    }
+                )
                 @_transparent
                 func withGeneration() {
                     for slot in baseSlots where Self.passes(
@@ -515,7 +521,13 @@ extension Query {
 
         if exactGroupMatch {
             withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                withTypedBuffers(&context.coordinator.pool) { (rawAccessors: repeat TypedAccess<each T>) in
+                    var cursors = (repeat DenseSpanCursor<(each T).QueriedComponent>())
+                    let accessors: (repeat TypedAccess<each T>) = (
+                        repeat withUnsafeMutablePointer(to: &each cursors) { pointer in
+                            (each rawAccessors).withCursor(pointer)
+                        }
+                    )
                     // Enumerate dense indices directly: 0..<size aligned across all owned storages
                     for (denseIndex, slot) in slotsSlice.enumerated() {
                         let id = Entity.ID(
@@ -530,7 +542,13 @@ extension Query {
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
             withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                withTypedBuffers(&context.coordinator.pool) { (rawAccessors: repeat TypedAccess<each T>) in
+                    var cursors = (repeat DenseSpanCursor<(each T).QueriedComponent>())
+                    let accessors: (repeat TypedAccess<each T>) = (
+                        repeat withUnsafeMutablePointer(to: &each cursors) { pointer in
+                            (each rawAccessors).withCursor(pointer)
+                        }
+                    )
                     // Enumerate dense indices directly: 0..<size aligned across all owned storages
                     for (denseIndex, slot) in slotsSlice.enumerated() {
                         // Skip entities that don't satisfy the query when reusing a non-exact group (future use).

@@ -237,6 +237,32 @@ public struct DenseSpan<Element> {
     }
 }
 
+@usableFromInline
+struct DenseSpanCursor<Element> {
+    @usableFromInline
+    var cachedPage: UnsafeMutablePointer<Element>? = nil
+
+    @usableFromInline
+    var cachedPageIndex: Int = .max
+
+    @inlinable @inline(__always)
+    init() {}
+
+    @inlinable @inline(__always)
+    mutating func pointer(
+        for index: Int,
+        pages: UnsafeBufferPointer<UnsafeMutablePointer<Element>>
+    ) -> UnsafeMutablePointer<Element> {
+        let page = index >> PagedDenseConstants.pageShift
+        if page != cachedPageIndex || cachedPage == nil {
+            cachedPage = pages[page]
+            cachedPageIndex = page
+        }
+        let offset = index & PagedDenseConstants.pageMask
+        return cachedPage!.advanced(by: offset)
+    }
+}
+
 
 @usableFromInline
 enum PagedDenseConstants {
