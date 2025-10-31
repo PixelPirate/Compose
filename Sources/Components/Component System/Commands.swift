@@ -73,8 +73,8 @@ public struct Commands {
 
     @inlinable @inline(__always)
     mutating func integrate(into coordinator: Coordinator) {
-        while let command = queue.popLast() {
-            command(coordinator)
+        while !queue.isEmpty {
+            queue.removeFirst()(coordinator)
         }
     }
 }
