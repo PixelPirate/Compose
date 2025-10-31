@@ -51,6 +51,7 @@ public struct MultiThreadedExecutor: Executor {
             // `chunkSize` represents the best size of a chunk so that all cores are very roughly equally used.
             let chunkSize = (systems.count + cores - 1) / cores
 
+            // TODO: Use something safer.
             nonisolated(unsafe) var localCommands = Array(repeating: Commands(), count: systems.count)
             let send = UnsafeSendable(value: stage.systems)
 
