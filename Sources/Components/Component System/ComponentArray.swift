@@ -158,13 +158,11 @@ public struct AnyComponentArray {
     @inlinable @inline(__always)
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (UnsafeMutablePointer<C>, SlotsSpan<ContiguousArray.Index, SlotIndex>) throws -> Result
+        _ body: (DenseSpan<C>, SlotsSpan<ContiguousArray.Index, SlotIndex>) throws -> Result
     ) rethrows -> Result {
         let typed = base as! ComponentArrayBox<C>
         let indices = typed.entityToComponents
-        return try typed.base.withUnsafeMutablePointer { storage in
-            try body(storage, indices)
-        }
+        return try body(typed.base.view, indices)
     }
 
     /// Execute a closure with a mutable reference to the underlying typed SparseSet for `C`.

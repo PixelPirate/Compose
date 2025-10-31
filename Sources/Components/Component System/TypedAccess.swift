@@ -1,9 +1,9 @@
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
-    @usableFromInline internal var pointer: UnsafeMutablePointer<C.QueriedComponent>
+    @usableFromInline internal var pointer: DenseSpan<C.QueriedComponent>
     @usableFromInline internal var indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
 
     @usableFromInline
-    init(pointer: UnsafeMutablePointer<C.QueriedComponent>, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>) {
+    init(pointer: DenseSpan<C.QueriedComponent>, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>) {
         self.pointer = pointer
         self.indices = indices
     }
@@ -56,12 +56,12 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public func accessDense(_ denseIndex: Int) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: pointer.advanced(by: denseIndex))
+        SingleTypedAccess(buffer: pointer.mutablePointer(at: denseIndex))
     }
 
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: pointer.advanced(by: indices[id.slot]))
+        SingleTypedAccess(buffer: pointer.mutablePointer(at: indices[id.slot]))
     }
 
     @inlinable @inline(__always)
@@ -70,7 +70,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         guard index != .notFound else {
             return nil
         }
-        return SingleTypedAccess(buffer: pointer.advanced(by: indices[id.slot]))
+        return SingleTypedAccess(buffer: pointer.mutablePointer(at: indices[id.slot]))
     }
 }
 
@@ -78,7 +78,9 @@ extension TypedAccess {
     @inlinable @inline(__always)
     static var empty: TypedAccess {
         TypedAccess(
-            pointer: .allocate(capacity: 0),
+            pointer: DenseSpan(
+                view: UnsafeMutableBufferPointer<UnsafeMutablePointer<C.QueriedComponent>>(start: nil, count: 0)
+            ),
             indices: SlotsSpan(
                 view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
             )

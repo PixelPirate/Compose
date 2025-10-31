@@ -1,17 +1,5 @@
 import Synchronization
 
-@usableFromInline
-internal enum SlotsSpanConstants {
-    @usableFromInline
-    static let pageShift = 12
-
-    @usableFromInline
-    static let pageSize = 1 << pageShift // 4096
-
-    @usableFromInline
-    static let pageMask = pageSize - 1
-}
-
 public struct SlotsSpan<Dense: SparseArrayValue, Slot: SparseSetIndex> {
     @usableFromInline
     let pages: UnsafeBufferPointer<UnsafePointer<Dense>>
@@ -27,8 +15,8 @@ public struct SlotsSpan<Dense: SparseArrayValue, Slot: SparseSetIndex> {
     public subscript(slot: Slot) -> Dense {
         @_transparent
         unsafeAddress {
-            let page = slot.index >> SlotsSpanConstants.pageShift
-            let offset = slot.index & SlotsSpanConstants.pageMask
+            let page = slot.index >> PagedSlotToDenseConstants.pageShift
+            let offset = slot.index & PagedSlotToDenseConstants.pageMask
             return UnsafePointer(pages[page].advanced(by: offset))
         }
     }
@@ -41,8 +29,8 @@ public struct SlotsSpan<Dense: SparseArrayValue, Slot: SparseSetIndex> {
                 yield .notFound
                 return
             }
-            let page = slot.index >> SlotsSpanConstants.pageShift
-            let offset = slot.index & SlotsSpanConstants.pageMask
+            let page = slot.index >> PagedSlotToDenseConstants.pageShift
+            let offset = slot.index & PagedSlotToDenseConstants.pageMask
             yield pages[page].advanced(by: offset).pointee
         }
     }
@@ -216,5 +204,212 @@ struct PagedSlotToDense<Dense: SparseArrayValue, Slot: SparseSetIndex> {
             count += 1
         }
         return count
+    }
+}
+
+public struct DenseSpan<Element> {
+    @usableFromInline
+    let pages: UnsafeBufferPointer<UnsafeMutablePointer<Element>>
+
+    @inlinable @inline(__always)
+    init(view base: UnsafeMutableBufferPointer<UnsafeMutablePointer<Element>>) {
+        pages = UnsafeBufferPointer(base)
+    }
+
+    @inlinable @_transparent
+    public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
+        let page = index >> PagedDenseConstants.pageShift
+        let offset = index & PagedDenseConstants.pageMask
+        return pages[page].advanced(by: offset)
+    }
+
+    @inlinable @inline(__always)
+    public subscript(index: Int) -> Element {
+        @_transparent
+        unsafeAddress {
+            UnsafePointer(mutablePointer(at: index))
+        }
+
+        @_transparent
+        nonmutating unsafeMutableAddress {
+            mutablePointer(at: index)
+        }
+    }
+}
+
+
+@usableFromInline
+enum PagedDenseConstants {
+    @usableFromInline
+    static let pageShift = 10
+
+    @usableFromInline
+    static let pageSize = 1 << pageShift // 1024
+
+    @usableFromInline
+    static let pageMask = pageSize - 1
+}
+
+@usableFromInline
+struct PagedDense<Element> {
+    @usableFromInline
+    var pages: UnsafeMutableBufferPointer<UnsafeMutablePointer<Element>>
+    // Just append at the end, swap remove, index subscript
+
+    @usableFromInline
+    var count: Int = 0
+
+    @inlinable @inline(__always)
+    init() {
+        pages = .allocate(capacity: 1)
+        pages.initialize(repeating: Self.makeEmptyPage())
+    }
+
+    @inlinable @_transparent
+    var view: DenseSpan<Element> {
+        _read {
+            yield DenseSpan(view: pages)
+        }
+    }
+
+    @inlinable @inline(__always)
+    func deallocate() {
+        for page in pages {
+            page.deallocate()
+        }
+        pages.deallocate()
+    }
+
+    @inlinable @inline(__always)
+    mutating func append(_ element: Element) {
+        let index = count
+        let page = index >> PagedDenseConstants.pageShift
+        let offset = index & PagedDenseConstants.pageMask
+        ensureCapacity(forPage: page)
+        assert(page < pages.count, "Page \(page) is out of bounds.")
+        pages[page].advanced(by: offset).initialize(to: element)
+        count += 1
+    }
+
+    @inlinable @inline(__always)
+    mutating func removeLast() -> Element {
+        precondition(count > 0)
+        let index = count - 1
+        let page = index >> PagedDenseConstants.pageShift
+        let offset = index & PagedDenseConstants.pageMask
+        let removed = pages[page].advanced(by: offset).move()
+        count -= 1
+        return removed
+    }
+
+    @inlinable @inline(__always)
+    public mutating func swapAt(_ i: Int, _ j: Int) {
+        precondition(i != j)
+
+        let pageI = i >> PagedDenseConstants.pageShift
+        let offsetI = i & PagedDenseConstants.pageMask
+        let pageJ = j >> PagedDenseConstants.pageShift
+        let offsetJ = j & PagedDenseConstants.pageMask
+
+        if pageI == pageJ {
+            let page = pages[pageI]
+            let iPointer = page.advanced(by: offsetI)
+            let jPointer = page.advanced(by: offsetJ)
+            let iValue = iPointer.move()
+            iPointer.moveInitialize(from: jPointer, count: 1)
+            jPointer.initialize(to: iValue)
+        } else {
+            let pageI = pages[pageI]
+            let pageJ = pages[pageJ]
+            let iPointer = pageI.advanced(by: offsetI)
+            let jPointer = pageJ.advanced(by: offsetJ)
+            let iValue = iPointer.move()
+            iPointer.moveInitialize(from: jPointer, count: 1)
+            jPointer.initialize(to: iValue)
+        }
+    }
+
+    @inlinable @inline(__always)
+    mutating func compact() {
+        let lastPage = count - 1 >> PagedDenseConstants.pageShift
+        let newCount = lastPage &+ 1
+        assert(newCount <= pages.count)
+        guard newCount < pages.count else {
+            return
+        }
+        let newPages = UnsafeMutableBufferPointer<UnsafeMutablePointer<Element>>.allocate(capacity: newCount)
+        _ = newPages.moveInitialize(fromContentsOf: pages[..<newCount])
+
+        for emptyPage in pages[newCount...] {
+            emptyPage.deallocate()
+        }
+
+        pages.deallocate()
+        pages = newPages
+    }
+
+    @inlinable @inline(__always)
+    mutating func ensureCapacity(_ capacity: Int) {
+        let requiredPage = (capacity - 1) >> PagedDenseConstants.pageShift
+        ensureCapacity(forPage: requiredPage)
+    }
+
+    @inlinable @inline(__always)
+    mutating func ensureCapacity(forPage requiredPage: Int) {
+        if requiredPage >= pages.count {
+            reallocate(withCapacityForPage: requiredPage)
+        }
+    }
+
+    @inlinable @inline(__always)
+    mutating func reallocate(withCapacityForPage requiredPage: Int) {
+        let newCount = requiredPage &+ 1
+        let newPages = UnsafeMutableBufferPointer<UnsafeMutablePointer<Element>>.allocate(capacity: newCount)
+        let uninitialisedIndex = newPages.moveInitialize(fromContentsOf: pages)
+        let uninitialisedPages = newPages
+            .baseAddress
+            .unsafelyUnwrapped
+            .advanced(by: uninitialisedIndex)
+
+        for index in 0..<(newCount-uninitialisedIndex) {
+            uninitialisedPages.advanced(by: index).initialize(to: Self.makeEmptyPage())
+        }
+
+        pages.deallocate()
+        pages = newPages
+    }
+
+    @inlinable @_transparent
+    func pointer(for index: Int) -> UnsafePointer<Element> {
+        precondition(index < count, "Index \(index) is out of bounds.")
+        let page = index >> PagedDenseConstants.pageShift
+        let offset = index & PagedDenseConstants.pageMask
+        return UnsafePointer(pages[page].advanced(by: offset))
+    }
+
+    @inlinable @_transparent
+    func mutablePointer(for index: Int) -> UnsafeMutablePointer<Element> {
+        precondition(index < count, "Index \(index) is out of bounds.")
+        let page = index >> PagedDenseConstants.pageShift
+        let offset = index & PagedDenseConstants.pageMask
+        return pages[page].advanced(by: offset)
+    }
+
+    @inlinable @inline(__always)
+    subscript(index: Int) -> Element {
+        @_transparent
+        unsafeAddress {
+            pointer(for: index)
+        }
+
+        @_transparent
+        unsafeMutableAddress {
+            mutablePointer(for: index)
+        }
+    }
+
+    @inlinable @inline(__always)
+    static func makeEmptyPage() -> UnsafeMutablePointer<Element> {
+        UnsafeMutablePointer<Element>.allocate(capacity: PagedDenseConstants.pageSize)
     }
 }

@@ -1,6 +1,8 @@
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
+//    @usableFromInline
+//    private(set) var storage: ContiguousStorage<Component> = ContiguousStorage(initialPageCapacity: 1024)
     @usableFromInline
-    private(set) var storage: ContiguousStorage<Component> = ContiguousStorage(initialPageCapacity: 1024)
+    private(set) var storage: PagedDense<Component> = PagedDense()
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
@@ -56,18 +58,25 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         }
     }
 
-    @inlinable @inline(__always)
-    public mutating func withUnmanagedStorage<R>(
-        _ body: (UnmanagedContiguousStorage<Component>) throws -> R
-    ) rethrows -> R {
-        try body(UnmanagedContiguousStorage(storage))
-    }
+//    @inlinable @inline(__always)
+//    public mutating func withUnmanagedStorage<R>(
+//        _ body: (UnmanagedContiguousStorage<Component>) throws -> R
+//    ) rethrows -> R {
+//        try body(UnmanagedContiguousStorage(storage))
+//    }
+//
+//    @inlinable @inline(__always)
+//    public mutating func withUnsafeMutablePointer<R>(
+//        _ body: (UnsafeMutablePointer<Component>) throws -> R
+//    ) rethrows -> R {
+//        try body(storage.baseAddress)
+//    }
 
-    @inlinable @inline(__always)
-    public mutating func withUnsafeMutablePointer<R>(
-        _ body: (UnsafeMutablePointer<Component>) throws -> R
-    ) rethrows -> R {
-        try body(storage.baseAddress)
+    @inlinable @_transparent
+    public var view: DenseSpan<Component> {
+        _read {
+            yield storage.view
+        }
     }
 
     /// Returns true if this array contains a component for the given entity.
