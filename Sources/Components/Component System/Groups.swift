@@ -98,76 +98,6 @@ extension Groups {
     }
 }
 
-// MARK: - AnyComponentArray helper to access underlying typed SparseSet
-
-extension AnyComponentArray {
-    /// Execute a closure with a mutable reference to the underlying typed SparseSet for `C`.
-    /// This allows partitioning & swapping for grouping.
-    @inlinable @inline(__always)
-    mutating func _withMutableSparseSet<C: Component, R>(
-        _ type: C.Type,
-        _ body: (inout ComponentArray<C>) throws -> R
-    ) rethrows -> R {
-        // This mirrors how withBuffer is implemented internally.
-        let box = Unmanaged.passUnretained(base as! ComponentArrayBox<C>)
-        return try body(&box.takeUnretainedValue().base)
-    }
-}
-
-//struct Both<each Queried> {
-//    struct With<each Included> {
-//        struct Excluded<each Excluded> {
-//            let queried: (repeat each Queried)
-//            let with: (repeat each Included)
-//            let excluded: (repeat each Excluded)
-//        }
-//    }
-//}
-//func make<each A, each B, each C>(
-//    a: repeat each A,
-//    b: repeat each B,
-//    c: repeat each C
-//) -> Both<repeat each A>.With<repeat each B>.Excluded<repeat each C>{
-//    Both.With.Excluded(queried: (repeat each a), with: (repeat each b), excluded: (repeat each c))
-//}
-//func wow() {
-//    let m = make(a: 4, "", b: 4.5)
-//}
-
-/** TODO:
- ComponentPool need to own a list of all groups.
- ComponentPool needs to forward add/remove events to every group, so that they can sort if needed.
- I think I wouldn't need any more changes, the regular query iteration would just naturally gain an performance boost.
-
- There are two iteration styles:
- 1. Iterate over base list and check for a valid entity on each iteration (getArrays/baseAndOther, or getBaseSparseList/base for the signature check approach)
- 2. Precompute and cache all valid entities beforehand and iterate that list (slots)
-
- Compared to EnTT we would have:
- - Fully owned group:
- coordinator.group<Position, Velocity>()
- Query { … }.performPreloaded { … } // `performPreloaded` just means that we will create and cache the list of entities beforehand and won't have checks inside the loop.
- - View
- Query { … }.perform { … } // This would still benefit from a groups sorting when using the same components.
-
- How can I name these things better, considering I also have performParallel and fetchOne, fetchAll.
-
- I might can pull off the Bevy iterator interface:
- func system(query1: Query<Write<Position>, Without<Velocity>>, query2: GroupQuery<Material, Position>) {
-    let fetchAll = Array(query1)
-    for (material, position) in query2 {
-        …
-    }
- }
- */
-
-// EnTT overview:
-// - View: Take sparse set order as it is, filter during iteration
-// - Group: Create and maintain an entity list for this signature. (Sorted by custom predicate.)
-//          (For owning components: Also sort the dense array)
-
-// TODO: EnTT groups can just use Array.partition(by:)?
-
 // MARK: - Group
 
 @usableFromInline
@@ -307,23 +237,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
             handledPrimary = true
 
             // 1) Partition primary in a single pass (no swap log needed)
-            primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
-                let total = primarySet.count
-                var write = 0
-
-                // Single-pass partition
-                var read = 0
-                while read < total {
-                    let slot = primarySet.keys[read]
-                    if passes(slot) {
-                        if read != write {
-                            primarySet.swapDenseAt(read, write)
-                        }
-                        write &+= 1
-                    }
-                    read &+= 1
-                }
-                self.size = write
+            self.size = primaryArray.partition(ownedComponentType) { slot in
+                !passes(slot)
             }
 
             // 2) Mirror the primary permutation to all other owned storages with a single-pass placement
@@ -336,7 +251,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
                     if tag == self.primary { continue }
                     guard var otherArray = coordinator.pool.components[tag] else { continue }
 
-                    otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
+                    otherArray.withMutableSparseSet(otherOwnedType) { otherSet in
                         // For each desired position j, ensure the desired slot is at j if present
                         var j = 0
                         while j < self.size {
@@ -381,7 +296,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
         for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
-            primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
+            primaryArray.withMutableSparseSet(ownedComponentType) { primarySet in
                 let idx = primarySet.slots[entity.slot]
                 guard idx != .notFound else { return }
 
@@ -414,7 +329,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
                 let tag = otherOwnedType.componentTag
                 if tag == self.primary { continue }
                 guard var otherArray = coordinator.pool.components[tag] else { continue }
-                otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
+                otherArray.withMutableSparseSet(otherOwnedType) { otherSet in
                     let ci = otherSet.slots[p.slot]
                     if ci != .notFound, ci != p.targetIndex {
                         otherSet.swapDenseAt(ci, p.targetIndex)
@@ -447,7 +362,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
 
         for ownedComponentType in repeat (each Owned).QueriedComponent.self {
             if ownedComponentType.componentTag != self.primary { continue }
-            primaryArray._withMutableSparseSet(ownedComponentType) { primarySet in
+            primaryArray.withMutableSparseSet(ownedComponentType) { primarySet in
                 let idx = primarySet.slots[entity.slot]
                 guard idx != .notFound else { return }
 
@@ -479,7 +394,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
                 let tag = otherOwnedType.componentTag
                 if tag == self.primary { continue }
                 guard var otherArray = coordinator.pool.components[tag] else { continue }
-                otherArray._withMutableSparseSet(otherOwnedType) { otherSet in
+                otherArray.withMutableSparseSet(otherOwnedType) { otherSet in
                     let ci = otherSet.slots[p.slot]
                     if ci != .notFound, ci != p.targetIndex {
                         otherSet.swapDenseAt(ci, p.targetIndex)

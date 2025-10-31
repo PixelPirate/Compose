@@ -76,15 +76,6 @@ public struct QuerySignature: Hashable, Sendable {
     }
 }
 
-// TODO: I think I can make a single signature will owned, non-owned and excluded components, and just check if a querys full signature is a superset of that. this should be correct.
-// Correction 1: I need to separate the owned components.
-//               E.g.: G1: Transform; Without<Gravity>   G2: Gravity; Without<Person>
-//               Query: Gravity, With<Person>, Without<Transform>
-//               Here both G1 and G2 would be a subset, but none of the two has the required entities in their dense prefix.
-//
-//               E.g.: G1: Transform, With<Gravity>   G2: Gravity, Person
-//               Query: Transform; Gravity, Person
-//               Here both G1 and G2 would be valid subsets, but only G2 would be the better dense prefix
 public struct GroupSignature: Hashable, Sendable {
     /// An entity is part of this group if it contains all these
     @usableFromInline

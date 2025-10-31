@@ -1213,8 +1213,7 @@ func testReuseSlot() async throws {
         }
     }
 
-    // TODO: This will read into random memory, the access buffer isn't valid anymore here:
-//    #expect(Array(query.fetchAll(&coordinator)).filter { $0.1.isDownward }.map { $0.0 } == [expectedID] )
+    #expect(Array(query.fetchAll(coordinator)).filter { $0.1.isDownward }.map { $0.0 } == [expectedID] )
 }
 
 @Test func testQueryEmpty() {

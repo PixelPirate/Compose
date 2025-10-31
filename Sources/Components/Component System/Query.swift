@@ -262,7 +262,7 @@ extension Query {
         }
 
         return LazyQuerySequence(
-            entityIDs: slots.map { Entity.ID(slot: $0, generation: context.coordinator.indices[generationFor: $0]) },
+            entityIDs: slots.map { Entity.ID(slot: $0, generation: isQueryingForEntityID ? context.coordinator.indices[generationFor: $0] : 0) },
             accessors: repeat each accessors
         )
     }
@@ -329,7 +329,7 @@ extension Query {
                         }
                         handler(repeat (each T).makeResolved(
                             access: each accessors,
-                            entityID: Entity.ID(slot: slot, generation: indices.pointee[generationFor: slot])
+                            entityID: Entity.ID(slot: slot, generation: isQueryingForEntityID ? indices.pointee[generationFor: slot] : 0)
                         ))
                     }
                 }
@@ -383,7 +383,7 @@ extension Query {
             let resolved = filteredSlots.map { [indices = context.coordinator.indices] slot in
                 let id = Entity.ID(
                     slot: slot,
-                    generation: indices[generationFor: slot]
+                    generation: isQueryingForEntityID ? indices[generationFor: slot] : 0
                 )
 
                 return CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: id)))
@@ -475,7 +475,7 @@ extension Query {
                 for slot in slots {
                     let id = Entity.ID(
                         slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: indices.pointee[generationFor: slot]
+                        generation: isQueryingForEntityID ? indices.pointee[generationFor: slot] : 0
                     )
                     handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
                 }
@@ -520,7 +520,7 @@ extension Query {
                     for (denseIndex, slot) in slotsSlice.enumerated() {
                         let id = Entity.ID(
                             slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
+                            generation: isQueryingForEntityID ? indices.pointee[generationFor: slot] : 0
                         )
                         handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: id))
                     }
@@ -541,7 +541,7 @@ extension Query {
                         }
                         let id = Entity.ID(
                             slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: indices.pointee[generationFor: slot] // TODO: Only compute generation if component needs it (WithEntityId).
+                            generation: isQueryingForEntityID ? indices.pointee[generationFor: slot] : 0
                         )
 
                         @inline(__always)
@@ -590,7 +590,7 @@ extension Query {
         }
 
         return LazyWritableQuerySequence(
-            entityIDs: slots.map { Entity.ID(slot: $0, generation: context.coordinator.indices[generationFor: $0]) },
+            entityIDs: slots.map { Entity.ID(slot: $0, generation: isQueryingForEntityID ? context.coordinator.indices[generationFor: $0] : 0) },
             accessors: repeat each accessors
         )
     }

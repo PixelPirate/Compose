@@ -1,5 +1,3 @@
-// TODO: Support paging for sparse array and also for dense storage.
-
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
     @usableFromInline
     private(set) var storage: ContiguousStorage<Component> = ContiguousStorage(initialPageCapacity: 1024)
@@ -123,6 +121,24 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         slots[lastComponentSlot] = componentIndex
         slots[slot] = .notFound
         return old
+    }
+
+    @inlinable @inline(__always) @discardableResult
+    public mutating func partition(by belongsInSecondPartition: (SlotIndex) -> Bool) -> Int {
+        let total = count
+        var write = 0
+        var read = 0
+        while read < total {
+            let slot = keys[read]
+            if !belongsInSecondPartition(slot) {
+                if read != write {
+                    swapDenseAt(read, write)
+                }
+                write &+= 1
+            }
+            read &+= 1
+        }
+        return write
     }
 
     /// Swap two elements in the dense storage and fix up the index maps.

@@ -136,25 +136,26 @@ public struct AnyComponentArray {
         }
     }
 
-    @usableFromInline
+    @usableFromInline @inline(__always)
     var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> {
         _read {
             yield base.entityToComponents
         }
     }
 
-    @usableFromInline
+    @usableFromInline @inline(__always)
     var componentsToEntites: ContiguousArray<SlotIndex> {
         _read {
             yield base.componentsToEntites
         }
     }
 
-    @usableFromInline
+    @usableFromInline @inline(__always)
     func typedBox<C: Component>(_ of: C.Type) -> ComponentArrayBox<C> {
         base as! ComponentArrayBox<C>
     }
 
+    @inlinable @inline(__always)
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
         _ body: (UnsafeMutablePointer<C>, SlotsSpan<ContiguousArray.Index, SlotIndex>) throws -> Result
@@ -164,6 +165,24 @@ public struct AnyComponentArray {
         return try typed.base.withUnsafeMutablePointer { storage in
             try body(storage, indices)
         }
+    }
+
+    /// Execute a closure with a mutable reference to the underlying typed SparseSet for `C`.
+    /// This allows partitioning & swapping for grouping.
+    @inlinable @inline(__always)
+    mutating func withMutableSparseSet<C: Component, R>(
+        _ type: C.Type,
+        _ body: (inout ComponentArray<C>) throws -> R
+    ) rethrows -> R {
+        let box = Unmanaged.passUnretained(base as! ComponentArrayBox<C>)
+        return try body(&box.takeUnretainedValue().base)
+    }
+
+    @inlinable @inline(__always) @discardableResult
+    mutating func partition<C: Component>(_ type: C.Type, by belongsInSecondPartition: (SlotIndex) -> Bool) -> Int {
+        // This mirrors how withBuffer is implemented internally.
+        let box = Unmanaged.passUnretained(base as! ComponentArrayBox<C>)
+        return box.takeUnretainedValue().base.partition(by: belongsInSecondPartition)
     }
 
     @inlinable @inline(__always)
