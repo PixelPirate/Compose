@@ -25,6 +25,31 @@ public struct QueryContext: QueryContextConvertible, Sendable {
     }
 
     @inlinable @inline(__always)
+    public func resourceVersion<R>(_ type: R.Type = R.self) -> UInt64? {
+        coordinator.resourceVersion(type)
+    }
+
+    @inlinable @inline(__always)
+    public func makeResourceVersionSnapshot() -> Coordinator.ResourceVersionSnapshot {
+        coordinator.makeResourceVersionSnapshot()
+    }
+
+    @inlinable @inline(__always)
+    public func updatedResources(since snapshot: Coordinator.ResourceVersionSnapshot) -> [ResourceKey] {
+        coordinator.updatedResources(since: snapshot)
+    }
+
+    @inlinable @inline(__always)
+    public func resourceUpdated<R>(_ type: R.Type = R.self, since snapshot: Coordinator.ResourceVersionSnapshot) -> Bool {
+        coordinator.resourceUpdated(type, since: snapshot)
+    }
+
+    @inlinable @inline(__always)
+    public func resourceIfUpdated<R>(_ type: R.Type = R.self, since snapshot: Coordinator.ResourceVersionSnapshot) -> R? {
+        coordinator.resourceIfUpdated(type, since: snapshot)
+    }
+
+    @inlinable @inline(__always)
     public var queryContext: QueryContext {
         _read {
             yield self

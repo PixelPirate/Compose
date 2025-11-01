@@ -332,6 +332,34 @@ final class ConcurrentAccessProbe {
     #expect(counter.value == 2)
 }
 
+@Test func resourceChangeTrackingDetectsUpdates() {
+    struct CounterResource: Sendable {
+        var value: Int
+    }
+
+    let coordinator = Coordinator()
+    coordinator.addRessource(CounterResource(value: 0))
+
+    let snapshot = coordinator.makeResourceVersionSnapshot()
+    #expect(coordinator.updatedResources(since: snapshot).isEmpty)
+    #expect(coordinator.resourceUpdated(CounterResource.self, since: snapshot) == false)
+
+    var counter = coordinator[resource: CounterResource.self]
+    counter.value = 42
+    coordinator[resource: CounterResource.self] = counter
+
+    let updatedKeys = Set(coordinator.updatedResources(since: snapshot))
+    #expect(updatedKeys.contains(ResourceKey(CounterResource.self)))
+    #expect(coordinator.resourceUpdated(CounterResource.self, since: snapshot))
+
+    let updatedCounter = coordinator.resourceIfUpdated(CounterResource.self, since: snapshot)
+    #expect(updatedCounter?.value == 42)
+
+    let snapshotAfterUpdate = coordinator.makeResourceVersionSnapshot()
+    #expect(coordinator.updatedResources(since: snapshotAfterUpdate).isEmpty)
+    #expect(coordinator.resourceIfUpdated(CounterResource.self, since: snapshotAfterUpdate) == nil)
+}
+
 @Test func queryPerformParallelRespectsFilteringAndMutatesOnce() {
     struct ParallelMarker: Component, Sendable {
         static let componentTag = ComponentTag.makeTag()
