@@ -63,6 +63,12 @@ public final class Coordinator {
         var value: Any
         @usableFromInline
         var version: UInt64
+
+        @usableFromInline
+        init(value: Any, version: UInt64) {
+            self.value = value
+            self.version = version
+        }
     }
 
     @usableFromInline
@@ -71,7 +77,7 @@ public final class Coordinator {
     internal let resourcesLock = OSAllocatedUnfairLock()
 
     @usableFromInline
-    private var resourceClock: UInt64 = 0
+    private(set) var resourceClock: UInt64 = 0
 
     public init() {
         MainSystem.install(into: self)
@@ -430,7 +436,7 @@ public final class Coordinator {
         }
 
         guard snapshot.versions[key] == entry.version else {
-            return entry.value as! R
+            return (entry.value as! R)
         }
 
         return nil
