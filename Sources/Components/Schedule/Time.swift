@@ -58,7 +58,7 @@ struct WorldClock {
             return self
         }
 
-        let newWorldDelta = max(wallDelta, maximumDelta) * speed
+        let newWorldDelta = min(wallDelta, maximumDelta) * speed // TODO: Test if `min` is correct.
         return WorldClock(
             delta: newWorldDelta,
             elapsed: elapsed + newWorldDelta,
