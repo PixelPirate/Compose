@@ -3,7 +3,8 @@ import os
 
 @usableFromInline
 final class ChangeClock: @unchecked Sendable {
-    private let value: ManagedAtomic<UInt64> = ManagedAtomic(0)
+    @usableFromInline
+    let value: ManagedAtomic<UInt64> = ManagedAtomic(0)
 
     @inlinable @inline(__always)
     func next() -> UInt64 {
@@ -18,12 +19,15 @@ final class ChangeClock: @unchecked Sendable {
 
 @usableFromInline
 final class ComponentChangeState: @unchecked Sendable {
-    private var added: ContiguousArray<UInt64> = []
-    private var changed: ContiguousArray<UInt64> = []
-    private let lock = OSAllocatedUnfairLock()
+    @usableFromInline
+    var added: ContiguousArray<UInt64> = []
+    @usableFromInline
+    var changed: ContiguousArray<UInt64> = []
+    @usableFromInline
+    let lock = OSAllocatedUnfairLock()
 
     @inlinable @inline(__always)
-    private func ensureCapacity(for index: Int) {
+    func ensureCapacity(for index: Int) {
         if index >= added.count {
             let newCount = index + 1
             let additional = newCount - added.count
@@ -94,6 +98,13 @@ struct ComponentChangeObserver: @unchecked Sendable {
     @usableFromInline let state: ComponentChangeState
     @usableFromInline let clock: ChangeClock
     @usableFromInline let slot: SlotIndex
+
+    @usableFromInline
+    init(state: ComponentChangeState, clock: ChangeClock, slot: SlotIndex) {
+        self.state = state
+        self.clock = clock
+        self.slot = slot
+    }
 
     @inlinable @inline(__always)
     func markChanged() {

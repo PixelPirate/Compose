@@ -2379,9 +2379,19 @@ private final class EventDrainSystem: System {
 }
 
 @Test func addedQueryFilter() throws {
-    struct Tracked: Component, Equatable { var value: Int }
+    struct Tracked: Component, Equatable {
+        static let componentTag = ComponentTag.makeTag()
+        var value: Int
+    }
 
-    struct AddedSystem: System {
+    final class ManagedMutex<T> {
+        let value: Mutex<T>
+        init(_ value: sending T) {
+            self.value = Mutex(value)
+        }
+    }
+
+    final class AddedSystem: System {
         static let id = SystemID(name: "AddedSystem")
         nonisolated(unsafe) static let query = Query {
             WithEntityID.self
@@ -2389,7 +2399,11 @@ private final class EventDrainSystem: System {
             Added<Tracked>.self
         }
 
-        let captured: Mutex<[Entity.ID]>
+        let captured: ManagedMutex<[Entity.ID]>
+
+        init(captured: ManagedMutex<[Entity.ID]>) {
+            self.captured = captured
+        }
 
         var metadata: SystemMetadata {
             Self.metadata(from: [Self.query.schedulingMetadata])
@@ -2397,37 +2411,48 @@ private final class EventDrainSystem: System {
 
         func run(context: QueryContext, commands: inout Commands) {
             var local: [Entity.ID] = []
-            Self.query(context) { entity, _: Tracked in
+            Self.query(context) { entity, _ in
                 local.append(entity)
             }
             if !local.isEmpty {
-                captured.withLock { $0.append(contentsOf: local) }
+                captured.value.withLock { $0.append(contentsOf: local) }
             }
         }
     }
 
     let coordinator = Coordinator()
-    let captured = Mutex<[Entity.ID]>([])
+    let captured = ManagedMutex<[Entity.ID]>([])
     coordinator.addSystem(.update, system: AddedSystem(captured: captured))
 
     let first = coordinator.spawn(Tracked(value: 1))
     coordinator.runSchedule(.update)
-    #expect(captured.withLock { $0 } == [first])
+    #expect(captured.value.withLock { $0 } == [first])
 
-    captured.withLock { $0.removeAll() }
+    captured.value.withLock { $0.removeAll() }
     coordinator.runSchedule(.update)
-    #expect(captured.withLock { $0 }.isEmpty)
+    #expect(captured.value.withLock { $0 }.isEmpty)
 
     let second = coordinator.spawn(Tracked(value: 2))
-    captured.withLock { $0.removeAll() }
+    captured.value.withLock { $0.removeAll() }
     coordinator.runSchedule(.update)
-    #expect(captured.withLock { $0 } == [second])
+    #expect(captured.value.withLock { $0 } == [second])
 }
 
 @Test func changedQueryFilter() throws {
-    struct Tracked: Component, Equatable { var value: Int }
+    struct Tracked: Component, Equatable {
+        static let componentTag = ComponentTag.makeTag()
 
-    struct ChangedSystem: System {
+        var value: Int
+    }
+
+    final class ManagedMutex<T> {
+        let value: Mutex<T>
+        init(_ value: sending T) {
+            self.value = Mutex(value)
+        }
+    }
+
+    final class ChangedSystem: System {
         static let id = SystemID(name: "ChangedSystem")
         nonisolated(unsafe) static let query = Query {
             WithEntityID.self
@@ -2435,7 +2460,11 @@ private final class EventDrainSystem: System {
             Changed<Tracked>.self
         }
 
-        let captured: Mutex<[Entity.ID]>
+        let captured: ManagedMutex<[Entity.ID]>
+
+        init(captured: ManagedMutex<[Entity.ID]>) {
+            self.captured = captured
+        }
 
         var metadata: SystemMetadata {
             Self.metadata(from: [Self.query.schedulingMetadata])
@@ -2443,33 +2472,33 @@ private final class EventDrainSystem: System {
 
         func run(context: QueryContext, commands: inout Commands) {
             var local: [Entity.ID] = []
-            Self.query(context) { entity, _: Write<Tracked> in
+            Self.query(context) { entity, _ in
                 local.append(entity)
             }
             if !local.isEmpty {
-                captured.withLock { $0.append(contentsOf: local) }
+                captured.value.withLock { $0.append(contentsOf: local) }
             }
         }
     }
 
     let coordinator = Coordinator()
-    let captured = Mutex<[Entity.ID]>([])
+    let captured = ManagedMutex<[Entity.ID]>([])
     coordinator.addSystem(.update, system: ChangedSystem(captured: captured))
 
     let entity = coordinator.spawn(Tracked(value: 0))
     coordinator.runSchedule(.update)
-    #expect(captured.withLock { $0 } == [entity])
+    #expect(captured.value.withLock { $0 } == [entity])
 
-    captured.withLock { $0.removeAll() }
+    captured.value.withLock { $0.removeAll() }
     coordinator.runSchedule(.update)
-    #expect(captured.withLock { $0 }.isEmpty)
+    #expect(captured.value.withLock { $0 }.isEmpty)
 
     let mutate = Query { Write<Tracked>.self }
     mutate(coordinator) { (write: Write<Tracked>) in
         write.value += 1
     }
 
-    captured.withLock { $0.removeAll() }
+    captured.value.withLock { $0.removeAll() }
     coordinator.runSchedule(.update)
-    #expect(captured.withLock { $0 } == [entity])
+    #expect(captured.value.withLock { $0 } == [entity])
 }
