@@ -31,6 +31,9 @@ public final class Coordinator {
     internal private(set) var entitySignatures: ContiguousArray<ComponentSignature> = [] // Indexed by SlotIndex
 
     @usableFromInline
+    var eventManager = EventManager()
+
+    @usableFromInline
     var signatureQueryCache: [QueryHash: SignatureQueryPlan] = [:]
     @usableFromInline
     internal let signatureQueryCacheLock = OSAllocatedUnfairLock() // TODO: Instead of these locks: Explore atomic pointer swap.
@@ -101,18 +104,20 @@ public final class Coordinator {
         }
         let newEntity = indices.allocateID()
 
-        // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
-        pool.ensureSparseSetCount(includes: newEntity)
-
-        for component in repeat each components {
-            pool.append(component, for: newEntity)
-        }
-
         var signature = ComponentSignature()
         for tag in repeat (each C).componentTag {
             signature.append(tag)
         }
         setSpawnedSignature(newEntity, signature: signature)
+
+        // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
+        pool.ensureSparseSetCount(includes: newEntity)
+
+        for component in repeat each components {
+            pool.append(component, for: newEntity)
+            groups.onComponentAdded(type(of: component).componentTag, entity: newEntity, in: self)
+        }
+
         return newEntity
     }
 
@@ -464,9 +469,29 @@ public final class Coordinator {
     public func run() {
         runSchedule(.main)
     }
-    
+
     @inlinable @inline(__always)
     public func update(_ scheduleLabel: ScheduleLabel, update: (inout Schedule) -> Void) {
         systemManager.update(scheduleLabel, update: update)
+    }
+
+    @inlinable @inline(__always)
+    func eventWriter<E: Event>(_ type: E.Type = E.self) -> EventWriter<E> {
+        eventManager.writer(type)
+    }
+
+    @inlinable @inline(__always)
+    func sendEvent<E: Event>(_ event: E) {
+        eventManager.send(event)
+    }
+
+    @inlinable @inline(__always)
+    func readEvents<E: Event>(_ type: E.Type = E.self, state: inout EventReaderState<E>) -> EventSequence<E> {
+        eventManager.read(type, state: &state)
+    }
+
+    @inlinable @inline(__always)
+    func drainEvents<E: Event>(_ type: E.Type = E.self) -> [E] {
+        eventManager.drain(type)
     }
 }

@@ -72,6 +72,13 @@ public struct Commands {
     }
 
     @inlinable @inline(__always)
+    public mutating func sendEvent<E: Event>(_ event: E) {
+        queue.append(Command(action: { coordinator in
+            coordinator.sendEvent(event)
+        }))
+    }
+
+    @inlinable @inline(__always)
     mutating func integrate(into coordinator: Coordinator) {
         while !queue.isEmpty {
             queue.removeFirst()(coordinator)
