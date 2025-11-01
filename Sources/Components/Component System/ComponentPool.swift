@@ -255,6 +255,8 @@ extension ComponentPool {
         guard !arrays.isEmpty else {
             if isQueryingForEntityIDs {
                 return (
+                    // TODO: This needs to return all entity IDs. The below does exclude empty entities (and it is slow).
+                    //       Maybe use IndexRegistry.liveEntities
                     ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites })),
                     [],
                     excludedArrays.map(\.entityToComponents)

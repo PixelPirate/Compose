@@ -1,8 +1,7 @@
 import Testing
 @testable import Components
 
-@Test
-func commandsIntegrateAppliesOperations() {
+@Test func commandsIntegrateAppliesOperations() throws {
     let coordinator = Coordinator()
     let target = coordinator.spawn(Person())
 
@@ -38,8 +37,7 @@ func commandsIntegrateAppliesOperations() {
     #expect(Array(Query { Person.self }.fetchAll(coordinator)).isEmpty)
 }
 
-@Test
-func commandsIgnoreStaleEntityIDs() {
+@Test func commandsIgnoreStaleEntityIDs() throws {
     let coordinator = Coordinator()
     let stale = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
     coordinator.destroy(stale)
@@ -60,8 +58,7 @@ func commandsIgnoreStaleEntityIDs() {
     #expect(transform.position == Vector3(x: 1, y: 0, z: 0))
 }
 
-@Test
-func commandsDestroyDuringQueryDoesNotCorruptStorage() {
+@Test func commandsDestroyDuringQueryDoesNotCorruptStorage() throws {
     let coordinator = Coordinator()
     var originalIDs: [Entity.ID] = []
     for i in 0..<32 {

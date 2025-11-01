@@ -1242,7 +1242,7 @@ func testReuseSlot() async throws {
     #expect(empty == [expectedEntityID])
 }
 
-@Test func optionalQueryFetchesPresentAndMissingComponents() {
+@Test func optionalQueryFetchesPresentAndMissingComponents() throws {
     let coordinator = Coordinator()
 
     let entityWithPerson = coordinator.spawn(Person())
@@ -1777,7 +1777,7 @@ public struct Material: Component {
     #expect(coordinator.groupSize(exactSignature) == 1)
 
     _ = coordinator.addGroup {
-        Transform.self
+        With<Transform>.self
     }
 
     let exactQuery = Query {
@@ -1799,7 +1799,7 @@ public struct Material: Component {
     let fallbackResult = try #require(coordinator.bestGroup(for: fallbackQuery.querySignature))
     #expect(!fallbackResult.exact)
     #expect(Set(fallbackResult.slots) == Set([entityWithMaterial.slot, entityWithoutMaterial.slot]))
-    #expect(fallbackResult.owned == ComponentSignature(Transform.componentTag))
+    #expect(fallbackResult.owned == ComponentSignature())
 }
 
 @Test func removeGroupClearsMetadata() throws {
@@ -2069,11 +2069,13 @@ public struct Material: Component {
 
             commands.run { coordinator in
                 counters.runCount.wrappingIncrement(ordering: .relaxed)
-                let transform = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).first { pair in
-                    pair.0 == target
+                let all = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator))
+                let transform = all.first { id, transform in
+                    id == target
                 }?.1
                 #expect(transform?.scale == Vector3(x: 1, y: 1, z: 1))
-                #expect(Query { WithEntityID.self; Gravity.self }.fetchAll(coordinator).allSatisfy { $0.0 != target })
+                let all2 = Array(Query { WithEntityID.self; Gravity.self }.fetchAll(coordinator))
+                #expect(all2.allSatisfy { $0.0 != target })
             }
 
             commands.spawn(
@@ -2084,7 +2086,8 @@ public struct Material: Component {
                 )
             ) { coordinator, entity in
                 counters.spawnCount.wrappingIncrement(ordering: .relaxed)
-                let matching = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).first { pair in
+                let all = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator))
+                let matching = all.first { pair in
                     pair.0 == entity
                 }?.1
                 #expect(matching?.position == Vector3(x: 1, y: 1, z: 1))
@@ -2122,7 +2125,8 @@ public struct Material: Component {
     #expect(counters.spawnCount.load(ordering: .relaxed) == 2)
     #expect(counters.destroyCount.load(ordering: .relaxed) == 2)
     #expect(counters.runCount.load(ordering: .relaxed) == 2)
-    #expect(!counters.targetAliveAfterDestroy.load(ordering: .relaxed))
+    let targetNotAliveAfterDestroy = !counters.targetAliveAfterDestroy.load(ordering: .relaxed)
+    #expect(targetNotAliveAfterDestroy)
 }
 
 @Test func removeGroupClearsMetadataAndStorage() {

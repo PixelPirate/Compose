@@ -79,7 +79,8 @@ public struct QuerySignature: Hashable, Sendable {
 public struct GroupSignature: Hashable, Sendable {
     /// An entity is part of this group if it contains all these
     @usableFromInline
-    let contained: ComponentSignature
+    let contained: ComponentSignature // TODO: I should also list owned components. Currently there is no way to differentiate
+                                      //       overlapping owning and non-owning groups: { Transform } and { With<Transform> }
     @usableFromInline
     let excluded: ComponentSignature
 
