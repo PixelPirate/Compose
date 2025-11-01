@@ -8,7 +8,7 @@ struct MainScheduleOrder {
 extension MainSystem {
     @usableFromInline
     static func install(into coordinator: Coordinator) {
-        coordinator.addRessource(
+        coordinator.addResource(
             MainScheduleOrder(
                 labels: [
                     .first,
@@ -26,7 +26,7 @@ extension MainSystem {
                 ]
             )
         )
-        coordinator.addRessource(
+        coordinator.addResource(
             FixedMainScheduleOrder(
                 labels: [
                     .fixedFirst,

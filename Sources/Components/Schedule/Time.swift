@@ -20,8 +20,8 @@ struct TimeSystem: System {
 
 extension TimeSystem {
     static func install(into coordinator: Coordinator) {
-        coordinator.addRessource(WorldClock(instant: .now))
-        coordinator.addRessource(FixedClock())
+        coordinator.addResource(WorldClock(instant: .now))
+        coordinator.addResource(FixedClock())
         coordinator.addSystem(.last, system: TimeSystem())
     }
 }
