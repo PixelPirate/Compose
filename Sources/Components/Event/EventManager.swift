@@ -8,6 +8,10 @@ final class ConcreteEventChannelBox<E: Event>: EventChannelBox {
     @usableFromInline
     let channel = EventChannel<E>()
 
+    @usableFromInline
+    init() {
+    }
+
     @inlinable @inline(__always)
     func prepare() {
         channel.prepare()

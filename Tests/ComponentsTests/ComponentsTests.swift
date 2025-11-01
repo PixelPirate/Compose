@@ -2328,3 +2328,24 @@ private final class EventDrainSystem: System {
     #expect(drainer.drained == [[0], [1]])
     #expect(reader.seen.isEmpty)
 }
+
+@Test func drainingEventsSkipsPendingOnCurrentFrame() {
+    struct DrainEvent: Sendable, Equatable, Event {
+        let id: Int
+    }
+
+    let events = EventChannel<DrainEvent>()
+
+    events.send(DrainEvent(id: 1))
+    events.prepare()
+
+    events.send(DrainEvent(id: 2))
+
+    let drained = events.drain()
+    #expect(drained == [DrainEvent(id: 1)])
+
+    events.prepare()
+
+    var state = EventReaderState<DrainEvent>()
+    #expect(events.read(state: &state) == [DrainEvent(id: 2)])
+}
