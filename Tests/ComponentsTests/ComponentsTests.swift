@@ -332,6 +332,24 @@ final class ConcurrentAccessProbe {
     #expect(counter.value == 2)
 }
 
+@Test func resourceAccessorReturnsStoredValue() {
+    struct LocalResource: Sendable {
+        var value: Int
+    }
+
+    let coordinator = Coordinator()
+    coordinator.addRessource(LocalResource(value: 7))
+
+    var stored: LocalResource = coordinator.resource()
+    #expect(stored.value == 7)
+
+    stored.value = 42
+    coordinator[resource: LocalResource.self] = stored
+
+    let updated: LocalResource = coordinator.resource()
+    #expect(updated.value == 42)
+}
+
 @Test func queryPerformParallelRespectsFilteringAndMutatesOnce() {
     struct ParallelMarker: Component, Sendable {
         static let componentTag = ComponentTag.makeTag()
@@ -1224,6 +1242,33 @@ func testReuseSlot() async throws {
     #expect(empty == [expectedEntityID])
 }
 
+@Test func optionalQueryFetchesPresentAndMissingComponents() {
+    let coordinator = Coordinator()
+
+    let entityWithPerson = coordinator.spawn(Person())
+    let entityWithoutPerson = coordinator.spawn()
+
+    let query = Query {
+        WithEntityID.self
+        Optional<Person>.self
+    }
+
+    #expect(!query.signature.contains(Person.componentTag))
+    #expect(!query.readOnlySignature.contains(Person.componentTag))
+
+    var results: [Entity.ID: Person?] = [:]
+    query(coordinator) { (id: Entity.ID, person: Person?) in
+        results[id] = person
+    }
+
+    let withPerson = try #require(results[entityWithPerson])
+    let withoutPerson = try #require(results[entityWithoutPerson])
+
+    #expect(withPerson != nil)
+    #expect(withoutPerson == nil)
+    #expect(results.count == 2)
+}
+
 @Test func testOptionalWrite() {
     struct OptionalContaining: Component, Equatable {
         static let componentTag = ComponentTag.makeTag()
@@ -1680,6 +1725,107 @@ public struct Material: Component {
 @Test func testBitSetIteration() {
     let components = ComponentSignature(Transform.componentTag, Material.componentTag, Gravity.componentTag)
     #expect(Set(components.tags) == Set([Transform.componentTag, Material.componentTag, Gravity.componentTag]))
+}
+
+@Test func bestGroupSelectionPrefersExactMatches() throws {
+    let coordinator = Coordinator()
+
+    let entityWithMaterial = coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        Gravity(force: .zero),
+        Material()
+    )
+    let entityWithoutMaterial = coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        Gravity(force: .zero)
+    )
+
+    let exactSignature = coordinator.addGroup {
+        Transform.self
+        Gravity.self
+        With<Material>.self
+    }
+    #expect(coordinator.groupSize(exactSignature) == 1)
+
+    _ = coordinator.addGroup {
+        Transform.self
+    }
+
+    let exactQuery = Query {
+        Write<Transform>.self
+        Gravity.self
+        With<Material>.self
+    }
+
+    let exactResult = try #require(coordinator.bestGroup(for: exactQuery.querySignature))
+    #expect(exactResult.exact)
+    #expect(Set(exactResult.slots) == Set([entityWithMaterial.slot]))
+    #expect(exactResult.owned == ComponentSignature(Transform.componentTag, Gravity.componentTag))
+
+    let fallbackQuery = Query {
+        Write<Transform>.self
+        Gravity.self
+    }
+
+    let fallbackResult = try #require(coordinator.bestGroup(for: fallbackQuery.querySignature))
+    #expect(!fallbackResult.exact)
+    #expect(Set(fallbackResult.slots) == Set([entityWithMaterial.slot, entityWithoutMaterial.slot]))
+    #expect(fallbackResult.owned == ComponentSignature(Transform.componentTag))
+}
+
+@Test func removeGroupClearsMetadata() throws {
+    let coordinator = Coordinator()
+
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+
+    let signature = coordinator.addGroup {
+        Transform.self
+        Gravity.self
+    }
+
+    #expect(coordinator.groupSize(signature) == 2)
+
+    let query = Query {
+        Transform.self
+        Gravity.self
+    }
+
+    coordinator.removeGroup {
+        Transform.self
+        Gravity.self
+    }
+
+    #expect(coordinator.groupSize(signature) == nil)
+    #expect(coordinator.bestGroup(for: query.querySignature) == nil)
+}
+
+@Test func owningVsNonOwningGroupMetadata() throws {
+    let coordinator = Coordinator()
+
+    let entityA = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+    let entityB = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+
+    let owningSignature = coordinator.addGroup {
+        Transform.self
+        Gravity.self
+    }
+
+    let nonOwningSignature = coordinator.addGroup {
+        With<Transform>.self
+        With<Gravity>.self
+    }
+
+    #expect(coordinator.isOwningGroup(owningSignature))
+    #expect(!coordinator.isOwningGroup(nonOwningSignature))
+
+    let owning = try #require(coordinator.groupSlotsWithOwned(owningSignature))
+    #expect(Set(owning.0) == Set([entityA.slot, entityB.slot]))
+    #expect(owning.1 == ComponentSignature(Transform.componentTag, Gravity.componentTag))
+
+    let nonOwning = try #require(coordinator.groupSlotsWithOwned(nonOwningSignature))
+    #expect(Set(nonOwning.0) == Set([entityA.slot, entityB.slot]))
+    #expect(nonOwning.1 == ComponentSignature())
 }
 
 @Test func performGroupFallbackWithoutMatchingGroup() {
