@@ -14,7 +14,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-//        .package(url: "https://github.com/apple/swift-collections.git", from: "1.2.1"),
+        .package(url: "https://github.com/apple/swift-collections.git", from: "1.2.1"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
     ],
     targets: [
@@ -23,7 +23,8 @@ let package = Package(
         .target(
             name: "Components",
             dependencies: [
-//                .product(name: "TrailingElementsModule", package: "swift-collections"),
+                .product(name: "TrailingElementsModule", package: "swift-collections"),
+                .product(name: "DequeModule", package: "swift-collections"),
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
 //            swiftSettings: [.define("BITSET_USE_DYNAMIC_ARRAY")]
@@ -32,6 +33,7 @@ let package = Package(
             name: "ComponentsTests",
             dependencies: [
                 "Components",
+                .product(name: "DequeModule", package: "swift-collections"),
             ]
         ),
         .testTarget(
