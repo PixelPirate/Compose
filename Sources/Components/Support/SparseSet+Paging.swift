@@ -413,16 +413,17 @@ struct PagedDense<Element> {
 
 public struct DenseSpan2<Element> {
     @usableFromInline
-    let buffer: UnsafeMutablePointer<Element>
+    let buffer: UnsafeMutablePointer<Element>?
 
     @inlinable @inline(__always)
     init(view base: UnsafeMutableBufferPointer<Element>) {
-        buffer = base.baseAddress.unsafelyUnwrapped
+        buffer = base.baseAddress
     }
 
     @inlinable @_transparent
     public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
-        buffer.advanced(by: index)
+        precondition(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
+        return buffer.unsafelyUnwrapped.advanced(by: index)
     }
 
     @inlinable @inline(__always)
