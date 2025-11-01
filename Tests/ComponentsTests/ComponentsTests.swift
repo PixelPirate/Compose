@@ -1300,6 +1300,35 @@ func testReuseSlot() async throws {
     #expect(Set(all) == Set([nil, OptionalContaining(optionalValue: nil)]))
 }
 
+@Test func querySignaturesHandleOptionalComponents() {
+    typealias TestQuery = Query<
+        Transform,
+        Optional<Gravity>,
+        Write<RigidBody>,
+        OptionalWrite<Shape>
+    >
+
+    let readWithoutOptionals = TestQuery.makeReadSignature(backstageComponents: [], includeOptionals: false)
+    #expect(readWithoutOptionals.contains(Transform.componentTag))
+    #expect(!readWithoutOptionals.contains(Gravity.componentTag))
+    #expect(!readWithoutOptionals.contains(RigidBody.componentTag))
+    #expect(!readWithoutOptionals.contains(Shape.componentTag))
+
+    let readWithOptionals = TestQuery.makeReadSignature(backstageComponents: [], includeOptionals: true)
+    #expect(readWithOptionals.contains(Transform.componentTag))
+    #expect(readWithOptionals.contains(Gravity.componentTag))
+    #expect(!readWithOptionals.contains(RigidBody.componentTag))
+    #expect(!readWithOptionals.contains(Shape.componentTag))
+
+    let writeWithoutOptionals = TestQuery.makeWriteSignature(includeOptionals: false)
+    #expect(writeWithoutOptionals.contains(RigidBody.componentTag))
+    #expect(!writeWithoutOptionals.contains(Shape.componentTag))
+
+    let writeWithOptionals = TestQuery.makeWriteSignature(includeOptionals: true)
+    #expect(writeWithOptionals.contains(RigidBody.componentTag))
+    #expect(writeWithOptionals.contains(Shape.componentTag))
+}
+
 @Test func signature() {
     #expect(ComponentSignature(Transform.componentTag) == ComponentSignature(Transform.componentTag))
     #expect(ComponentSignature(Person.componentTag) == ComponentSignature(Person.componentTag))
