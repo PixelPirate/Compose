@@ -10,6 +10,8 @@ public enum QueryBuilder {
             composite: Query<C>(
                 backstageComponents: [],
                 excludedComponents: [],
+                addedComponents: [],
+                changedComponents: [],
                 isQueryingForEntityID: false
             )
         )
@@ -20,6 +22,8 @@ public enum QueryBuilder {
             composite: Query<Write<C>>(
                 backstageComponents: [],
                 excludedComponents: [],
+                addedComponents: [],
+                changedComponents: [],
                 isQueryingForEntityID: false
             )
         )
@@ -30,6 +34,8 @@ public enum QueryBuilder {
             composite: Query< >(
                 backstageComponents: [C.componentTag],
                 excludedComponents: [],
+                addedComponents: [],
+                changedComponents: [],
                 isQueryingForEntityID: false
             )
         )
@@ -40,6 +46,32 @@ public enum QueryBuilder {
             composite: Query< >(
                 backstageComponents: [],
                 excludedComponents: [C.componentTag],
+                addedComponents: [],
+                changedComponents: [],
+                isQueryingForEntityID: false
+            )
+        )
+    }
+
+    public static func buildExpression<C: Component>(_ c: Added<C>.Type) -> BuiltQuery< > {
+        BuiltQuery(
+            composite: Query< >(
+                backstageComponents: [C.componentTag],
+                excludedComponents: [],
+                addedComponents: [C.componentTag],
+                changedComponents: [],
+                isQueryingForEntityID: false
+            )
+        )
+    }
+
+    public static func buildExpression<C: Component>(_ c: Changed<C>.Type) -> BuiltQuery< > {
+        BuiltQuery(
+            composite: Query< >(
+                backstageComponents: [C.componentTag],
+                excludedComponents: [],
+                addedComponents: [],
+                changedComponents: [C.componentTag],
                 isQueryingForEntityID: false
             )
         )
@@ -50,6 +82,8 @@ public enum QueryBuilder {
             composite: Query<WithEntityID>(
                 backstageComponents: [],
                 excludedComponents: [],
+                addedComponents: [],
+                changedComponents: [],
                 isQueryingForEntityID: true
             )
         )
@@ -70,6 +104,10 @@ public enum QueryBuilder {
                         accumulated.composite.backstageComponents.union(next.composite.backstageComponents),
                     excludedComponents:
                         accumulated.composite.excludedComponents.union(next.composite.excludedComponents),
+                    addedComponents:
+                        accumulated.composite.addedComponents.union(next.composite.addedComponents),
+                    changedComponents:
+                        accumulated.composite.changedComponents.union(next.composite.changedComponents),
                     isQueryingForEntityID: accumulated.composite.isQueryingForEntityID || next.composite.isQueryingForEntityID
                 )
         )

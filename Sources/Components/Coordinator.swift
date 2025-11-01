@@ -52,6 +52,21 @@ public final class Coordinator {
     var knownGroupsMeta: [GroupSignature: GroupMetadata] = [:]
 
     @usableFromInline
+    var componentChanges: [ComponentTag: ComponentChangeState] = [:]
+
+    @usableFromInline
+    let componentChangeLock = OSAllocatedUnfairLock()
+
+    @usableFromInline
+    let changeClock = ChangeClock()
+
+    @usableFromInline
+    var systemLastRunTicks: [SystemID: UInt64] = [:]
+
+    @usableFromInline
+    let systemTickLock = OSAllocatedUnfairLock()
+
+    @usableFromInline
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline
@@ -94,7 +109,13 @@ public final class Coordinator {
         pool.ensureSparseSetCount(includes: newEntity)
 
         for component in repeat each components {
-            pool.append(component, for: newEntity)
+            let isNew = pool.append(component, for: newEntity)
+            let tag = type(of: component).componentTag
+            if isNew {
+                markComponentAdded(tag, to: newEntity)
+            } else {
+                markComponentChanged(tag, on: newEntity)
+            }
         }
 
         var signature = ComponentSignature()
@@ -140,9 +161,14 @@ public final class Coordinator {
         defer {
             worldVersion &+= 1
         }
-        pool.append(component, for: entityID)
+        let isNew = pool.append(component, for: entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].appending(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
+        if isNew {
+            markComponentAdded(C.componentTag, to: entityID)
+        } else {
+            markComponentChanged(C.componentTag, on: entityID)
+        }
         groups.onComponentAdded(C.componentTag, entity: entityID, in: self)
     }
     
@@ -284,6 +310,7 @@ public final class Coordinator {
         pool.remove(componentTag, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
+        clearComponentTracking(componentTag, entityID: entityID)
     }
 
     @inlinable @inline(__always)
@@ -296,6 +323,7 @@ public final class Coordinator {
         pool.remove(componentType, entityID)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
+        clearComponentTracking(C.componentTag, entityID: entityID)
     }
 
     @inlinable @inline(__always)
@@ -307,6 +335,7 @@ public final class Coordinator {
         indices.free(id: entityID)
         for componentTag in self[signatureFor: entityID.slot].tags {
             groups.onWillRemoveComponent(componentTag, entity: entityID, in: self)
+            clearComponentTracking(componentTag, entityID: entityID)
         }
         pool.remove(entityID)
         entitySignatures[entityID.slot.rawValue] = ComponentSignature()
@@ -315,11 +344,13 @@ public final class Coordinator {
     @inlinable @inline(__always)
     public func add(_ system: some System) {
         systemManager.add(system)
+        registerSystemTick(system.metadata.id)
     }
 
     @inlinable @inline(__always)
     public func remove(_ systemID: SystemID) {
         systemManager.remove(systemID)
+        unregisterSystemTick(systemID)
     }
 
     @inlinable @inline(__always)
@@ -360,6 +391,7 @@ public final class Coordinator {
     @inlinable @inline(__always)
     public func addSystem(_ label: ScheduleLabel, system: some System) {
         systemManager.addSystem(label, system: system)
+        registerSystemTick(system.metadata.id)
     }
 
     @inlinable @inline(__always)

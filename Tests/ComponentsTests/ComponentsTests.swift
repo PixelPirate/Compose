@@ -1403,13 +1403,13 @@ public struct Downward: Component, Sendable {
     @inlinable @inline(__always)
     public static func makeResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Downward {
         print("called")
-        return Downward(isDownward: access.accessDense(denseIndex).value.position.y < 0)
+        return Downward(isDownward: access.accessDense(denseIndex, entityID: entityID).value.position.y < 0)
     }
 
     @inlinable @inline(__always)
     public static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Downward {
-        print("called readonly", entityID, access.accessDense(denseIndex).value.position.y)
-        return Downward(isDownward: access.accessDense(denseIndex).value.position.y < 0)
+        print("called readonly", entityID, access.accessDense(denseIndex, entityID: entityID).value.position.y)
+        return Downward(isDownward: access.accessDense(denseIndex, entityID: entityID).value.position.y < 0)
     }
 }
 
@@ -1863,4 +1863,100 @@ public struct Material: Component {
 
     // Expect exactly one with gravity present and one without
     #expect(count == 1)
+}
+
+@Test func addedQueryFilter() throws {
+    struct Tracked: Component, Equatable { var value: Int }
+
+    struct AddedSystem: System {
+        static let id = SystemID(name: "AddedSystem")
+        nonisolated(unsafe) static let query = Query {
+            WithEntityID.self
+            Tracked.self
+            Added<Tracked>.self
+        }
+
+        let captured: Mutex<[Entity.ID]>
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var local: [Entity.ID] = []
+            Self.query(context) { entity, _: Tracked in
+                local.append(entity)
+            }
+            if !local.isEmpty {
+                captured.withLock { $0.append(contentsOf: local) }
+            }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let captured = Mutex<[Entity.ID]>([])
+    coordinator.addSystem(.update, system: AddedSystem(captured: captured))
+
+    let first = coordinator.spawn(Tracked(value: 1))
+    coordinator.runSchedule(.update)
+    #expect(captured.withLock { $0 } == [first])
+
+    captured.withLock { $0.removeAll() }
+    coordinator.runSchedule(.update)
+    #expect(captured.withLock { $0 }.isEmpty)
+
+    let second = coordinator.spawn(Tracked(value: 2))
+    captured.withLock { $0.removeAll() }
+    coordinator.runSchedule(.update)
+    #expect(captured.withLock { $0 } == [second])
+}
+
+@Test func changedQueryFilter() throws {
+    struct Tracked: Component, Equatable { var value: Int }
+
+    struct ChangedSystem: System {
+        static let id = SystemID(name: "ChangedSystem")
+        nonisolated(unsafe) static let query = Query {
+            WithEntityID.self
+            Write<Tracked>.self
+            Changed<Tracked>.self
+        }
+
+        let captured: Mutex<[Entity.ID]>
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var local: [Entity.ID] = []
+            Self.query(context) { entity, _: Write<Tracked> in
+                local.append(entity)
+            }
+            if !local.isEmpty {
+                captured.withLock { $0.append(contentsOf: local) }
+            }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let captured = Mutex<[Entity.ID]>([])
+    coordinator.addSystem(.update, system: ChangedSystem(captured: captured))
+
+    let entity = coordinator.spawn(Tracked(value: 0))
+    coordinator.runSchedule(.update)
+    #expect(captured.withLock { $0 } == [entity])
+
+    captured.withLock { $0.removeAll() }
+    coordinator.runSchedule(.update)
+    #expect(captured.withLock { $0 }.isEmpty)
+
+    let mutate = Query { Write<Tracked>.self }
+    mutate(coordinator) { (write: Write<Tracked>) in
+        write.value += 1
+    }
+
+    captured.withLock { $0.removeAll() }
+    coordinator.runSchedule(.update)
+    #expect(captured.withLock { $0 } == [entity])
 }

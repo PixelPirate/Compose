@@ -5,6 +5,14 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     @inline(__always)
     public let backstageComponents: Set<ComponentTag> // Or witnessComponents?
 
+    /// Components that must have been added since the system last ran.
+    @inline(__always)
+    public let addedComponents: Set<ComponentTag>
+
+    /// Components that must have changed since the system last ran.
+    @inline(__always)
+    public let changedComponents: Set<ComponentTag>
+
     /// All components where this query ignores contained entities.
     @inline(__always)
     public let excludedComponents: Set<ComponentTag>
@@ -42,11 +50,15 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
     init(
         backstageComponents: Set<ComponentTag>,
         excludedComponents: Set<ComponentTag>,
+        addedComponents: Set<ComponentTag>,
+        changedComponents: Set<ComponentTag>,
         isQueryingForEntityID: Bool
     ) {
         self.backstageComponents = backstageComponents
         self.backstageSignature = ComponentSignature(backstageComponents)
         self.excludedComponents = excludedComponents
+        self.addedComponents = addedComponents
+        self.changedComponents = changedComponents
         self.signature = Self.makeSignature(backstageComponents: backstageComponents) // TODO: Why does this include backstage components?
         self.readOnlySignature = Self.makeReadSignature(backstageComponents: backstageComponents)
         self.writeSignature = Self.makeWriteSignature()
@@ -66,6 +78,8 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         Query<repeat each T, U>(
             backstageComponents: backstageComponents,
             excludedComponents: excludedComponents,
+            addedComponents: addedComponents,
+            changedComponents: changedComponents,
             isQueryingForEntityID: isQueryingForEntityID || U.self is WithEntityID.Type
         )
     }
@@ -233,11 +247,12 @@ extension Query {
         let context = context.queryContext
         let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
 
-        return withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            for slot in baseSlots where Self.passes(
+        return withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+            for slot in baseSlots where passes(
                 slot: slot,
                 otherComponents: otherComponents,
-                excludedComponents: excludedComponents
+                excludedComponents: excludedComponents,
+                context: context
             ) {
                 return (
                     repeat (each T).makeReadOnlyResolved(
@@ -257,12 +272,18 @@ extension Query {
         let context = context.queryContext
         let slots = getCachedPreFilteredSlots(context.coordinator)
 
-        let accessors = withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+        let accessors = withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
             (repeat each accessors)
+        }
+        var entityIDs: [Entity.ID] = []
+        entityIDs.reserveCapacity(slots.count)
+        for slot in slots where passesChangeFilters(slot: slot, context: context) {
+            let generation = isQueryingForEntityID ? context.coordinator.indices[generationFor: slot] : 0
+            entityIDs.append(Entity.ID(slot: slot, generation: generation))
         }
 
         return LazyQuerySequence(
-            entityIDs: slots.map { Entity.ID(slot: $0, generation: isQueryingForEntityID ? context.coordinator.indices[generationFor: $0] : 0) },
+            entityIDs: entityIDs,
             accessors: repeat each accessors
         )
     }
@@ -273,7 +294,7 @@ extension Query {
     public func performPreloadedParallel(_ context: some QueryContextConvertible, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
         let context = context.queryContext
         let slots = getCachedPreFilteredSlots(context.coordinator)
-        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+        withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
             let cores = ProcessInfo.processInfo.processorCount
             let chunkSize = max(1, (slots.count + cores - 1) / cores) // ceil division
             let chunks = (slots.count + chunkSize - 1) / chunkSize // ceil number of chunks
@@ -286,6 +307,7 @@ extension Query {
                     if start >= end { return } // guard against empty/invalid slice
 
                     for slot in slots[start..<end] {
+                        guard passesChangeFilters(slot: slot, context: context) else { continue }
                         handler(repeat (each T).makeResolved(
                             access: each accessors,
                             entityID: Entity.ID(slot: slot, generation: indices.pointee[generationFor: slot])
@@ -302,7 +324,7 @@ extension Query {
     public func performParallel(_ context: some QueryContextConvertible, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
         let context = context.queryContext
         let slots = getCachedBaseSlots(context.coordinator)
-        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+        withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
             let cores = ProcessInfo.processInfo.processorCount
@@ -327,6 +349,9 @@ extension Query {
                         else {
                             continue
                         }
+                        guard passesChangeFilters(slot: slot, context: context) else {
+                            continue
+                        }
                         handler(repeat (each T).makeResolved(
                             access: each accessors,
                             entityID: Entity.ID(slot: slot, generation: isQueryingForEntityID ? indices.pointee[generationFor: slot] : 0)
@@ -344,7 +369,7 @@ extension Query {
     public func performWithSignature(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let baseSlots = getCachedBaseSlots(context.coordinator)
-        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+        withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
 
@@ -358,6 +383,10 @@ extension Query {
                         isDisjoint: excludedSignature.rawHashValue
                     )
                 else {
+                    continue slotLoop
+                }
+
+                guard passesChangeFilters(slot: slot, context: context) else {
                     continue slotLoop
                 }
 
@@ -379,8 +408,9 @@ extension Query {
     ) {
         let context = context.queryContext
         let filteredSlots = getCachedPreFilteredSlots(context.coordinator)
-        withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-            let resolved = filteredSlots.map { [indices = context.coordinator.indices] slot in
+        withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+            let resolved = filteredSlots.compactMap { [indices = context.coordinator.indices] slot -> CombinationPack<repeat (each T).ResolvedType>? in
+                guard passesChangeFilters(slot: slot, context: context) else { return nil }
                 let id = Entity.ID(
                     slot: slot,
                     generation: isQueryingForEntityID ? indices[generationFor: slot] : 0
@@ -402,10 +432,11 @@ extension Query {
 
 extension Query {
     @inlinable @inline(__always)
-    static func passes(
+    func passes(
         slot: SlotIndex,
         otherComponents: [SlotsSpan<ContiguousArray.Index, SlotIndex>],
-        excludedComponents: [SlotsSpan<ContiguousArray.Index, SlotIndex>]
+        excludedComponents: [SlotsSpan<ContiguousArray.Index, SlotIndex>],
+        context: QueryContext
     ) -> Bool {
         for component in otherComponents where component[slot] == .notFound {
             // Entity does not have all required components, skip.
@@ -414,6 +445,29 @@ extension Query {
         for component in excludedComponents where component[slot] != .notFound {
             // Entity has at least one excluded component, skip.
             return false
+        }
+
+        return passesChangeFilters(slot: slot, context: context)
+    }
+
+    @inlinable @inline(__always)
+    func passesChangeFilters(slot: SlotIndex, context: QueryContext) -> Bool {
+        if addedComponents.isEmpty && changedComponents.isEmpty {
+            return true
+        }
+
+        let lastTick = context.lastRunTick
+
+        if !addedComponents.isEmpty {
+            for tag in addedComponents where context.coordinator.lastAddedTick(for: tag, slot: slot) <= lastTick {
+                return false
+            }
+        }
+
+        if !changedComponents.isEmpty {
+            for tag in changedComponents where context.coordinator.lastChangedTick(for: tag, slot: slot) <= lastTick {
+                return false
+            }
         }
 
         return true
@@ -426,13 +480,14 @@ extension Query {
         // TODO: Use RigidArray or TailAllocated here
 
         withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+            withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
                 @_transparent
                 func withGeneration() {
-                    for slot in baseSlots where Self.passes(
+                    for slot in baseSlots where passes(
                         slot: slot,
                         otherComponents: otherComponents,
-                        excludedComponents: excludedComponents
+                        excludedComponents: excludedComponents,
+                        context: context
                     ) {
                         let id = Entity.ID(
                             slot: SlotIndex(rawValue: slot.rawValue),
@@ -443,10 +498,11 @@ extension Query {
                 }
                 @_transparent
                 func withoutGeneration() {
-                    for slot in baseSlots where Self.passes(
+                    for slot in baseSlots where passes(
                         slot: slot,
                         otherComponents: otherComponents,
-                        excludedComponents: excludedComponents
+                        excludedComponents: excludedComponents,
+                        context: context
                     ) {
                         let id = Entity.ID(
                             slot: SlotIndex(rawValue: slot.rawValue),
@@ -471,8 +527,8 @@ extension Query {
         let context = context.queryContext
         let slots = getCachedPreFilteredSlots(context.coordinator) // TODO: Allow custom order.
         withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
-                for slot in slots {
+            withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                for slot in slots where passesChangeFilters(slot: slot, context: context) {
                     let id = Entity.ID(
                         slot: SlotIndex(rawValue: slot.rawValue),
                         generation: isQueryingForEntityID ? indices.pointee[generationFor: slot] : 0
@@ -515,9 +571,10 @@ extension Query {
 
         if exactGroupMatch {
             withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
                     // Enumerate dense indices directly: 0..<size aligned across all owned storages
                     for (denseIndex, slot) in slotsSlice.enumerated() {
+                        guard passesChangeFilters(slot: slot, context: context) else { continue }
                         let id = Entity.ID(
                             slot: SlotIndex(rawValue: slot.rawValue),
                             generation: isQueryingForEntityID ? indices.pointee[generationFor: slot] : 0
@@ -530,13 +587,16 @@ extension Query {
             let querySignature = self.signature
             let excludedSignature = self.excludedSignature
             withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+                withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
                     // Enumerate dense indices directly: 0..<size aligned across all owned storages
                     for (denseIndex, slot) in slotsSlice.enumerated() {
                         // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
                         // TODO: Optional components are ignored.
                         let entitySignature = context.coordinator.entitySignatures[slot.index]
                         guard entitySignature.isSuperset(of: querySignature, isDisjoint: excludedSignature) else {
+                            continue
+                        }
+                        guard passesChangeFilters(slot: slot, context: context) else {
                             continue
                         }
                         let id = Entity.ID(
@@ -585,12 +645,18 @@ extension Query {
         let context = context.queryContext
         let slots = getCachedPreFilteredSlots(context.coordinator)
 
-        let accessors = withTypedBuffers(&context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
+        let accessors = withTypedBuffers(context.coordinator, &context.coordinator.pool) { (accessors: repeat TypedAccess<each T>) in
             (repeat each accessors)
+        }
+        var entityIDs: [Entity.ID] = []
+        entityIDs.reserveCapacity(slots.count)
+        for slot in slots where passesChangeFilters(slot: slot, context: context) {
+            let generation = isQueryingForEntityID ? context.coordinator.indices[generationFor: slot] : 0
+            entityIDs.append(Entity.ID(slot: slot, generation: generation))
         }
 
         return LazyWritableQuerySequence(
-            entityIDs: slots.map { Entity.ID(slot: $0, generation: isQueryingForEntityID ? context.coordinator.indices[generationFor: $0] : 0) },
+            entityIDs: entityIDs,
             accessors: repeat each accessors
         )
     }

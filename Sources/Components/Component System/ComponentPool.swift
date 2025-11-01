@@ -24,14 +24,16 @@ extension ComponentPool {
     }
 
     @usableFromInline
-    mutating func append<C: Component>(_ component: C, for entityID: Entity.ID) {
+    mutating func append<C: Component>(_ component: C, for entityID: Entity.ID) -> Bool {
         let array = components[C.componentTag] ?? {
             var newArray = AnyComponentArray(ComponentArray<C>())
             newArray.reserveCapacity(minimumComponentCapacity: 50, minimumSlotCapacity: entityID.slot.index + 1)
             return newArray
         }()
+        let existed = array.entityToComponents[checked: entityID.slot] != .notFound
         array.append(component, id: entityID)
         components[C.componentTag] = array
+        return !existed
     }
 
     @usableFromInline
@@ -366,6 +368,7 @@ extension ComponentPool {
 @discardableResult
 @usableFromInline @inline(__always)
 func withTypedBuffers<each C: ComponentResolving, R>(
+    _ coordinator: Coordinator,
     _ pool: inout ComponentPool,
     _ body: (repeat TypedAccess<each C>) throws -> R
 ) rethrows -> R {
@@ -386,8 +389,11 @@ func withTypedBuffers<each C: ComponentResolving, R>(
             return TypedAccess<D>.empty // Returning empty is okay, since if there are no components, no access should be made.
         }
         var result: TypedAccess<D>? = nil
+        let changeContext: ComponentChangeObserverContext? = D.self is any WritableComponent.Type
+            ? coordinator.observerContext(for: D.QueriedComponent.componentTag)
+            : nil
         anyArray.withBuffer(D.QueriedComponent.self) { pointer, entitiesToIndices in
-            result = TypedAccess(pointer: pointer, indices: entitiesToIndices)
+            result = TypedAccess(pointer: pointer, indices: entitiesToIndices, changeContext: changeContext)
             // Escaping the buffer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
             // The solution would be a recursive function which would recursively call `withBuffer` on the head until the pack is empty, and then call `body` with all the buffers.
             // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12

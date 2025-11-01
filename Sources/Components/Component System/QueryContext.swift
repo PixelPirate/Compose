@@ -3,8 +3,16 @@ public struct QueryContext: QueryContextConvertible, Sendable {
     nonisolated(unsafe) internal var coordinator: Coordinator
 
     @usableFromInline
-    init(coordinator: Coordinator) {
+    internal let systemID: SystemID?
+
+    @usableFromInline
+    internal let lastRunTick: UInt64
+
+    @usableFromInline
+    init(coordinator: Coordinator, systemID: SystemID? = nil, lastRunTick: UInt64 = 0) {
         self.coordinator = coordinator
+        self.systemID = systemID
+        self.lastRunTick = lastRunTick
     }
 
     @inlinable @inline(__always)
