@@ -2,7 +2,7 @@ import Synchronization
 import Foundation
 import os
 
-public struct ResourceKey: Hashable {
+public struct ResourceKey: Hashable, Sendable {
     @usableFromInline
     let type: ObjectIdentifier
 
@@ -29,6 +29,9 @@ public final class Coordinator {
 
     @usableFromInline
     internal private(set) var entitySignatures: ContiguousArray<ComponentSignature> = [] // Indexed by SlotIndex
+
+    @usableFromInline
+    var eventManager = EventManager()
 
     @usableFromInline
     var signatureQueryCache: [QueryHash: SignatureQueryPlan] = [:]
@@ -70,9 +73,26 @@ public final class Coordinator {
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline
-    internal private(set) var resources: [ResourceKey: Any] = [:] // TODO: I don't think the mutex is needed. The executors already guarantee that a system has unique mutable access.
+    struct ResourceEntry {
+        @usableFromInline
+        var value: Any
+        @usableFromInline
+        var version: UInt64
+
+        @usableFromInline
+        init(value: Any, version: UInt64) {
+            self.value = value
+            self.version = version
+        }
+    }
+
+    @usableFromInline
+    internal private(set) var resources: [ResourceKey: ResourceEntry] = [:] // TODO: I don't think the mutex is needed. The executors already guarantee that a system has unique mutable access.
     @usableFromInline
     internal let resourcesLock = OSAllocatedUnfairLock()
+
+    @usableFromInline
+    private(set) var resourceClock: UInt64 = 0
 
     public init() {
         MainSystem.install(into: self)
@@ -105,6 +125,12 @@ public final class Coordinator {
         }
         let newEntity = indices.allocateID()
 
+        var signature = ComponentSignature()
+        for tag in repeat (each C).componentTag {
+            signature.append(tag)
+        }
+        setSpawnedSignature(newEntity, signature: signature)
+
         // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
         pool.ensureSparseSetCount(includes: newEntity)
 
@@ -116,13 +142,9 @@ public final class Coordinator {
             } else {
                 markComponentChanged(tag, on: newEntity)
             }
+            groups.onComponentAdded(type(of: component).componentTag, entity: newEntity, in: self)
         }
 
-        var signature = ComponentSignature()
-        for tag in repeat (each C).componentTag {
-            signature.append(tag)
-        }
-        setSpawnedSignature(newEntity, signature: signature)
         return newEntity
     }
 
@@ -357,14 +379,15 @@ public final class Coordinator {
     public func addRessource<R>(_ resource: sending R) {
         resourcesLock.lock()
         defer { resourcesLock.unlock() }
-        resources[ResourceKey(R.self)] = resource
+        resourceClock &+= 1
+        resources[ResourceKey(R.self)] = ResourceEntry(value: resource, version: resourceClock)
     }
 
     @inlinable @inline(__always)
     public func resource<R>(_ type: R.Type = R.self) -> R {
         resourcesLock.lock()
         defer { resourcesLock.unlock() }
-        return resources[ResourceKey(R.self)] as! R
+        return resources[ResourceKey(R.self)]!.value as! R
     }
 
     @inlinable @inline(__always)
@@ -373,14 +396,95 @@ public final class Coordinator {
         get {
             resourcesLock.lock()
             defer { resourcesLock.unlock() }
-            return resources[ResourceKey(R.self)] as! R
+            return resources[ResourceKey(R.self)]!.value as! R
         }
         @inlinable @inline(__always)
         set {
             resourcesLock.lock()
-            resources[ResourceKey(R.self)] = newValue
+            resourceClock &+= 1
+            resources[ResourceKey(R.self)] = ResourceEntry(value: newValue, version: resourceClock)
             resourcesLock.unlock()
         }
+    }
+
+    public struct ResourceVersionSnapshot: Sendable {
+        @usableFromInline
+        let versions: [ResourceKey: UInt64]
+
+        @inlinable @inline(__always)
+        init(versions: [ResourceKey: UInt64]) {
+            self.versions = versions
+        }
+    }
+
+    @inlinable @inline(__always)
+    public func resourceVersion<R>(_ type: R.Type = R.self) -> UInt64? {
+        resourcesLock.lock()
+        defer { resourcesLock.unlock() }
+        let key = ResourceKey(R.self)
+        return resources[key]?.version
+    }
+
+    @inlinable @inline(__always)
+    public func makeResourceVersionSnapshot() -> ResourceVersionSnapshot {
+        resourcesLock.lock()
+        defer { resourcesLock.unlock() }
+        let versions = resources.mapValues(\.version)
+        return ResourceVersionSnapshot(versions: versions)
+    }
+
+    @inlinable @inline(__always)
+    public func updatedResources(since snapshot: ResourceVersionSnapshot) -> [ResourceKey] {
+        resourcesLock.lock()
+        defer { resourcesLock.unlock() }
+
+        var updated: [ResourceKey] = []
+        updated.reserveCapacity(resources.count)
+
+        for (key, entry) in resources {
+            guard let previous = snapshot.versions[key] else {
+                updated.append(key)
+                continue
+            }
+
+            if previous != entry.version {
+                updated.append(key)
+            }
+        }
+
+        return updated
+    }
+
+    @inlinable @inline(__always)
+    public func resourceIfUpdated<R>(_ type: R.Type = R.self, since snapshot: ResourceVersionSnapshot) -> R? {
+        resourcesLock.lock()
+        defer { resourcesLock.unlock() }
+
+        let key = ResourceKey(R.self)
+
+        guard let entry = resources[key] else {
+            return nil
+        }
+
+        guard snapshot.versions[key] == entry.version else {
+            return (entry.value as! R)
+        }
+
+        return nil
+    }
+
+    @inlinable @inline(__always)
+    public func resourceUpdated<R>(_ type: R.Type = R.self, since snapshot: ResourceVersionSnapshot) -> Bool {
+        resourcesLock.lock()
+        defer { resourcesLock.unlock() }
+
+        let key = ResourceKey(R.self)
+
+        guard let entry = resources[key] else {
+            return false
+        }
+
+        return snapshot.versions[key] != entry.version
     }
 
     @inlinable @inline(__always)
@@ -403,9 +507,29 @@ public final class Coordinator {
     public func run() {
         runSchedule(.main)
     }
-    
+
     @inlinable @inline(__always)
     public func update(_ scheduleLabel: ScheduleLabel, update: (inout Schedule) -> Void) {
         systemManager.update(scheduleLabel, update: update)
+    }
+
+    @inlinable @inline(__always)
+    func eventWriter<E: Event>(_ type: E.Type = E.self) -> EventWriter<E> {
+        eventManager.writer(type)
+    }
+
+    @inlinable @inline(__always)
+    func sendEvent<E: Event>(_ event: E) {
+        eventManager.send(event)
+    }
+
+    @inlinable @inline(__always)
+    func readEvents<E: Event>(_ type: E.Type = E.self, state: inout EventReaderState<E>) -> EventSequence<E> {
+        eventManager.read(type, state: &state)
+    }
+
+    @inlinable @inline(__always)
+    func drainEvents<E: Event>(_ type: E.Type = E.self) -> [E] {
+        eventManager.drain(type)
     }
 }

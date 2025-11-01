@@ -10,7 +10,8 @@ extension System {
         from queries: [QueryMetadata],
         reading readResources: repeat (each ReadResource).Type,
         writing writeResources: repeat (each WriteResource).Type,
-        runAfter: Set<SystemID> = []
+        runAfter: Set<SystemID> = [],
+        eventAccess: [(EventKey, SystemMetadata.EventAccess)] = []
     ) -> SystemMetadata {
         var read = ComponentSignature()
         var write = ComponentSignature()
@@ -37,7 +38,8 @@ extension System {
             writeSignature: write,
             excludedSignature: exclude,
             runAfter: runAfter,
-            resourceAccess: access
+            resourceAccess: access,
+            eventAccess: eventAccess
         )
     }
 }
@@ -50,10 +52,17 @@ public struct SystemMetadata {
     public var runAfter: Set<SystemID>
 
     public let resourceAccess: [(ResourceKey, Access)]
+    public let eventAccess: [(EventKey, EventAccess)]
 
     public enum Access {
         case read
         case write
+    }
+
+    public enum EventAccess {
+        case read
+        case write
+        case drain
     }
 }
 

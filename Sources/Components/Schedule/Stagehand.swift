@@ -32,6 +32,9 @@ final class Stagehand {
             var stageResourceWriters = Set<ResourceKey>()
             var stageComponentReaders = ComponentSignature()
             var stageComponentWriters = ComponentSignature()
+            var stageEventReaders = Set<EventKey>()
+            var stageEventWriters = Set<EventKey>()
+            var stageEventDrainers = Set<EventKey>()
 
             // We try to add as many as possible to this stage
             var progressed = true
@@ -64,6 +67,20 @@ final class Stagehand {
                     }
                     let systemComponentReaders = system.metadata.readSignature
                     let systemComponentWriters = system.metadata.writeSignature
+                    let eventAccesses = system.metadata.eventAccess
+                    var systemEventReaders = Set<EventKey>()
+                    var systemEventWriters = Set<EventKey>()
+                    var systemEventDrainers = Set<EventKey>()
+                    for (key, access) in eventAccesses {
+                        switch access {
+                        case .read:
+                            systemEventReaders.insert(key)
+                        case .write:
+                            systemEventWriters.insert(key)
+                        case .drain:
+                            systemEventDrainers.insert(key)
+                        }
+                    }
 
                     // Conflict rules (unchanged):
                     // - A writer conflicts with any existing reader/writer of same resource
@@ -72,8 +89,11 @@ final class Stagehand {
                     let readResourceConflict  = !systemResourceReaders.isDisjoint(with: stageResourceWriters)
                     let writeComponentConflict = !systemComponentWriters.isDisjoint(with: stageComponentReaders.union(stageComponentWriters))
                     let readComponentConflict  = !systemComponentReaders.isDisjoint(with: stageComponentWriters)
+                    let readEventConflict = !systemEventReaders.isDisjoint(with: stageEventWriters.union(stageEventDrainers))
+                    let writeEventConflict = !systemEventWriters.isDisjoint(with: stageEventReaders.union(stageEventWriters).union(stageEventDrainers))
+                    let drainEventConflict = !systemEventDrainers.isDisjoint(with: stageEventReaders.union(stageEventWriters).union(stageEventDrainers))
 
-                    if writeResourceConflict || readResourceConflict || writeComponentConflict || readComponentConflict {
+                    if writeResourceConflict || readResourceConflict || writeComponentConflict || readComponentConflict || readEventConflict || writeEventConflict || drainEventConflict {
                         // Can't place this system in the current stage; try next
                         i += 1
                         continue
@@ -86,6 +106,9 @@ final class Stagehand {
                     stageResourceWriters.formUnion(systemResourceWriters)
                     stageComponentReaders.formUnion(systemComponentReaders)
                     stageComponentWriters.formUnion(systemComponentWriters)
+                    stageEventReaders.formUnion(systemEventReaders)
+                    stageEventWriters.formUnion(systemEventWriters)
+                    stageEventDrainers.formUnion(systemEventDrainers)
 
                     // Remove from unscheduled and mark progress
                     unscheduled.remove(at: i)
@@ -109,10 +132,42 @@ final class Stagehand {
                     if let idx = unscheduled.firstIndex(where: { $0.metadata.runAfter.isSubset(of: scheduledIDs) }) {
                         let first = unscheduled.remove(at: idx)
                         stage = [first]
+                        stageSystemIDs.insert(first.metadata.id)
+                        for (key, access) in first.metadata.resourceAccess {
+                            switch access {
+                            case .read: stageResourceReaders.insert(key)
+                            case .write: stageResourceWriters.insert(key)
+                            }
+                        }
+                        stageComponentReaders.formUnion(first.metadata.readSignature)
+                        stageComponentWriters.formUnion(first.metadata.writeSignature)
+                        for (key, access) in first.metadata.eventAccess {
+                            switch access {
+                            case .read: stageEventReaders.insert(key)
+                            case .write: stageEventWriters.insert(key)
+                            case .drain: stageEventDrainers.insert(key)
+                            }
+                        }
                     } else {
                         // Should not happen because countBlockedByDeps != unscheduled.count
                         let first = unscheduled.removeFirst()
                         stage = [first]
+                        stageSystemIDs.insert(first.metadata.id)
+                        for (key, access) in first.metadata.resourceAccess {
+                            switch access {
+                            case .read: stageResourceReaders.insert(key)
+                            case .write: stageResourceWriters.insert(key)
+                            }
+                        }
+                        stageComponentReaders.formUnion(first.metadata.readSignature)
+                        stageComponentWriters.formUnion(first.metadata.writeSignature)
+                        for (key, access) in first.metadata.eventAccess {
+                            switch access {
+                            case .read: stageEventReaders.insert(key)
+                            case .write: stageEventWriters.insert(key)
+                            case .drain: stageEventDrainers.insert(key)
+                            }
+                        }
                     }
                 }
             }

@@ -59,7 +59,11 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         self.excludedComponents = excludedComponents
         self.addedComponents = addedComponents
         self.changedComponents = changedComponents
-        self.signature = Self.makeSignature(backstageComponents: backstageComponents) // TODO: Why does this include backstage components?
+        // Backstage components are part of the overall signature because the
+        // query still needs to filter entities that provide them, even though
+        // they are not surfaced in the handler. Including them keeps the
+        // caching behaviour consistent across query variants.
+        self.signature = Self.makeSignature(backstageComponents: backstageComponents)
         self.readOnlySignature = Self.makeReadSignature(backstageComponents: backstageComponents)
         self.writeSignature = Self.makeWriteSignature()
         self.excludedSignature = ComponentSignature(excludedComponents)
@@ -196,7 +200,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
                 (includeOptionals || tagType is any OptionalQueriedComponent.Type == false)
             else {
                 continue
-            } // TODO: Test this
+            }
             signature = signature.appending(tagType.componentTag)
         }
 
@@ -214,7 +218,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
                 (includeOptionals || tagType is any OptionalQueriedComponent.Type == false)
             else {
                 continue
-            } // TODO: Test this
+            }
             signature = signature.appending(tagType.componentTag)
         }
 
