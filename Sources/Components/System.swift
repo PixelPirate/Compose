@@ -1,5 +1,7 @@
 public protocol System {
     static var id: SystemID { get }
+    /// Metadata of this system.
+    /// - Attention: Systems are not allowed to change their metadata once they are scheduled.
     var metadata: SystemMetadata { get }
 
     func run(context: QueryContext, commands: inout Commands)
