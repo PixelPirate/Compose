@@ -52,10 +52,10 @@ public struct MultiThreadedExecutor: Executor {
             let cores = ProcessInfo.processInfo.processorCount
 
             // `chunkSize` represents the best size of a chunk so that all cores are very roughly equally used.
-            let chunkSize = (systems.count + cores - 1) / cores
+            let chunkSize = (stage.systems.count + cores - 1) / cores
 
             // TODO: Use something safer.
-            nonisolated(unsafe) var localCommands = Array(repeating: Commands(), count: systems.count)
+            nonisolated(unsafe) var localCommands = Array(repeating: Commands(), count: stage.systems.count)
             let send = UnsafeSendable(value: stage.systems)
 
             DispatchQueue.concurrentPerform(iterations: min(cores, send.value.count)) { i in

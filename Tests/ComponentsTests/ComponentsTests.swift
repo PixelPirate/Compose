@@ -321,7 +321,7 @@ final class ConcurrentAccessProbe {
 
     let probe = ConcurrentAccessProbe()
     let coordinator = Coordinator()
-    coordinator.addRessource(SharedCounterResource(value: 0))
+    coordinator.addResource(SharedCounterResource(value: 0))
 
     coordinator.addSystem(.update, system: ResourceWriterA(probe: probe))
     coordinator.addSystem(.update, system: ResourceWriterB(probe: probe))
@@ -340,7 +340,7 @@ final class ConcurrentAccessProbe {
     }
 
     let coordinator = Coordinator()
-    coordinator.addRessource(LocalResource(value: 7))
+    coordinator.addResource(LocalResource(value: 7))
 
     var stored: LocalResource = coordinator.resource()
     #expect(stored.value == 7)
@@ -358,7 +358,7 @@ final class ConcurrentAccessProbe {
     }
 
     let coordinator = Coordinator()
-    coordinator.addRessource(CounterResource(value: 0))
+    coordinator.addResource(CounterResource(value: 0))
 
     let snapshot = coordinator.makeResourceVersionSnapshot()
     #expect(coordinator.updatedResources(since: snapshot).isEmpty)

@@ -1,3 +1,5 @@
+import DequeModule
+
 public struct Commands {
     public struct Command {
         @usableFromInline
@@ -15,11 +17,11 @@ public struct Commands {
     }
 
     @usableFromInline
-    internal var queue: [Command] = []
+    internal var queue: Deque<Command> = []
 
     @inlinable @inline(__always)
     public init(queue: [Command] = []) {
-        self.queue = queue
+        self.queue = Deque(queue)
     }
 
     @inlinable @inline(__always)

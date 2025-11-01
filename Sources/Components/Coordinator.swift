@@ -376,7 +376,7 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
-    public func addRessource<R>(_ resource: sending R) {
+    public func addResource<R>(_ resource: sending R) {
         resourcesLock.lock()
         defer { resourcesLock.unlock() }
         resourceClock &+= 1
