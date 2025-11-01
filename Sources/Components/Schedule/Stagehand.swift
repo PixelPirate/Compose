@@ -1,7 +1,7 @@
 @usableFromInline
 struct ScheduledStage {
     @usableFromInline
-    let systems: [System]
+    let systems: [any System]
 }
 
 @usableFromInline
@@ -23,9 +23,8 @@ final class Stagehand {
 
         while !unscheduled.isEmpty {
             // Build one stage at a time from systems whose dependencies are satisfied
-            var stage: [System] = []
+            var stage: [any System] = []
             stage.reserveCapacity(unscheduled.count)
-            var stageSystemIDs = Set<SystemID>()
 
             // Conflict tracking for this stage
             var stageResourceReaders = Set<ResourceKey>()
@@ -101,7 +100,6 @@ final class Stagehand {
 
                     // If no conflicts and deps satisfied, schedule it into this stage
                     stage.append(system)
-                    stageSystemIDs.insert(system.metadata.id)
                     stageResourceReaders.formUnion(systemResourceReaders)
                     stageResourceWriters.formUnion(systemResourceWriters)
                     stageComponentReaders.formUnion(systemComponentReaders)
@@ -132,7 +130,6 @@ final class Stagehand {
                     if let idx = unscheduled.firstIndex(where: { $0.metadata.runAfter.isSubset(of: scheduledIDs) }) {
                         let first = unscheduled.remove(at: idx)
                         stage = [first]
-                        stageSystemIDs.insert(first.metadata.id)
                         for (key, access) in first.metadata.resourceAccess {
                             switch access {
                             case .read: stageResourceReaders.insert(key)
@@ -152,7 +149,6 @@ final class Stagehand {
                         // Should not happen because countBlockedByDeps != unscheduled.count
                         let first = unscheduled.removeFirst()
                         stage = [first]
-                        stageSystemIDs.insert(first.metadata.id)
                         for (key, access) in first.metadata.resourceAccess {
                             switch access {
                             case .read: stageResourceReaders.insert(key)
