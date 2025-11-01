@@ -334,6 +334,24 @@ final class ConcurrentAccessProbe {
     #expect(counter.value == 2)
 }
 
+@Test func resourceAccessorReturnsStoredValue() {
+    struct LocalResource: Sendable {
+        var value: Int
+    }
+
+    let coordinator = Coordinator()
+    coordinator.addRessource(LocalResource(value: 7))
+
+    var stored: LocalResource = coordinator.resource()
+    #expect(stored.value == 7)
+
+    stored.value = 42
+    coordinator[resource: LocalResource.self] = stored
+
+    let updated: LocalResource = coordinator.resource()
+    #expect(updated.value == 42)
+}
+
 @Test func queryPerformParallelRespectsFilteringAndMutatesOnce() {
     struct ParallelMarker: Component, Sendable {
         static let componentTag = ComponentTag.makeTag()
@@ -1226,6 +1244,33 @@ func testReuseSlot() async throws {
     #expect(empty == [expectedEntityID])
 }
 
+@Test func optionalQueryFetchesPresentAndMissingComponents() throws {
+    let coordinator = Coordinator()
+
+    let entityWithPerson = coordinator.spawn(Person())
+    let entityWithoutPerson = coordinator.spawn()
+
+    let query = Query {
+        WithEntityID.self
+        Optional<Person>.self
+    }
+
+    #expect(!query.signature.contains(Person.componentTag))
+    #expect(!query.readOnlySignature.contains(Person.componentTag))
+
+    var results: [Entity.ID: Person?] = [:]
+    query(coordinator) { (id: Entity.ID, person: Person?) in
+        results[id] = person
+    }
+
+    let withPerson = try #require(results[entityWithPerson])
+    let withoutPerson = try #require(results[entityWithoutPerson])
+
+    #expect(withPerson != nil)
+    #expect(withoutPerson == nil)
+    #expect(results.count == 2)
+}
+
 @Test func testOptionalWrite() {
     struct OptionalContaining: Component, Equatable {
         static let componentTag = ComponentTag.makeTag()
@@ -1300,6 +1345,35 @@ func testReuseSlot() async throws {
     #expect(calls == 2)
     let all = Array(query.fetchAll(coordinator))
     #expect(Set(all) == Set([nil, OptionalContaining(optionalValue: nil)]))
+}
+
+@Test func querySignaturesHandleOptionalComponents() {
+    typealias TestQuery = Query<
+        Transform,
+        Optional<Gravity>,
+        Write<RigidBody>,
+        OptionalWrite<Shape>
+    >
+
+    let readWithoutOptionals = TestQuery.makeReadSignature(backstageComponents: [], includeOptionals: false)
+    #expect(readWithoutOptionals.contains(Transform.componentTag))
+    #expect(!readWithoutOptionals.contains(Gravity.componentTag))
+    #expect(!readWithoutOptionals.contains(RigidBody.componentTag))
+    #expect(!readWithoutOptionals.contains(Shape.componentTag))
+
+    let readWithOptionals = TestQuery.makeReadSignature(backstageComponents: [], includeOptionals: true)
+    #expect(readWithOptionals.contains(Transform.componentTag))
+    #expect(readWithOptionals.contains(Gravity.componentTag))
+    #expect(!readWithOptionals.contains(RigidBody.componentTag))
+    #expect(!readWithOptionals.contains(Shape.componentTag))
+
+    let writeWithoutOptionals = TestQuery.makeWriteSignature(includeOptionals: false)
+    #expect(writeWithoutOptionals.contains(RigidBody.componentTag))
+    #expect(!writeWithoutOptionals.contains(Shape.componentTag))
+
+    let writeWithOptionals = TestQuery.makeWriteSignature(includeOptionals: true)
+    #expect(writeWithOptionals.contains(RigidBody.componentTag))
+    #expect(writeWithOptionals.contains(Shape.componentTag))
 }
 
 @Test func signature() {
@@ -1684,6 +1758,107 @@ public struct Material: Component {
     #expect(Set(components.tags) == Set([Transform.componentTag, Material.componentTag, Gravity.componentTag]))
 }
 
+@Test func bestGroupSelectionPrefersExactMatches() throws {
+    let coordinator = Coordinator()
+
+    let entityWithMaterial = coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        Gravity(force: .zero),
+        Material()
+    )
+    let entityWithoutMaterial = coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        Gravity(force: .zero)
+    )
+
+    let exactSignature = coordinator.addGroup {
+        Transform.self
+        Gravity.self
+        With<Material>.self
+    }
+    #expect(coordinator.groupSize(exactSignature) == 1)
+
+    _ = coordinator.addGroup {
+        With<Transform>.self
+    }
+
+    let exactQuery = Query {
+        Write<Transform>.self
+        Gravity.self
+        With<Material>.self
+    }
+
+    let exactResult = try #require(coordinator.bestGroup(for: exactQuery.querySignature))
+    #expect(exactResult.exact)
+    #expect(Set(exactResult.slots) == Set([entityWithMaterial.slot]))
+    #expect(exactResult.owned == ComponentSignature(Transform.componentTag, Gravity.componentTag))
+
+    let fallbackQuery = Query {
+        Write<Transform>.self
+        Gravity.self
+    }
+
+    let fallbackResult = try #require(coordinator.bestGroup(for: fallbackQuery.querySignature))
+    #expect(!fallbackResult.exact)
+    #expect(Set(fallbackResult.slots) == Set([entityWithMaterial.slot, entityWithoutMaterial.slot]))
+    #expect(fallbackResult.owned == ComponentSignature())
+}
+
+@Test func removeGroupClearsMetadata() throws {
+    let coordinator = Coordinator()
+
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+    coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+
+    let signature = coordinator.addGroup {
+        Transform.self
+        Gravity.self
+    }
+
+    #expect(coordinator.groupSize(signature) == 2)
+
+    let query = Query {
+        Transform.self
+        Gravity.self
+    }
+
+    coordinator.removeGroup {
+        Transform.self
+        Gravity.self
+    }
+
+    #expect(coordinator.groupSize(signature) == nil)
+    #expect(coordinator.bestGroup(for: query.querySignature) == nil)
+}
+
+@Test func owningVsNonOwningGroupMetadata() throws {
+    let coordinator = Coordinator()
+
+    let entityA = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+    let entityB = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+
+    let owningSignature = coordinator.addGroup {
+        Transform.self
+        Gravity.self
+    }
+
+    let nonOwningSignature = coordinator.addGroup {
+        With<Transform>.self
+        With<Gravity>.self
+    }
+
+    #expect(coordinator.isOwningGroup(owningSignature))
+    #expect(!coordinator.isOwningGroup(nonOwningSignature))
+
+    let owning = try #require(coordinator.groupSlotsWithOwned(owningSignature))
+    #expect(Set(owning.0) == Set([entityA.slot, entityB.slot]))
+    #expect(owning.1 == ComponentSignature(Transform.componentTag, Gravity.componentTag))
+
+    let nonOwning = try #require(coordinator.groupSlotsWithOwned(nonOwningSignature))
+    #expect(Set(nonOwning.0) == Set([entityA.slot, entityB.slot]))
+    #expect(nonOwning.1 == ComponentSignature())
+}
+
 @Test func performGroupFallbackWithoutMatchingGroup() {
     struct SoloComponent: Component, Sendable, Equatable {
         static let componentTag = ComponentTag.makeTag()
@@ -1865,6 +2040,162 @@ public struct Material: Component {
 
     // Expect exactly one with gravity present and one without
     #expect(count == 1)
+}
+
+@Test func commandQueueLifecycleOperations() {
+    final class CommandCounters {
+        let spawnCount = ManagedAtomic<Int>(0)
+        let destroyCount = ManagedAtomic<Int>(0)
+        let runCount = ManagedAtomic<Int>(0)
+        let targetAliveAfterDestroy = ManagedAtomic<Bool>(false)
+    }
+
+    struct CommandSystem: System {
+        static let id = SystemID(name: "CommandSystem")
+        var metadata: SystemMetadata { Self.metadata(from: []) }
+
+        let target: Entity.ID
+        let counters: CommandCounters
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            commands.add(
+                component: Transform(
+                    position: .zero,
+                    rotation: .zero,
+                    scale: Vector3(x: 1, y: 1, z: 1)
+                ),
+                to: target
+            )
+            commands.add(component: Gravity(force: .zero), to: target)
+            commands.remove(component: Gravity.self, from: target)
+
+            commands.run { coordinator in
+                counters.runCount.wrappingIncrement(ordering: .relaxed)
+                let all = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator))
+                let transform = all.first { id, transform in
+                    id == target
+                }?.1
+                #expect(transform?.scale == Vector3(x: 1, y: 1, z: 1))
+                let all2 = Array(Query { WithEntityID.self; Gravity.self }.fetchAll(coordinator))
+                #expect(all2.allSatisfy { $0.0 != target })
+            }
+
+            commands.spawn(
+                component: Transform(
+                    position: Vector3(x: 1, y: 1, z: 1),
+                    rotation: .zero,
+                    scale: Vector3(x: 1, y: 1, z: 1)
+                )
+            ) { coordinator, entity in
+                counters.spawnCount.wrappingIncrement(ordering: .relaxed)
+                let all = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator))
+                let matching = all.first { pair in
+                    pair.0 == entity
+                }?.1
+                #expect(matching?.position == Vector3(x: 1, y: 1, z: 1))
+                coordinator.remove(Transform.self, from: entity)
+                coordinator.destroy(entity)
+                counters.destroyCount.wrappingIncrement(ordering: .relaxed)
+            }
+
+            commands.spawn { coordinator, entity in
+                counters.spawnCount.wrappingIncrement(ordering: .relaxed)
+                coordinator.add(Gravity(force: Vector3(x: 1, y: 1, z: 1)), to: entity)
+                coordinator.destroy(entity)
+                counters.destroyCount.wrappingIncrement(ordering: .relaxed)
+            }
+
+            commands.destroy(target)
+            commands.run { coordinator in
+                counters.targetAliveAfterDestroy.store(coordinator.isAlive(target), ordering: .relaxed)
+                counters.runCount.wrappingIncrement(ordering: .relaxed)
+            }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let counters = CommandCounters()
+    let target = coordinator.spawn()
+
+    coordinator.addSystem(.update, system: CommandSystem(target: target, counters: counters))
+    coordinator.update(.update) { $0.executor = SingleThreadedExecutor() }
+    coordinator.runSchedule(.update)
+
+    #expect(!coordinator.isAlive(target))
+    #expect(Query { Transform.self }.fetchOne(coordinator) == nil)
+    #expect(Query { Gravity.self }.fetchOne(coordinator) == nil)
+    #expect(counters.spawnCount.load(ordering: .relaxed) == 2)
+    #expect(counters.destroyCount.load(ordering: .relaxed) == 2)
+    #expect(counters.runCount.load(ordering: .relaxed) == 2)
+    let targetNotAliveAfterDestroy = !counters.targetAliveAfterDestroy.load(ordering: .relaxed)
+    #expect(targetNotAliveAfterDestroy)
+}
+
+@Test func removeGroupClearsMetadataAndStorage() {
+    let coordinator = Coordinator()
+
+    let signature = coordinator.addGroup {
+        Transform.self
+        With<Gravity>.self
+        Without<RigidBody>.self
+    }
+
+    #expect(coordinator.groupSize(signature) == 0)
+
+    let entity = coordinator.spawn(
+        Transform(
+            position: .zero,
+            rotation: .zero,
+            scale: Vector3(x: 1, y: 1, z: 1)
+        ),
+        Gravity(force: .zero)
+    )
+
+    #expect(coordinator.groupSize(signature) == 1)
+
+    coordinator.removeGroup {
+        Transform.self
+        With<Gravity>.self
+        Without<RigidBody>.self
+    }
+
+    #expect(coordinator.groupSize(signature) == nil)
+
+    var visited = 0
+    Query {
+        WithEntityID.self
+        Write<Transform>.self
+        Gravity.self
+        Without<RigidBody>.self
+    }(coordinator) { (id: Entity.ID, transform: Write<Transform>, _: Gravity) in
+        #expect(id == entity)
+        transform.position.x += 1
+        visited += 1
+    }
+
+    #expect(visited == 1)
+
+    coordinator.destroy(entity)
+
+    #expect(Query { Transform.self }.fetchOne(coordinator) == nil)
+    #expect(Query { Gravity.self }.fetchOne(coordinator) == nil)
+}
+
+@Test func destroyingEntityTwiceIsSafe() {
+    let coordinator = Coordinator()
+    let entity = coordinator.spawn(
+        Transform(
+            position: Vector3(x: 1, y: 1, z: 1),
+            rotation: .zero,
+            scale: Vector3(x: 1, y: 1, z: 1)
+        )
+    )
+
+    coordinator.destroy(entity)
+    coordinator.destroy(entity)
+
+    #expect(!coordinator.isAlive(entity))
+    #expect(Query { Transform.self }.fetchOne(coordinator) == nil)
 }
 
 private struct TestEvent: Event, Equatable {
