@@ -273,7 +273,8 @@ final class ConcurrentAccessProbe {
                 writeSignature: ComponentSignature(),
                 excludedSignature: ComponentSignature(),
                 runAfter: [],
-                resourceAccess: [(ResourceKey(SharedCounterResource.self), .write)]
+                resourceAccess: [(ResourceKey(SharedCounterResource.self), .write)],
+                eventAccess: []
             )
         }
 
@@ -301,7 +302,8 @@ final class ConcurrentAccessProbe {
                 writeSignature: ComponentSignature(),
                 excludedSignature: ComponentSignature(),
                 runAfter: [],
-                resourceAccess: [(ResourceKey(SharedCounterResource.self), .write)]
+                resourceAccess: [(ResourceKey(SharedCounterResource.self), .write)],
+                eventAccess: []
             )
         }
 
@@ -1863,4 +1865,135 @@ public struct Material: Component {
 
     // Expect exactly one with gravity present and one without
     #expect(count == 1)
+}
+
+private struct TestEvent: Event, Equatable {
+    let value: Int
+}
+
+private final class EventEmitterSystem: System {
+    static let id = SystemID(name: "EventEmitterSystem")
+    static let counter = ManagedAtomic<Int>(0)
+
+    var metadata: SystemMetadata {
+        Self.metadata(from: [], eventAccess: [(EventKey(TestEvent.self), .write)])
+    }
+
+    func run(context: QueryContext, commands: inout Commands) {
+        let value = Self.counter.loadThenWrappingIncrement(ordering: .relaxed)
+        context.send(TestEvent(value: value))
+    }
+
+    static func reset() {
+        counter.store(0, ordering: .relaxed)
+    }
+}
+
+private final class EventReaderSystem: System {
+    static let id = SystemID(name: "EventReaderSystem")
+
+    private let runAfter: Set<SystemID>
+    private(set) var seen: [Int] = []
+    private var state = EventReaderState<TestEvent>()
+
+    init(runAfter: Set<SystemID> = []) {
+        self.runAfter = runAfter
+    }
+
+    var metadata: SystemMetadata {
+        SystemMetadata(
+            id: Self.id,
+            readSignature: ComponentSignature(),
+            writeSignature: ComponentSignature(),
+            excludedSignature: ComponentSignature(),
+            runAfter: runAfter,
+            resourceAccess: [],
+            eventAccess: [(EventKey(TestEvent.self), .read)]
+        )
+    }
+
+    func run(context: QueryContext, commands: inout Commands) {
+        let events = context.readEvents(TestEvent.self, state: &state)
+        guard !events.isEmpty else { return }
+        seen.append(contentsOf: events.map(\.value))
+    }
+}
+
+private final class EventDrainSystem: System {
+    static let id = SystemID(name: "EventDrainSystem")
+
+    private let runAfter: Set<SystemID>
+    private(set) var drained: [[Int]] = []
+
+    init(runAfter: Set<SystemID> = []) {
+        self.runAfter = runAfter
+    }
+
+    var metadata: SystemMetadata {
+        SystemMetadata(
+            id: Self.id,
+            readSignature: ComponentSignature(),
+            writeSignature: ComponentSignature(),
+            excludedSignature: ComponentSignature(),
+            runAfter: runAfter,
+            resourceAccess: [],
+            eventAccess: [(EventKey(TestEvent.self), .drain)]
+        )
+    }
+
+    func run(context: QueryContext, commands: inout Commands) {
+        let drainedEvents = context.drainEvents(TestEvent.self)
+        if !drainedEvents.isEmpty {
+            drained.append(drainedEvents.map(\.value))
+        }
+    }
+}
+
+@Test func eventsAreDeliveredOnSubsequentRuns() {
+    EventEmitterSystem.reset()
+    defer { EventEmitterSystem.reset() }
+    let coordinator = Coordinator()
+    coordinator.update(.update) { schedule in
+        schedule.executor = SingleThreadedExecutor()
+    }
+
+    let reader = EventReaderSystem(runAfter: [EventEmitterSystem.id])
+
+    coordinator.addSystem(.update, system: EventEmitterSystem())
+    coordinator.addSystem(.update, system: reader)
+
+    coordinator.runSchedule(.update) // Prime event buffer
+    coordinator.runSchedule(.update)
+
+    #expect(reader.seen == [0])
+
+    coordinator.runSchedule(.update)
+    #expect(reader.seen == [0, 1])
+}
+
+@Test func drainingEventsConsumesPendingValues() {
+    EventEmitterSystem.reset()
+    defer { EventEmitterSystem.reset() }
+    let coordinator = Coordinator()
+    coordinator.update(.update) { schedule in
+        schedule.executor = SingleThreadedExecutor()
+    }
+
+    let drainer = EventDrainSystem(runAfter: [EventEmitterSystem.id])
+    let reader = EventReaderSystem(runAfter: [EventDrainSystem.id])
+
+    coordinator.addSystem(.update, system: EventEmitterSystem())
+    coordinator.addSystem(.update, system: drainer)
+    coordinator.addSystem(.update, system: reader)
+
+    coordinator.runSchedule(.update) // Prime event buffer
+    coordinator.runSchedule(.update)
+
+    #expect(drainer.drained == [[0]])
+    #expect(reader.seen.isEmpty)
+
+    coordinator.runSchedule(.update)
+
+    #expect(drainer.drained == [[0], [1]])
+    #expect(reader.seen.isEmpty)
 }
