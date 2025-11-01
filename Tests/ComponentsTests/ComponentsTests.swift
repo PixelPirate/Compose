@@ -1864,3 +1864,155 @@ public struct Material: Component {
     // Expect exactly one with gravity present and one without
     #expect(count == 1)
 }
+
+@Test func commandQueueLifecycleOperations() {
+    final class CommandCounters {
+        let spawnCount = ManagedAtomic<Int>(0)
+        let destroyCount = ManagedAtomic<Int>(0)
+        let runCount = ManagedAtomic<Int>(0)
+        let targetAliveAfterDestroy = ManagedAtomic<Bool>(false)
+    }
+
+    struct CommandSystem: System {
+        static let id = SystemID(name: "CommandSystem")
+        var metadata: SystemMetadata { Self.metadata(from: []) }
+
+        let target: Entity.ID
+        let counters: CommandCounters
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            commands.add(
+                component: Transform(
+                    position: .zero,
+                    rotation: .zero,
+                    scale: Vector3(x: 1, y: 1, z: 1)
+                ),
+                to: target
+            )
+            commands.add(component: Gravity(force: .zero), to: target)
+            commands.remove(component: Gravity.self, from: target)
+
+            commands.run { coordinator in
+                counters.runCount.wrappingIncrement(ordering: .relaxed)
+                let transform = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).first { pair in
+                    pair.0 == target
+                }?.1
+                #expect(transform?.scale == Vector3(x: 1, y: 1, z: 1))
+                #expect(Query { WithEntityID.self; Gravity.self }.fetchAll(coordinator).allSatisfy { $0.0 != target })
+            }
+
+            commands.spawn(
+                component: Transform(
+                    position: Vector3(x: 1, y: 1, z: 1),
+                    rotation: .zero,
+                    scale: Vector3(x: 1, y: 1, z: 1)
+                )
+            ) { coordinator, entity in
+                counters.spawnCount.wrappingIncrement(ordering: .relaxed)
+                let matching = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).first { pair in
+                    pair.0 == entity
+                }?.1
+                #expect(matching?.position == Vector3(x: 1, y: 1, z: 1))
+                coordinator.remove(Transform.self, from: entity)
+                coordinator.destroy(entity)
+                counters.destroyCount.wrappingIncrement(ordering: .relaxed)
+            }
+
+            commands.spawn { coordinator, entity in
+                counters.spawnCount.wrappingIncrement(ordering: .relaxed)
+                coordinator.add(Gravity(force: Vector3(x: 1, y: 1, z: 1)), to: entity)
+                coordinator.destroy(entity)
+                counters.destroyCount.wrappingIncrement(ordering: .relaxed)
+            }
+
+            commands.destroy(target)
+            commands.run { coordinator in
+                counters.targetAliveAfterDestroy.store(coordinator.isAlive(target), ordering: .relaxed)
+                counters.runCount.wrappingIncrement(ordering: .relaxed)
+            }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let counters = CommandCounters()
+    let target = coordinator.spawn()
+
+    coordinator.addSystem(.update, system: CommandSystem(target: target, counters: counters))
+    coordinator.update(.update) { $0.executor = SingleThreadedExecutor() }
+    coordinator.runSchedule(.update)
+
+    #expect(!coordinator.isAlive(target))
+    #expect(Query { Transform.self }.fetchOne(coordinator) == nil)
+    #expect(Query { Gravity.self }.fetchOne(coordinator) == nil)
+    #expect(counters.spawnCount.load(ordering: .relaxed) == 2)
+    #expect(counters.destroyCount.load(ordering: .relaxed) == 2)
+    #expect(counters.runCount.load(ordering: .relaxed) == 2)
+    #expect(!counters.targetAliveAfterDestroy.load(ordering: .relaxed))
+}
+
+@Test func removeGroupClearsMetadataAndStorage() {
+    let coordinator = Coordinator()
+
+    let signature = coordinator.addGroup {
+        Transform.self
+        With<Gravity>.self
+        Without<RigidBody>.self
+    }
+
+    #expect(coordinator.groupSize(signature) == 0)
+
+    let entity = coordinator.spawn(
+        Transform(
+            position: .zero,
+            rotation: .zero,
+            scale: Vector3(x: 1, y: 1, z: 1)
+        ),
+        Gravity(force: .zero)
+    )
+
+    #expect(coordinator.groupSize(signature) == 1)
+
+    coordinator.removeGroup {
+        Transform.self
+        With<Gravity>.self
+        Without<RigidBody>.self
+    }
+
+    #expect(coordinator.groupSize(signature) == nil)
+
+    var visited = 0
+    Query {
+        WithEntityID.self
+        Write<Transform>.self
+        Gravity.self
+        Without<RigidBody>.self
+    }(coordinator) { (id: Entity.ID, transform: Write<Transform>, _: Gravity) in
+        #expect(id == entity)
+        transform.position.x += 1
+        visited += 1
+    }
+
+    #expect(visited == 1)
+
+    coordinator.destroy(entity)
+
+    #expect(Query { Transform.self }.fetchOne(coordinator) == nil)
+    #expect(Query { Gravity.self }.fetchOne(coordinator) == nil)
+}
+
+@Test func destroyingEntityTwiceIsSafe() {
+    let coordinator = Coordinator()
+    let entity = coordinator.spawn(
+        Transform(
+            position: Vector3(x: 1, y: 1, z: 1),
+            rotation: .zero,
+            scale: Vector3(x: 1, y: 1, z: 1)
+        )
+    )
+
+    coordinator.destroy(entity)
+    coordinator.destroy(entity)
+
+    #expect(!coordinator.isAlive(entity))
+    #expect(Query { Transform.self }.fetchOne(coordinator) == nil)
+}
