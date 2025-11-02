@@ -21,13 +21,13 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public subscript(_ id: Entity.ID) -> C.QueriedComponent {
-        _read {
-            yield pointer[indices[id.slot]]
+        unsafeAddress {
+            UnsafePointer(pointer.mutablePointer(at: indices[id.slot]))
         }
-        nonmutating _modify {
+        nonmutating unsafeMutableAddress {
             let dense = indices[id.slot]
-            defer { markChanged(at: dense) }
-            yield &pointer[dense]
+            markChanged(at: dense)
+            return pointer.mutablePointer(at: dense)
         }
     }
 
@@ -64,10 +64,12 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public subscript(dense denseIndex: Int) -> C.QueriedComponent {
-        _read { yield pointer[denseIndex] }
-        nonmutating _modify {
+        unsafeAddress {
+            UnsafePointer(pointer.mutablePointer(at: denseIndex))
+        }
+        nonmutating unsafeMutableAddress {
             defer { markChanged(at: denseIndex) }
-            yield &pointer[denseIndex]
+            return pointer.mutablePointer(at: denseIndex)
         }
     }
 
@@ -143,12 +145,12 @@ public struct SingleTypedAccess<C: Component> {
 
     @inlinable @inline(__always)
     public var value: C {
-        _read {
-            yield buffer.pointee
+        unsafeAddress {
+            UnsafePointer(buffer)
         }
-        nonmutating _modify {
+        nonmutating unsafeMutableAddress {
             defer { tickPointer?.pointee.markChanged(at: changeTick) }
-            yield &buffer.pointee
+            return buffer
         }
     }
 }

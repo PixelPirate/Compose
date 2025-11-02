@@ -425,7 +425,7 @@ public struct ContiguousSpan<Element> {
 
     @inlinable @_transparent
     public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
-        precondition(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
+        assert(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
         return buffer.unsafelyUnwrapped.advanced(by: index)
     }
 
