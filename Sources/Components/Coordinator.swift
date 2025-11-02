@@ -64,7 +64,7 @@ public final class Coordinator {
     let changeClock = ChangeClock()
 
     @usableFromInline
-    var systemLastRunTicks: [SystemID: UInt64] = [:]
+    var systemLastRunTicks: [SystemID: ChangeTick] = [:]
 
     @usableFromInline
     let systemTickLock = OSAllocatedUnfairLock()

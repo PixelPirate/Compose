@@ -6,10 +6,10 @@ public struct QueryContext: QueryContextConvertible, Sendable {
     internal let systemID: SystemID?
 
     @usableFromInline
-    internal let lastRunTick: UInt64
+    internal let lastRunTick: ChangeTick
 
     @usableFromInline
-    init(coordinator: Coordinator, systemID: SystemID? = nil, lastRunTick: UInt64 = 0) {
+    init(coordinator: Coordinator, systemID: SystemID? = nil, lastRunTick: ChangeTick = 0) {
         self.coordinator = coordinator
         self.systemID = systemID
         self.lastRunTick = lastRunTick

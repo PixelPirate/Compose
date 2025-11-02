@@ -460,17 +460,24 @@ extension Query {
             return true
         }
 
-        let lastTick = context.lastRunTick
+        let currentTick = context.coordinator.currentChangeTick()
+        let lastTick = clampTickAge(context.lastRunTick, relativeTo: currentTick)
 
         if !addedComponents.isEmpty {
-            for tag in addedComponents where context.coordinator.lastAddedTick(for: tag, slot: slot) <= lastTick {
-                return false
+            for tag in addedComponents {
+                let addedTick = context.coordinator.lastAddedTick(for: tag, slot: slot)
+                if !isTickNewer(addedTick, than: lastTick, relativeTo: currentTick) {
+                    return false
+                }
             }
         }
 
         if !changedComponents.isEmpty {
-            for tag in changedComponents where context.coordinator.lastChangedTick(for: tag, slot: slot) <= lastTick {
-                return false
+            for tag in changedComponents {
+                let changedTick = context.coordinator.lastChangedTick(for: tag, slot: slot)
+                if !isTickNewer(changedTick, than: lastTick, relativeTo: currentTick) {
+                    return false
+                }
             }
         }
 
