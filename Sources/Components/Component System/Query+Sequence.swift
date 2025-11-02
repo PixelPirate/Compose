@@ -14,7 +14,7 @@ public struct LazyQuerySequence<each T: ComponentResolving>: Sequence {
     @inlinable @inline(__always)
     init() {
         self.entityIDs = []
-        self.accessors = (repeat TypedAccess<each T>.empty)
+        self.accessors = (repeat TypedAccess<each T>.empty(changeTick: 0))
     }
 
     @inlinable @inline(__always)
@@ -45,7 +45,7 @@ public struct LazyWritableQuerySequence<each T: ComponentResolving>: Sequence {
     @inlinable @inline(__always)
     init() {
         self.entityIDs = []
-        self.accessors = (repeat TypedAccess<each T>.empty)
+        self.accessors = (repeat TypedAccess<each T>.empty(changeTick: 0))
     }
 
     @inlinable @inline(__always)

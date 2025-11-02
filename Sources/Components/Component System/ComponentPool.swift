@@ -381,17 +381,22 @@ func withTypedBuffers<each C: ComponentResolving, R>(
     @inline(__always)
     func tryMakeAccess<D: ComponentResolving>(_ type: D.Type) -> TypedAccess<D> {
         guard D.QueriedComponent.self != Never.self else {
-            return TypedAccess<D>.empty // Returning empty is okay, since the virtual components does not access any storage.
+            return TypedAccess<D>.empty(changeTick: 0) // Returning empty is okay, since the virtual components does not access any storage.
         }
         guard let anyArray = pool.components[D.QueriedComponent.componentTag] else {
             guard D.self is any OptionalQueriedComponent.Type else {
                 fatalError("Unknown component.")
             }
-            return TypedAccess<D>.empty // Returning empty is okay, since if there are no components, no access should be made.
+            return TypedAccess<D>.empty(changeTick: 0) // Returning empty is okay, since if there are no components, no access should be made.
         }
         var result: TypedAccess<D>? = nil
-        anyArray.withBuffer(D.QueriedComponent.self) { pointer, entitiesToIndices in
-            result = TypedAccess(pointer: pointer, indices: entitiesToIndices)
+        anyArray.withBuffer(D.QueriedComponent.self) {pointer, entitiesToIndices, ticks in
+            result = TypedAccess(
+                pointer: pointer,
+                indices: entitiesToIndices,
+                ticks: ticks,
+                changeTick: 0 // TODO: What to enter here???
+            )
             // Escaping the buffer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
             // The solution would be a recursive function which would recursively call `withBuffer` on the head until the pack is empty, and then call `body` with all the buffers.
             // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12

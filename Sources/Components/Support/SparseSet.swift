@@ -1,8 +1,41 @@
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
+    public struct DenseSpan {
+        @usableFromInline
+        let span: ContiguousDense<Component>.Span
+
+        @usableFromInline @_transparent
+        init(span: ContiguousDense<Component>.Span) {
+            self.span = span
+        }
+
+        @usableFromInline @_transparent
+        init() {
+            self.span = ContiguousDense<Component>.Span(view: UnsafeMutableBufferPointer<Component>(start: nil, count: 0))
+        }
+
+        @inlinable @_transparent
+        public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
+            span.mutablePointer(at: index)
+        }
+
+        @inlinable @inline(__always)
+        public subscript(index: Int) -> Element {
+            @_transparent
+            unsafeAddress {
+                UnsafePointer(span.mutablePointer(at: index))
+            }
+
+            @_transparent
+            nonmutating unsafeMutableAddress {
+                span.mutablePointer(at: index)
+            }
+        }
+    }
+
 //    @usableFromInline
 //    private(set) var storage: ContiguousStorage<Component> = ContiguousStorage(initialPageCapacity: 1024)
     @usableFromInline
-    private(set) var storage: PagedDense2<Component> = PagedDense2()
+    private(set) var storage: ContiguousDense<Component> = ContiguousDense()
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
@@ -73,9 +106,9 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 //    }
 
     @inlinable @_transparent
-    public var view: DenseSpan2<Component> {
+    public var view: DenseSpan {
         _read {
-            yield storage.view
+            yield DenseSpan(span: storage.view)
         }
     }
 

@@ -1,20 +1,22 @@
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
-    @usableFromInline internal var pointer: DenseSpan2<C.QueriedComponent>
+    @usableFromInline internal var pointer: SparseSet<C.QueriedComponent, SlotIndex>.DenseSpan
     @usableFromInline internal var indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
-    @usableFromInline internal var ticks: DenseSpan2<ComponentTicks>?
+    @usableFromInline internal var ticks: ContiguousSpan<ComponentTicks>?
     @usableFromInline internal let changeTick: UInt64
+    @usableFromInline internal let tag: ComponentTag
 
     @usableFromInline
     init(
-        pointer: DenseSpan2<C.QueriedComponent>,
+        pointer: SparseSet<C.QueriedComponent, SlotIndex>.DenseSpan,
         indices: SlotsSpan<ContiguousArray.Index, SlotIndex>,
-        ticks: DenseSpan2<ComponentTicks>?,
+        ticks: ContiguousSpan<ComponentTicks>?,
         changeTick: UInt64
     ) {
         self.pointer = pointer
         self.indices = indices
         self.ticks = ticks
         self.changeTick = changeTick
+        self.tag = C.QueriedComponent.componentTag
     }
 
     @inlinable @inline(__always)
@@ -109,9 +111,7 @@ extension TypedAccess {
     @inlinable @inline(__always)
     static func empty(changeTick: UInt64) -> TypedAccess {
         TypedAccess(
-            pointer: DenseSpan2(
-                view: UnsafeMutableBufferPointer<C.QueriedComponent>(start: nil, count: 0)
-            ),
+            pointer: SparseSet<C.QueriedComponent, SlotIndex>.DenseSpan(),
             indices: SlotsSpan(
                 view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
             ),

@@ -54,7 +54,7 @@ public enum QueryBuilder {
             composite: Query< >(
                 backstageComponents: [C.componentTag],
                 excludedComponents: [],
-                changeFilters: [Query< >.ChangeFilter(tag: C.componentTag, kind: .added)],
+                changeFilters: [ChangeFilter(tag: C.componentTag, kind: .added)],
                 isQueryingForEntityID: false
             )
         )
@@ -65,7 +65,7 @@ public enum QueryBuilder {
             composite: Query< >(
                 backstageComponents: [C.componentTag],
                 excludedComponents: [],
-                changeFilters: [Query< >.ChangeFilter(tag: C.componentTag, kind: .changed)],
+                changeFilters: [ChangeFilter(tag: C.componentTag, kind: .changed)],
                 isQueryingForEntityID: false
             )
         )

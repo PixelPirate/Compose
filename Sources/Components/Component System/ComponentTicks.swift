@@ -1,7 +1,6 @@
 import Foundation
 
-@usableFromInline
-struct ComponentTicks: Sendable {
+public struct ComponentTicks: Sendable {
     @usableFromInline
     internal var added: UInt64
     @usableFromInline

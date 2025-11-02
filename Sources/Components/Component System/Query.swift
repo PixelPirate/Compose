@@ -1,24 +1,24 @@
 import Foundation
 
-public struct Query<each T: Component> where repeat each T: ComponentResolving {
-    public struct ChangeFilter: Hashable, Sendable {
-        public enum Kind: Hashable, Sendable {
-            case added
-            case changed
-        }
-
-        @usableFromInline
-        let tag: ComponentTag
-        @usableFromInline
-        let kind: Kind
-
-        @usableFromInline
-        init(tag: ComponentTag, kind: Kind) {
-            self.tag = tag
-            self.kind = kind
-        }
+public struct ChangeFilter: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
+        case added
+        case changed
     }
 
+    @usableFromInline
+    let tag: ComponentTag
+    @usableFromInline
+    let kind: Kind
+
+    @usableFromInline
+    init(tag: ComponentTag, kind: Kind) {
+        self.tag = tag
+        self.kind = kind
+    }
+}
+
+public struct Query<each T: Component> where repeat each T: ComponentResolving {
     /// All components which entities are required to have but will not be included in the query output.
     @inline(__always)
     public let backstageComponents: Set<ComponentTag> // Or witnessComponents?
@@ -495,11 +495,37 @@ extension Query {
     }
 
     @inlinable @inline(__always)
+    func satisfiesChangeFilters2(systemTickSnapshot: Coordinator.SystemTickSnapshot?, ticks: (repeat TypedAccess<each T>), entityID: Entity.ID) -> Bool {
+        guard !changeFilters.isEmpty else { return true }
+        guard let snapshot = systemTickSnapshot else { return false }
+
+        for filter in changeFilters {
+            for access in repeat each ticks {
+                guard filter.tag == access.tag else {
+                    continue
+                }
+
+                guard let ticks = access.ticks?[access.indices[entityID.slot]] else {
+                    return false
+                }
+                switch filter.kind {
+                case .added:
+                    if !ticks.isAdded(since: snapshot.lastRun, upTo: snapshot.thisRun) { return false }
+                case .changed:
+                    if !ticks.isChanged(since: snapshot.lastRun, upTo: snapshot.thisRun) { return false }
+                }
+            }
+        }
+        return true
+    }
+
+    @inlinable @inline(__always)
     public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
         // TODO: Use RigidArray or TailAllocated here
 
+        let tickSnapshot = context.systemTickSnapshot
         withUnsafePointer(to: context.coordinator.indices) { indices in
             withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
                 for slot in baseSlots where Self.passes(
@@ -512,7 +538,13 @@ extension Query {
                         slot: SlotIndex(rawValue: slot.rawValue),
                         generation: generation
                     )
-                    guard satisfiesChangeFilters(context, entityID: fullID) else { continue }
+                    guard satisfiesChangeFilters2(
+                        systemTickSnapshot: tickSnapshot,
+                        ticks: (repeat each accessors),
+                        entityID: fullID
+                    ) else {
+                        continue
+                    }
                     let entityID = isQueryingForEntityID ? fullID : Entity.ID(
                         slot: SlotIndex(rawValue: slot.rawValue),
                         generation: 0

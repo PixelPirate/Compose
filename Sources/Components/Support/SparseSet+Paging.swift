@@ -207,7 +207,7 @@ struct PagedSlotToDense<Dense: SparseArrayValue, Slot: SparseSetIndex> {
     }
 }
 
-public struct DenseSpan<Element> {
+public struct PagedSpan<Element> {
     @usableFromInline
     let pages: UnsafeBufferPointer<UnsafeMutablePointer<Element>>
 
@@ -253,6 +253,9 @@ enum PagedDenseConstants {
 @usableFromInline
 struct PagedDense<Element> {
     @usableFromInline
+    typealias Span = PagedSpan<Element>
+
+    @usableFromInline
     var pages: UnsafeMutableBufferPointer<UnsafeMutablePointer<Element>>
     // Just append at the end, swap remove, index subscript
 
@@ -266,9 +269,9 @@ struct PagedDense<Element> {
     }
 
     @inlinable @_transparent
-    var view: DenseSpan<Element> {
+    var view: Span {
         _read {
-            yield DenseSpan(view: pages)
+            yield PagedSpan(view: pages)
         }
     }
 
@@ -411,7 +414,7 @@ struct PagedDense<Element> {
     }
 }
 
-public struct DenseSpan2<Element> {
+public struct ContiguousSpan<Element> {
     @usableFromInline
     let buffer: UnsafeMutablePointer<Element>?
 
@@ -441,7 +444,10 @@ public struct DenseSpan2<Element> {
 }
 
 @usableFromInline
-struct PagedDense2<Element> {
+struct ContiguousDense<Element> {
+    @usableFromInline
+    typealias Span = ContiguousSpan<Element>
+
     @usableFromInline
     var buffer: UnsafeMutableBufferPointer<Element>
 
@@ -454,9 +460,9 @@ struct PagedDense2<Element> {
     }
 
     @inlinable @_transparent
-    var view: DenseSpan2<Element> {
+    var view: Span {
         _read {
-            yield DenseSpan2(view: buffer)
+            yield ContiguousSpan(view: buffer)
         }
     }
 

@@ -1,13 +1,27 @@
+extension SlotIndex: SparseSetIndex {
+    @inlinable @inline(__always)
+    public var index: Int {
+        _read {
+            yield self.rawValue
+        }
+    }
+
+    @inlinable @inline(__always)
+    public init(index: Int) {
+        self = SlotIndex(rawValue: index)
+    }
+}
+
 public struct ComponentArray<C: Component> {
     @usableFromInline
     internal var storage: SparseSet<C, SlotIndex>
     @usableFromInline
-    internal var ticks: PagedDense2<ComponentTicks>
+    internal var ticks: ContiguousDense<ComponentTicks>
 
     @inlinable @inline(__always)
     public init() {
         self.storage = SparseSet<C, SlotIndex>()
-        self.ticks = PagedDense2<ComponentTicks>()
+        self.ticks = ContiguousDense<ComponentTicks>()
     }
 
     @inlinable @inline(__always)
@@ -113,12 +127,12 @@ public struct ComponentArray<C: Component> {
     }
 
     @inlinable @inline(__always)
-    var view: DenseSpan2<C> {
+    var view: SparseSet<C, SlotIndex>.DenseSpan {
         storage.view
     }
 
     @inlinable @inline(__always)
-    var tickView: DenseSpan2<ComponentTicks> {
+    var tickView: ContiguousSpan<ComponentTicks> {
         ticks.view
     }
 }
@@ -153,7 +167,7 @@ public protocol AnyComponentArrayBox: AnyObject {
     @inlinable @inline(__always)
     func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (DenseSpan2<C>, SlotsSpan<ContiguousArray.Index, SlotIndex>, DenseSpan2<ComponentTicks>) throws -> Result
+        _ body: (SparseSet<C, SlotIndex>.DenseSpan, SlotsSpan<ContiguousArray.Index, SlotIndex>, ContiguousSpan<ComponentTicks>) throws -> Result
     ) rethrows -> Result
 
     @inlinable @inline(__always)
@@ -165,7 +179,7 @@ public protocol AnyComponentArrayBox: AnyObject {
     @inlinable @inline(__always)
     func withMutableSparseSet<C: Component, R>(
         _ type: C.Type,
-        _ body: (inout ComponentArray<C>) throws -> R
+        _ body: (inout SparseSet<C, SlotIndex>) throws -> R
     ) rethrows -> R
 }
 
@@ -227,10 +241,10 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     @inlinable @inline(__always)
     func withBuffer<C1: Component, Result>(
         _ of: C1.Type,
-        _ body: (DenseSpan2<C1>, SlotsSpan<ContiguousArray.Index, SlotIndex>, DenseSpan2<ComponentTicks>) throws -> Result
+        _ body: (SparseSet<C1, SlotIndex>.DenseSpan, SlotsSpan<ContiguousArray.Index, SlotIndex>, ContiguousSpan<ComponentTicks>) throws -> Result
     ) rethrows -> Result {
         precondition(C1.self == C.self, "Mismatched component type access.")
-        let typed = unsafeBitCast(self, to: ComponentArrayBox<C1>.self)
+        let typed = unsafeDowncast(self, to: ComponentArrayBox<C1>.self)
         let indices = typed.entityToComponents
         return try body(typed.base.view, indices, typed.base.tickView)
     }
@@ -241,18 +255,18 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
         by belongsInSecondPartition: (SlotIndex) -> Bool
     ) -> Int {
         precondition(C1.self == C.self, "Mismatched component type access.")
-        let typed = unsafeBitCast(self, to: ComponentArrayBox<C1>.self)
+        let typed = unsafeDowncast(self, to: ComponentArrayBox<C1>.self)
         return typed.base.partition(by: belongsInSecondPartition)
     }
 
     @inlinable @inline(__always)
     func withMutableSparseSet<C1: Component, R>(
         _ type: C1.Type,
-        _ body: (inout ComponentArray<C1>) throws -> R
+        _ body: (inout SparseSet<C1, SlotIndex>) throws -> R
     ) rethrows -> R {
         precondition(C1.self == C.self, "Mismatched component type access.")
-        let typed = unsafeBitCast(self, to: ComponentArrayBox<C1>.self)
-        return try body(&typed.base)
+        let typed = unsafeDowncast(self, to: ComponentArrayBox<C1>.self)
+        return try body(&typed.base.storage)
     }
 }
 
@@ -305,7 +319,7 @@ public struct AnyComponentArray {
     @inlinable @inline(__always)
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (DenseSpan2<C>, SlotsSpan<ContiguousArray.Index, SlotIndex>, DenseSpan2<ComponentTicks>) throws -> Result
+        _ body: (SparseSet<C, SlotIndex>.DenseSpan, SlotsSpan<ContiguousArray.Index, SlotIndex>, ContiguousSpan<ComponentTicks>) throws -> Result
     ) rethrows -> Result {
         try base.withBuffer(of, body)
     }
@@ -336,7 +350,7 @@ public struct AnyComponentArray {
     @inlinable @inline(__always)
     mutating func withMutableSparseSet<C: Component, R>(
         _ type: C.Type,
-        _ body: (inout ComponentArray<C>) throws -> R
+        _ body: (inout SparseSet<C, SlotIndex>) throws -> R
     ) rethrows -> R {
         try base.withMutableSparseSet(type, body)
     }

@@ -5,6 +5,7 @@ import Atomics
 import Foundation
 
 struct TrackedComponent: Component {
+    static let componentTag = ComponentTag.makeTag()
     var value: Int
 }
 
