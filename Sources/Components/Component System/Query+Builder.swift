@@ -10,6 +10,7 @@ public enum QueryBuilder {
             composite: Query<C>(
                 backstageComponents: [],
                 excludedComponents: [],
+                changeFilters: [],
                 isQueryingForEntityID: false
             )
         )
@@ -20,6 +21,7 @@ public enum QueryBuilder {
             composite: Query<Write<C>>(
                 backstageComponents: [],
                 excludedComponents: [],
+                changeFilters: [],
                 isQueryingForEntityID: false
             )
         )
@@ -30,6 +32,7 @@ public enum QueryBuilder {
             composite: Query< >(
                 backstageComponents: [C.componentTag],
                 excludedComponents: [],
+                changeFilters: [],
                 isQueryingForEntityID: false
             )
         )
@@ -40,6 +43,29 @@ public enum QueryBuilder {
             composite: Query< >(
                 backstageComponents: [],
                 excludedComponents: [C.componentTag],
+                changeFilters: [],
+                isQueryingForEntityID: false
+            )
+        )
+    }
+
+    public static func buildExpression<C: Component>(_ c: Added<C>.Type) -> BuiltQuery< > {
+        BuiltQuery(
+            composite: Query< >(
+                backstageComponents: [C.componentTag],
+                excludedComponents: [],
+                changeFilters: [Query< >.ChangeFilter(tag: C.componentTag, kind: .added)],
+                isQueryingForEntityID: false
+            )
+        )
+    }
+
+    public static func buildExpression<C: Component>(_ c: Changed<C>.Type) -> BuiltQuery< > {
+        BuiltQuery(
+            composite: Query< >(
+                backstageComponents: [C.componentTag],
+                excludedComponents: [],
+                changeFilters: [Query< >.ChangeFilter(tag: C.componentTag, kind: .changed)],
                 isQueryingForEntityID: false
             )
         )
@@ -50,6 +76,7 @@ public enum QueryBuilder {
             composite: Query<WithEntityID>(
                 backstageComponents: [],
                 excludedComponents: [],
+                changeFilters: [],
                 isQueryingForEntityID: true
             )
         )
@@ -70,6 +97,8 @@ public enum QueryBuilder {
                         accumulated.composite.backstageComponents.union(next.composite.backstageComponents),
                     excludedComponents:
                         accumulated.composite.excludedComponents.union(next.composite.excludedComponents),
+                    changeFilters:
+                        accumulated.composite.changeFilters.union(next.composite.changeFilters),
                     isQueryingForEntityID: accumulated.composite.isQueryingForEntityID || next.composite.isQueryingForEntityID
                 )
         )

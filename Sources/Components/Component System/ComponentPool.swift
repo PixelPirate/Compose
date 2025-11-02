@@ -24,13 +24,13 @@ extension ComponentPool {
     }
 
     @usableFromInline
-    mutating func append<C: Component>(_ component: C, for entityID: Entity.ID) {
+    mutating func append<C: Component>(_ component: C, for entityID: Entity.ID, changeTick: UInt64) {
         let array = components[C.componentTag] ?? {
             var newArray = AnyComponentArray(ComponentArray<C>())
             newArray.reserveCapacity(minimumComponentCapacity: 50, minimumSlotCapacity: entityID.slot.index + 1)
             return newArray
         }()
-        array.append(component, id: entityID)
+        array.append(component, id: entityID, changeTick: changeTick)
         components[C.componentTag] = array
     }
 
@@ -53,6 +53,11 @@ extension ComponentPool {
         for component in components.values {
             component.remove(entityID)
         }
+    }
+
+    @usableFromInline
+    func componentTicks(for tag: ComponentTag, entityID: Entity.ID) -> ComponentTicks? {
+        components[tag]?.ticks(for: entityID)
     }
     
     /// Precomputes all valid slot indices. Has some upfront cost, but worth it for iterating large amounts of entities.
@@ -358,9 +363,6 @@ extension ComponentPool {
     subscript(_ componentTag: ComponentTag, _ entityID: Entity.ID) -> any Component {
         _read {
             yield components[componentTag]![entityID: entityID]
-        }
-        _modify {
-            yield &components[componentTag]![entityID: entityID]
         }
     }
 }

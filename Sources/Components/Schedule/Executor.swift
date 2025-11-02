@@ -15,10 +15,11 @@ public struct SingleThreadedExecutor: Executor {
 
     @inlinable
     public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
-        let context = QueryContext(coordinator: coordinator)
         let systems = systemCache.cached(systems)
 
         for system in systems {
+            let ticks = coordinator.prepareSystemTickSnapshot(for: system.metadata.id)
+            let context = QueryContext(coordinator: coordinator, systemTicks: ticks)
             system.run(context: context, commands: &commands)
         }
     }
@@ -35,7 +36,6 @@ public struct MultiThreadedExecutor: Executor {
 
     @inlinable
     public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
-        let context = QueryContext(coordinator: coordinator)
         let stages = stageCache.cached(systems)
 
         // TODO: Low number of systems: Single threaded, medium number: One chunk, large number: Chunks
@@ -61,6 +61,8 @@ public struct MultiThreadedExecutor: Executor {
 
                 for (index, system) in send.value[start..<end].enumerated() {
                     var commands = localCommands[start+index]
+                    let ticks = coordinator.prepareSystemTickSnapshot(for: system.metadata.id)
+                    let context = QueryContext(coordinator: coordinator, systemTicks: ticks)
                     system.run(context: context, commands: &commands)
                     localCommands[start+index] = commands
                 }
@@ -81,7 +83,6 @@ public struct UnsafeUncheckedMultiThreadedExecutor: Executor {
 
     @inlinable
     public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
-        let context = QueryContext(coordinator: coordinator)
 
         let cores = ProcessInfo.processInfo.processorCount
         let chunkSize = (systems.count + cores - 1) / cores
@@ -95,6 +96,8 @@ public struct UnsafeUncheckedMultiThreadedExecutor: Executor {
 
             for (index, system) in send.value[start..<end].enumerated() {
                 var commands = localCommands[start+index]
+                let ticks = coordinator.prepareSystemTickSnapshot(for: system.metadata.id)
+                let context = QueryContext(coordinator: coordinator, systemTicks: ticks)
                 system.run(context: context, commands: &commands)
                 localCommands[start+index] = commands
             }

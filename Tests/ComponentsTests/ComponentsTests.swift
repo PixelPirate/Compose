@@ -4,6 +4,10 @@ import Synchronization
 import Atomics
 import Foundation
 
+struct TrackedComponent: Component {
+    var value: Int
+}
+
 final class ConcurrentAccessProbe {
     private let active = ManagedAtomic<Int>(0)
     private let violation = ManagedAtomic<Bool>(false)
@@ -2376,4 +2380,109 @@ private final class EventDrainSystem: System {
 
     var state = EventReaderState<DrainEvent>()
     #expect(events.read(state: &state) == [DrainEvent(id: 2)])
+}
+
+@Test func addedFilterDetectsNewComponents() {
+    final class AddedCapture {
+        let counts = Mutex<[Int]>([])
+    }
+
+    struct AddedTrackingSystem: System {
+        static let id = SystemID(name: "AddedTrackingSystem")
+        nonisolated(unsafe) static let query = Query {
+            WithEntityID.self
+            Added<TrackedComponent>.self
+        }
+
+        let state: AddedCapture
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            var count = 0
+            Self.query(context) { (_: Entity.ID) in
+                count += 1
+            }
+            state.counts.withLock { $0.append(count) }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let capture = AddedCapture()
+    coordinator.addSystem(.update, system: AddedTrackingSystem(state: capture))
+
+    coordinator.runSchedule(.update)
+    coordinator.spawn(TrackedComponent(value: 0))
+    coordinator.runSchedule(.update)
+    coordinator.runSchedule(.update)
+
+    let counts = capture.counts.withLock { $0 }
+    #expect(counts == [0, 1, 0])
+}
+
+@Test func changedFilterDetectsMutations() {
+    final class MutationState {
+        let shouldMutateNext = ManagedAtomic(false)
+        let changedCounts = Mutex<[Int]>([])
+    }
+
+    struct MutateSystem: System {
+        static let id = SystemID(name: "MutateSystem")
+        nonisolated(unsafe) static let query = Query { Write<TrackedComponent>.self }
+
+        let state: MutationState
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            if state.shouldMutateNext.exchange(false, ordering: .acquiring) {
+                Self.query(context) { component in
+                    component.value += 1
+                }
+            }
+        }
+    }
+
+    struct ChangedTrackingSystem: System {
+        static let id = SystemID(name: "ChangedTrackingSystem")
+        nonisolated(unsafe) static let query = Query {
+            WithEntityID.self
+            Changed<TrackedComponent>.self
+            TrackedComponent.self
+        }
+
+        let state: MutationState
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata], runAfter: [MutateSystem.id])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            var count = 0
+            Self.query(context) { (_: Entity.ID, _: TrackedComponent) in
+                count += 1
+            }
+            state.changedCounts.withLock { $0.append(count) }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let state = MutationState()
+    coordinator.addSystem(.update, system: MutateSystem(state: state))
+    coordinator.addSystem(.update, system: ChangedTrackingSystem(state: state))
+
+    coordinator.spawn(TrackedComponent(value: 0))
+
+    state.shouldMutateNext.store(true, ordering: .relaxed)
+    coordinator.runSchedule(.update)
+    coordinator.runSchedule(.update)
+    state.shouldMutateNext.store(true, ordering: .relaxed)
+    coordinator.runSchedule(.update)
+
+    let counts = state.changedCounts.withLock { $0 }
+    #expect(counts == [1, 0, 1])
 }

@@ -58,6 +58,15 @@ public final class Coordinator {
     private(set) var worldVersion: UInt64 = 0
 
     @usableFromInline
+    private(set) var changeTick: UInt64 = 1
+
+    @usableFromInline
+    var systemChangeTicks: [SystemID: SystemTickRecord] = [:]
+
+    @usableFromInline
+    let systemChangeTickLock = OSAllocatedUnfairLock()
+
+    @usableFromInline
     struct ResourceEntry {
         @usableFromInline
         var value: Any
@@ -83,6 +92,17 @@ public final class Coordinator {
         MainSystem.install(into: self)
     }
 
+    @usableFromInline
+    struct SystemTickRecord {
+        @usableFromInline var lastRun: UInt64
+        @usableFromInline var thisRun: UInt64
+    }
+
+    public struct SystemTickSnapshot: Sendable {
+        public let lastRun: UInt64
+        public let thisRun: UInt64
+    }
+
     @inlinable @inline(__always)
     public subscript(signatureFor slot: SlotIndex) -> ComponentSignature {
         _read {
@@ -100,6 +120,21 @@ public final class Coordinator {
         _read {
             yield indices.liveEntities
         }
+    }
+
+    @usableFromInline @inline(__always)
+    func prepareSystemTickSnapshot(for systemID: SystemID) -> SystemTickSnapshot {
+        systemChangeTickLock.lock()
+        let record = systemChangeTicks[systemID] ?? SystemTickRecord(lastRun: 0, thisRun: 0)
+        let snapshot = SystemTickSnapshot(lastRun: record.thisRun, thisRun: changeTick)
+        systemChangeTicks[systemID] = SystemTickRecord(lastRun: record.thisRun, thisRun: changeTick)
+        systemChangeTickLock.unlock()
+        return snapshot
+    }
+
+    @usableFromInline @inline(__always)
+    func advanceChangeTick() {
+        changeTick &+= 1
     }
 
     @inlinable @inline(__always)
@@ -120,7 +155,7 @@ public final class Coordinator {
         pool.ensureSparseSetCount(includes: newEntity)
 
         for component in repeat each components {
-            pool.append(component, for: newEntity)
+            pool.append(component, for: newEntity, changeTick: changeTick)
             groups.onComponentAdded(type(of: component).componentTag, entity: newEntity, in: self)
         }
 
@@ -162,7 +197,7 @@ public final class Coordinator {
         defer {
             worldVersion &+= 1
         }
-        pool.append(component, for: entityID)
+        pool.append(component, for: entityID, changeTick: changeTick)
         let newSignature = entitySignatures[entityID.slot.rawValue].appending(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
         groups.onComponentAdded(C.componentTag, entity: entityID, in: self)

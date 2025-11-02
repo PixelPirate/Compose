@@ -1,10 +1,13 @@
 public struct QueryContext: QueryContextConvertible, Sendable {
     @usableFromInline
     nonisolated(unsafe) internal var coordinator: Coordinator
+    @usableFromInline
+    internal let systemTicks: Coordinator.SystemTickSnapshot?
 
     @usableFromInline
-    init(coordinator: Coordinator) {
+    init(coordinator: Coordinator, systemTicks: Coordinator.SystemTickSnapshot? = nil) {
         self.coordinator = coordinator
+        self.systemTicks = systemTicks
     }
 
     @inlinable @inline(__always)
@@ -75,6 +78,9 @@ public struct QueryContext: QueryContextConvertible, Sendable {
             yield self
         }
     }
+
+    @usableFromInline @inline(__always)
+    internal var systemTickSnapshot: Coordinator.SystemTickSnapshot? { systemTicks }
 }
 
 extension Coordinator: QueryContextConvertible {

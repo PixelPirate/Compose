@@ -40,6 +40,7 @@ public struct Schedule {
         coordinator.eventManager.prepare()
         executor.run(systems: systems[...], coordinator: coordinator, commands: &commands)
         commands.integrate(into: coordinator)
+        coordinator.advanceChangeTick()
     }
 
     @inlinable
