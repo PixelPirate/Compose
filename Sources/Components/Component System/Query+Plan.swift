@@ -18,7 +18,7 @@ extension Query {
         let readSignature = Self
             .makeReadSignature(backstageComponents: backstageComponents, includeOptionals: true)
             .appending(changeFilterSignature)
-        QueryMetadata(
+        return QueryMetadata(
             readSignature: readSignature,
             writeSignature: Self.makeWriteSignature(includeOptionals: true),
             excludedSignature: excludedSignature

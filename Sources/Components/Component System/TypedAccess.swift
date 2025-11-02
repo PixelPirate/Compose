@@ -1,8 +1,20 @@
 @usableFromInline
 struct ComponentMutationContext {
+    @usableFromInline
     nonisolated(unsafe) let coordinator: Coordinator
+
+    @usableFromInline
     let componentTag: ComponentTag
+
+    @usableFromInline
     let slot: SlotIndex
+
+    @usableFromInline
+    init(coordinator: Coordinator, componentTag: ComponentTag, slot: SlotIndex) {
+        self.coordinator = coordinator
+        self.componentTag = componentTag
+        self.slot = slot
+    }
 
     @inlinable @inline(__always)
     func markChanged() {
@@ -12,7 +24,10 @@ struct ComponentMutationContext {
 
 @usableFromInline
 struct ComponentMutationObserver {
+    @usableFromInline
     nonisolated(unsafe) let coordinator: Coordinator
+
+    @usableFromInline
     let componentTag: ComponentTag
 
     @inlinable @inline(__always)

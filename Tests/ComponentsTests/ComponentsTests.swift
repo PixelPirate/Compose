@@ -494,9 +494,17 @@ final class ConcurrentAccessProbe {
     #expect(transforms.allSatisfy { $0.position.x == Float(1) })
 }
 
+final class ManagedMutex<T> {
+    let value: Mutex<T>
+
+    init(_ value: sending T) {
+        self.value = Mutex(value)
+    }
+}
+
 @Test func queryFiltersAddedComponents() {
     let coordinator = Coordinator()
-    let records: Mutex<[Entity.ID]> = Mutex([])
+    let records: ManagedMutex<[Entity.ID]> = ManagedMutex([])
 
     struct AddedTrackingSystem: System {
         static let id = SystemID(name: "AddedTrackingSystem")
@@ -506,7 +514,7 @@ final class ConcurrentAccessProbe {
             Added<Transform>.self
         }
 
-        let records: Mutex<[Entity.ID]>
+        let records: ManagedMutex<[Entity.ID]>
 
         var metadata: SystemMetadata {
             Self.metadata(from: [Self.query.schedulingMetadata])
@@ -514,7 +522,7 @@ final class ConcurrentAccessProbe {
 
         func run(context: Components.QueryContext, commands: inout Components.Commands) {
             Self.query(context) { (id: Entity.ID, _: Transform) in
-                records.withLock { $0.append(id) }
+                records.value.withLock { $0.append(id) }
             }
         }
     }
@@ -525,22 +533,22 @@ final class ConcurrentAccessProbe {
     let first = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
 
     coordinator.runSchedule(.update)
-    #expect(records.withLock { $0 } == [first])
+    #expect(records.value.withLock { $0 } == [first])
 
-    records.withLock { $0.removeAll() }
+    records.value.withLock { $0.removeAll() }
 
     coordinator.runSchedule(.update)
-    #expect(records.withLock { $0 }.isEmpty)
+    #expect(records.value.withLock { $0 }.isEmpty)
 
     let second = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
 
     coordinator.runSchedule(.update)
-    #expect(records.withLock { Set($0) } == Set([second]))
+    #expect(records.value.withLock { Set($0) } == Set([second]))
 }
 
 @Test func queryFiltersChangedComponents() {
     let coordinator = Coordinator()
-    let records: Mutex<[Entity.ID]> = Mutex([])
+    let records: ManagedMutex<[Entity.ID]> = ManagedMutex([])
 
     struct ChangedTrackingSystem: System {
         static let id = SystemID(name: "ChangedTrackingSystem")
@@ -550,7 +558,7 @@ final class ConcurrentAccessProbe {
             Changed<Transform>.self
         }
 
-        let records: Mutex<[Entity.ID]>
+        let records: ManagedMutex<[Entity.ID]>
 
         var metadata: SystemMetadata {
             Self.metadata(from: [Self.query.schedulingMetadata])
@@ -560,7 +568,7 @@ final class ConcurrentAccessProbe {
             Self.query(context) { (id: Entity.ID, transform: Write<Transform>) in
                 // Touch the component to ensure the write accessor remains valid.
                 _ = transform.position
-                records.withLock { $0.append(id) }
+                records.value.withLock { $0.append(id) }
             }
         }
     }
@@ -571,19 +579,19 @@ final class ConcurrentAccessProbe {
     let entity = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
 
     coordinator.runSchedule(.update)
-    #expect(records.withLock { $0 } == [entity])
+    #expect(records.value.withLock { $0 } == [entity])
 
-    records.withLock { $0.removeAll() }
+    records.value.withLock { $0.removeAll() }
 
     coordinator.runSchedule(.update)
-    #expect(records.withLock { $0 }.isEmpty)
+    #expect(records.value.withLock { $0 }.isEmpty)
 
     Query { Write<Transform>.self }(coordinator) { (transform: Write<Transform>) in
         transform.position.x += 1
     }
 
     coordinator.runSchedule(.update)
-    #expect(records.withLock { $0 } == [entity])
+    #expect(records.value.withLock { $0 } == [entity])
 }
 
 @Test func mainScheduleRunsAllStages() {
@@ -1602,13 +1610,13 @@ public struct Downward: Component, Sendable {
     @inlinable @inline(__always)
     public static func makeResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Downward {
         print("called")
-        return Downward(isDownward: access.accessDense(denseIndex).value.position.y < 0)
+        return Downward(isDownward: access[dense: denseIndex].position.y < 0)
     }
 
     @inlinable @inline(__always)
     public static func makeReadOnlyResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Downward {
-        print("called readonly", entityID, access.accessDense(denseIndex).value.position.y)
-        return Downward(isDownward: access.accessDense(denseIndex).value.position.y < 0)
+        print("called readonly", entityID, access[dense: denseIndex].position.y < 0)
+        return Downward(isDownward: access[dense: denseIndex].position.y < 0)
     }
 }
 

@@ -10,6 +10,12 @@ struct ComponentChangeRecord {
     @usableFromInline
     var changed: [SlotIndex: UInt64] = [:]
 
+    @usableFromInline
+    init(added: [SlotIndex : UInt64] = [:], changed: [SlotIndex : UInt64] = [:]) {
+        self.added = added
+        self.changed = changed
+    }
+
     @usableFromInline @inline(__always)
     mutating func markAdded(slot: SlotIndex, tick: UInt64) {
         added[slot] = tick
