@@ -369,6 +369,7 @@ extension ComponentPool {
 @usableFromInline @inline(__always)
 func withTypedBuffers<each C: ComponentResolving, R>(
     _ pool: inout ComponentPool,
+    coordinator: Coordinator,
     _ body: (repeat TypedAccess<each C>) throws -> R
 ) rethrows -> R {
     @inline(__always)
@@ -389,7 +390,15 @@ func withTypedBuffers<each C: ComponentResolving, R>(
         }
         var result: TypedAccess<D>? = nil
         anyArray.withBuffer(D.QueriedComponent.self) { pointer, entitiesToIndices in
-            result = TypedAccess(pointer: pointer, indices: entitiesToIndices)
+            let observer = ComponentMutationObserver(
+                coordinator: coordinator,
+                componentTag: D.QueriedComponent.componentTag
+            )
+            result = TypedAccess(
+                pointer: pointer,
+                indices: entitiesToIndices,
+                mutationObserver: observer
+            )
             // Escaping the buffer here is bad, but we need a pack splitting in calls and recursive flatten in order to resolve this.
             // The solution would be a recursive function which would recursively call `withBuffer` on the head until the pack is empty, and then call `body` with all the buffers.
             // See: https://forums.swift.org/t/pitch-pack-destructuring-pack-splitting/79388/12

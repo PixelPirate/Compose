@@ -15,8 +15,11 @@ extension Query {
     /// Metadata used for scheduling. Includes optional components.
     @inlinable @inline(__always)
     public var schedulingMetadata: QueryMetadata {
+        let readSignature = Self
+            .makeReadSignature(backstageComponents: backstageComponents, includeOptionals: true)
+            .appending(changeFilterSignature)
         QueryMetadata(
-            readSignature: Self.makeReadSignature(backstageComponents: backstageComponents, includeOptionals: true),
+            readSignature: readSignature,
             writeSignature: Self.makeWriteSignature(includeOptionals: true),
             excludedSignature: excludedSignature
         )

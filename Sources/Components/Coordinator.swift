@@ -2,6 +2,37 @@ import Synchronization
 import Foundation
 import os
 
+@usableFromInline
+struct ComponentChangeRecord {
+    @usableFromInline
+    var added: [SlotIndex: UInt64] = [:]
+
+    @usableFromInline
+    var changed: [SlotIndex: UInt64] = [:]
+
+    @usableFromInline @inline(__always)
+    mutating func markAdded(slot: SlotIndex, tick: UInt64) {
+        added[slot] = tick
+        changed[slot] = tick
+    }
+
+    @usableFromInline @inline(__always)
+    mutating func markChanged(slot: SlotIndex, tick: UInt64) {
+        changed[slot] = tick
+    }
+
+    @usableFromInline @inline(__always)
+    mutating func remove(slot: SlotIndex) {
+        added.removeValue(forKey: slot)
+        changed.removeValue(forKey: slot)
+    }
+
+    @usableFromInline @inline(__always)
+    var isEmpty: Bool {
+        added.isEmpty && changed.isEmpty
+    }
+}
+
 public struct ResourceKey: Hashable, Sendable {
     @usableFromInline
     let type: ObjectIdentifier
@@ -29,6 +60,21 @@ public final class Coordinator {
 
     @usableFromInline
     internal private(set) var entitySignatures: ContiguousArray<ComponentSignature> = [] // Indexed by SlotIndex
+
+    @usableFromInline
+    var changeTick: UInt64 = 0
+
+    @usableFromInline
+    var componentChangeRecords: [ComponentTag: ComponentChangeRecord] = [:]
+
+    @usableFromInline
+    let changeObservationLock = OSAllocatedUnfairLock()
+
+    @usableFromInline
+    var systemLastRunChangeTick: [SystemID: UInt64] = [:]
+
+    @usableFromInline
+    let systemTickLock = OSAllocatedUnfairLock()
 
     @usableFromInline
     var eventManager = EventManager()
@@ -103,6 +149,89 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
+    func markComponentAdded(_ tag: ComponentTag, slot: SlotIndex) {
+        changeObservationLock.lock()
+        defer { changeObservationLock.unlock() }
+        changeTick &+= 1
+        var record = componentChangeRecords[tag] ?? ComponentChangeRecord()
+        record.markAdded(slot: slot, tick: changeTick)
+        componentChangeRecords[tag] = record
+    }
+
+    @inlinable @inline(__always)
+    func markComponentMutated(_ tag: ComponentTag, slot: SlotIndex) {
+        changeObservationLock.lock()
+        defer { changeObservationLock.unlock() }
+        changeTick &+= 1
+        var record = componentChangeRecords[tag] ?? ComponentChangeRecord()
+        record.markChanged(slot: slot, tick: changeTick)
+        componentChangeRecords[tag] = record
+    }
+
+    @inlinable @inline(__always)
+    func clearComponentChanges(_ tag: ComponentTag, slot: SlotIndex) {
+        changeObservationLock.lock()
+        defer { changeObservationLock.unlock() }
+        guard var record = componentChangeRecords[tag] else { return }
+        record.remove(slot: slot)
+        if record.isEmpty {
+            componentChangeRecords.removeValue(forKey: tag)
+        } else {
+            componentChangeRecords[tag] = record
+        }
+    }
+
+    @inlinable @inline(__always)
+    func componentAdded(_ tag: ComponentTag, slot: SlotIndex, since tick: UInt64) -> Bool {
+        changeObservationLock.lock()
+        defer { changeObservationLock.unlock() }
+        guard let record = componentChangeRecords[tag], let addedTick = record.added[slot] else {
+            return false
+        }
+        return addedTick > tick
+    }
+
+    @inlinable @inline(__always)
+    func componentChanged(_ tag: ComponentTag, slot: SlotIndex, since tick: UInt64) -> Bool {
+        changeObservationLock.lock()
+        defer { changeObservationLock.unlock() }
+        guard let record = componentChangeRecords[tag], let changedTick = record.changed[slot] else {
+            return false
+        }
+        return changedTick > tick
+    }
+
+    @inlinable @inline(__always)
+    func currentChangeTickValue() -> UInt64 {
+        changeObservationLock.lock()
+        defer { changeObservationLock.unlock() }
+        return changeTick
+    }
+
+    @inlinable @inline(__always)
+    func lastRunChangeTick(for systemID: SystemID) -> UInt64 {
+        systemTickLock.lock()
+        defer { systemTickLock.unlock() }
+        return systemLastRunChangeTick[systemID] ?? 0
+    }
+
+    @inlinable @inline(__always)
+    func updateLastRunChangeTick(for systemID: SystemID, to tick: UInt64) {
+        systemTickLock.lock()
+        systemLastRunChangeTick[systemID] = tick
+        systemTickLock.unlock()
+    }
+
+    @inlinable @inline(__always)
+    func makeSystemQueryContext(for systemID: SystemID) -> QueryContext {
+        QueryContext(
+            coordinator: self,
+            systemID: systemID,
+            lastRunTick: lastRunChangeTick(for: systemID)
+        )
+    }
+
+    @inlinable @inline(__always)
     @discardableResult
     public func spawn<each C: Component>(_ components: repeat each C) -> Entity.ID {
         defer {
@@ -121,6 +250,7 @@ public final class Coordinator {
 
         for component in repeat each components {
             pool.append(component, for: newEntity)
+            markComponentAdded(type(of: component).componentTag, slot: newEntity.slot)
             groups.onComponentAdded(type(of: component).componentTag, entity: newEntity, in: self)
         }
 
@@ -163,6 +293,7 @@ public final class Coordinator {
             worldVersion &+= 1
         }
         pool.append(component, for: entityID)
+        markComponentAdded(C.componentTag, slot: entityID.slot)
         let newSignature = entitySignatures[entityID.slot.rawValue].appending(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
         groups.onComponentAdded(C.componentTag, entity: entityID, in: self)
@@ -304,6 +435,7 @@ public final class Coordinator {
         }
         groups.onWillRemoveComponent(componentTag, entity: entityID, in: self)
         pool.remove(componentTag, entityID)
+        clearComponentChanges(componentTag, slot: entityID.slot)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
     }
@@ -316,6 +448,7 @@ public final class Coordinator {
         }
         groups.onWillRemoveComponent(C.componentTag, entity: entityID, in: self)
         pool.remove(componentType, entityID)
+        clearComponentChanges(C.componentTag, slot: entityID.slot)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
     }
@@ -329,6 +462,7 @@ public final class Coordinator {
         indices.free(id: entityID)
         for componentTag in self[signatureFor: entityID.slot].tags {
             groups.onWillRemoveComponent(componentTag, entity: entityID, in: self)
+            clearComponentChanges(componentTag, slot: entityID.slot)
         }
         pool.remove(entityID)
         entitySignatures[entityID.slot.rawValue] = ComponentSignature()

@@ -1,11 +1,40 @@
+@usableFromInline
+struct ComponentMutationContext {
+    nonisolated(unsafe) let coordinator: Coordinator
+    let componentTag: ComponentTag
+    let slot: SlotIndex
+
+    @inlinable @inline(__always)
+    func markChanged() {
+        coordinator.markComponentMutated(componentTag, slot: slot)
+    }
+}
+
+@usableFromInline
+struct ComponentMutationObserver {
+    nonisolated(unsafe) let coordinator: Coordinator
+    let componentTag: ComponentTag
+
+    @inlinable @inline(__always)
+    func makeContext(slot: SlotIndex) -> ComponentMutationContext {
+        ComponentMutationContext(coordinator: coordinator, componentTag: componentTag, slot: slot)
+    }
+}
+
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var pointer: DenseSpan2<C.QueriedComponent>
     @usableFromInline internal var indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
+    @usableFromInline internal var mutationObserver: ComponentMutationObserver?
 
     @usableFromInline
-    init(pointer: DenseSpan2<C.QueriedComponent>, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>) {
+    init(
+        pointer: DenseSpan2<C.QueriedComponent>,
+        indices: SlotsSpan<ContiguousArray.Index, SlotIndex>,
+        mutationObserver: ComponentMutationObserver?
+    ) {
         self.pointer = pointer
         self.indices = indices
+        self.mutationObserver = mutationObserver
     }
 
     @inlinable @inline(__always)
@@ -55,13 +84,9 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     }
 
     @inlinable @inline(__always)
-    public func accessDense(_ denseIndex: Int) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: pointer.mutablePointer(at: denseIndex))
-    }
-
-    @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
-        SingleTypedAccess(buffer: pointer.mutablePointer(at: indices[id.slot]))
+        let context = mutationObserver?.makeContext(slot: id.slot)
+        return SingleTypedAccess(buffer: pointer.mutablePointer(at: indices[id.slot]), mutationContext: context)
     }
 
     @inlinable @inline(__always)
@@ -70,7 +95,8 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         guard index != .notFound else {
             return nil
         }
-        return SingleTypedAccess(buffer: pointer.mutablePointer(at: indices[id.slot]))
+        let context = mutationObserver?.makeContext(slot: id.slot)
+        return SingleTypedAccess(buffer: pointer.mutablePointer(at: indices[id.slot]), mutationContext: context)
     }
 }
 
@@ -83,17 +109,20 @@ extension TypedAccess {
             ),
             indices: SlotsSpan(
                 view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
-            )
+            ),
+            mutationObserver: nil
         )
     }
 }
 
 public struct SingleTypedAccess<C: Component> {
     @usableFromInline internal var buffer: UnsafeMutablePointer<C>
+    @usableFromInline internal var mutationContext: ComponentMutationContext?
 
     @inlinable @inline(__always)
-    init(buffer: UnsafeMutablePointer<C>) {
+    init(buffer: UnsafeMutablePointer<C>, mutationContext: ComponentMutationContext?) {
         self.buffer = buffer
+        self.mutationContext = mutationContext
     }
 
     @inlinable @inline(__always)
@@ -101,7 +130,12 @@ public struct SingleTypedAccess<C: Component> {
         _read {
             yield buffer.pointee
         }
+        nonmutating set {
+            buffer.pointee = newValue
+            mutationContext?.markChanged()
+        }
         nonmutating _modify {
+            defer { mutationContext?.markChanged() }
             yield &buffer.pointee
         }
     }

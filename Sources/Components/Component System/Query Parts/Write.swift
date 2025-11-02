@@ -45,7 +45,7 @@ extension Write: ComponentResolving {
 
     @inlinable @inline(__always)
     public static func makeResolvedDense(access: TypedAccess<Self>, denseIndex: Int, entityID: Entity.ID) -> Write<Wrapped> {
-        Write<Wrapped>(access: access.accessDense(denseIndex))
+        Write<Wrapped>(access: access.access(entityID))
     }
 
     @inlinable @inline(__always)

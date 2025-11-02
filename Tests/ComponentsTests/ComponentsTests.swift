@@ -106,7 +106,10 @@ final class ConcurrentAccessProbe {
         func run(systems: ArraySlice<any Components.System>, coordinator: Components.Coordinator, commands: inout Components.Commands) {
             confirmation()
             for system in systems {
-                system.run(context: QueryContext(coordinator: coordinator), commands: &commands)
+                let systemID = system.metadata.id
+                let context = coordinator.makeSystemQueryContext(for: systemID)
+                system.run(context: context, commands: &commands)
+                coordinator.updateLastRunChangeTick(for: systemID, to: coordinator.currentChangeTickValue())
             }
         }
     }
@@ -489,6 +492,98 @@ final class ConcurrentAccessProbe {
     let transforms = Array(Query { Transform.self }.fetchAll(coordinator))
     #expect(transforms.count == entityCount)
     #expect(transforms.allSatisfy { $0.position.x == Float(1) })
+}
+
+@Test func queryFiltersAddedComponents() {
+    let coordinator = Coordinator()
+    let records: Mutex<[Entity.ID]> = Mutex([])
+
+    struct AddedTrackingSystem: System {
+        static let id = SystemID(name: "AddedTrackingSystem")
+        nonisolated(unsafe) static let query = Query {
+            WithEntityID.self
+            Transform.self
+            Added<Transform>.self
+        }
+
+        let records: Mutex<[Entity.ID]>
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            Self.query(context) { (id: Entity.ID, _: Transform) in
+                records.withLock { $0.append(id) }
+            }
+        }
+    }
+
+    let system = AddedTrackingSystem(records: records)
+    coordinator.addSystem(.update, system: system)
+
+    let first = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+
+    coordinator.runSchedule(.update)
+    #expect(records.withLock { $0 } == [first])
+
+    records.withLock { $0.removeAll() }
+
+    coordinator.runSchedule(.update)
+    #expect(records.withLock { $0 }.isEmpty)
+
+    let second = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+
+    coordinator.runSchedule(.update)
+    #expect(records.withLock { Set($0) } == Set([second]))
+}
+
+@Test func queryFiltersChangedComponents() {
+    let coordinator = Coordinator()
+    let records: Mutex<[Entity.ID]> = Mutex([])
+
+    struct ChangedTrackingSystem: System {
+        static let id = SystemID(name: "ChangedTrackingSystem")
+        nonisolated(unsafe) static let query = Query {
+            WithEntityID.self
+            Write<Transform>.self
+            Changed<Transform>.self
+        }
+
+        let records: Mutex<[Entity.ID]>
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            Self.query(context) { (id: Entity.ID, transform: Write<Transform>) in
+                // Touch the component to ensure the write accessor remains valid.
+                _ = transform.position
+                records.withLock { $0.append(id) }
+            }
+        }
+    }
+
+    let system = ChangedTrackingSystem(records: records)
+    coordinator.addSystem(.update, system: system)
+
+    let entity = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
+
+    coordinator.runSchedule(.update)
+    #expect(records.withLock { $0 } == [entity])
+
+    records.withLock { $0.removeAll() }
+
+    coordinator.runSchedule(.update)
+    #expect(records.withLock { $0 }.isEmpty)
+
+    Query { Write<Transform>.self }(coordinator) { (transform: Write<Transform>) in
+        transform.position.x += 1
+    }
+
+    coordinator.runSchedule(.update)
+    #expect(records.withLock { $0 } == [entity])
 }
 
 @Test func mainScheduleRunsAllStages() {
