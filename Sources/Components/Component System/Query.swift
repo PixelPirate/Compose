@@ -506,24 +506,24 @@ extension Query {
     }
 }
 
-extension Query {
+@usableFromInline
+struct ChangeFilterMask: OptionSet, Sendable {
     @usableFromInline
-    struct ChangeFilterMask: OptionSet, Sendable {
-        @usableFromInline
-        let rawValue: UInt8
+    let rawValue: UInt8
 
-        @inlinable @inline(__always)
-        init(rawValue: UInt8) {
-            self.rawValue = rawValue
-        }
-
-        @usableFromInline
-        static let added = ChangeFilterMask(rawValue: 1 << 0)
-
-        @usableFromInline
-        static let changed = ChangeFilterMask(rawValue: 1 << 1)
+    @inlinable @inline(__always)
+    init(rawValue: UInt8) {
+        self.rawValue = rawValue
     }
 
+    @usableFromInline
+    static let added = ChangeFilterMask(rawValue: 1 << 0)
+
+    @usableFromInline
+    static let changed = ChangeFilterMask(rawValue: 1 << 1)
+}
+
+extension Query {
     @usableFromInline
     struct ChangeFilterAccessor {
         @usableFromInline
@@ -532,6 +532,13 @@ extension Query {
         let indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
         @usableFromInline
         let ticks: ContiguousSpan<ComponentTicks>
+
+        @usableFromInline
+        init(mask: ChangeFilterMask, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>, ticks: ContiguousSpan<ComponentTicks>) {
+            self.mask = mask
+            self.indices = indices
+            self.ticks = ticks
+        }
     }
 
     @inlinable @inline(__always)
