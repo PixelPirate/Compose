@@ -257,12 +257,12 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
-    public func groupSlots(_ signature: GroupSignature) -> ArraySlice<SlotIndex>? {
+    public func groupSlots(_ signature: GroupSignature) -> ContiguousSpan<SlotIndex>? {
         groups.groupSlots(signature, in: &pool)
     }
 
     @inlinable @inline(__always)
-    public func groupSlotsWithOwned(_ signature: GroupSignature) -> (ArraySlice<SlotIndex>, ComponentSignature)? {
+    public func groupSlotsWithOwned(_ signature: GroupSignature) -> (ContiguousSpan<SlotIndex>, ComponentSignature)? {
         groups.groupSlotsWithOwned(signature, in: &pool)
     }
 
@@ -273,12 +273,12 @@ public final class Coordinator {
 
     public struct BestGroupResult {
         @inlinable @inline(__always)
-        public init(slots: ArraySlice<SlotIndex>, exact: Bool, owned: ComponentSignature) {
+        public init(slots: ContiguousSpan<SlotIndex>, exact: Bool, owned: ComponentSignature) {
             self.slots = slots
             self.exact = exact
             self.owned = owned
         }
-        public let slots: ArraySlice<SlotIndex>
+        public let slots: ContiguousSpan<SlotIndex>
         public let exact: Bool
         public let owned: ComponentSignature
     }
@@ -293,7 +293,7 @@ public final class Coordinator {
             return BestGroupResult(slots: slots, exact: true, owned: owned)
         }
         // Scan known groups for reusable candidates and score by owned overlap
-        var best: (slots: ArraySlice<SlotIndex>, score: Int, size: Int, primaryRaw: Int, owned: ComponentSignature)? = nil
+        var best: (slots: ContiguousSpan<SlotIndex>, score: Int, size: Int, primaryRaw: Int, owned: ComponentSignature)? = nil
         for (sig, meta) in knownGroupsMeta {
             if !meta.contained.isSubset(of: queryContained) { continue }
             if !meta.excluded.isSubset(of: queryExcluded) { continue }

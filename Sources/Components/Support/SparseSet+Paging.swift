@@ -414,18 +414,39 @@ struct PagedDense<Element> {
     }
 }
 
-public struct ContiguousSpan<Element> {
+public struct ContiguousSpan<Element>: Sequence {
     @usableFromInline
     let buffer: UnsafeMutablePointer<Element>?
 
+    @usableFromInline
+    let count: Int
+
     @inlinable @inline(__always)
-    init(view base: UnsafeMutableBufferPointer<Element>) {
+    init(view base: UnsafeMutableBufferPointer<Element>, count: Int) {
         buffer = base.baseAddress
+        self.count = count
+    }
+
+    @inlinable @inline(__always)
+    init(buffer: UnsafeMutablePointer<Element>?, count: Int) {
+        self.buffer = buffer
+        self.count = count
+    }
+
+    @inlinable @inline(__always)
+    static var empty: Self {
+        ContiguousSpan(view: UnsafeMutableBufferPointer<Element>(start: nil, count: 0), count: 0)
+    }
+
+    @inlinable @_transparent
+    var isEmpty: Bool {
+        count == 0
     }
 
     @inlinable @_transparent
     public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
         assert(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
+        assert(index < count, "Index \(index) out of bounds (Count is \(count)).")
         return buffer.unsafelyUnwrapped.advanced(by: index)
     }
 
@@ -439,6 +460,60 @@ public struct ContiguousSpan<Element> {
         @_transparent
         nonmutating unsafeMutableAddress {
             mutablePointer(at: index)
+        }
+    }
+
+    @inlinable @inline(__always)
+    public subscript(range: PartialRangeUpTo<Int>) -> ContiguousSpan<Element> {
+        @_transparent
+        _read {
+            assert(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
+            yield ContiguousSpan(
+                buffer: buffer,
+                count: range.upperBound
+            )
+        }
+    }
+
+//    @inlinable @inline(__always)
+//    public subscript(range: UnboundedRange_) -> ContiguousSpan<Element> {
+//        @_transparent
+//        _read {
+//            yield self
+//        }
+//    }
+
+    @inlinable @inline(__always)
+    public func makeIterator() -> some IteratorProtocol<Element> {
+        assert(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
+        let pointer = buffer.unsafelyUnwrapped
+        return ContiguousIterator(pointer: pointer, count: count)
+    }
+
+    public struct ContiguousIterator<IterationElement>: IteratorProtocol {
+        @usableFromInline
+        let pointer: UnsafeMutablePointer<IterationElement>
+
+        @usableFromInline
+        let count: Int
+
+        @usableFromInline
+        private(set) var index: Int = 0
+
+        @usableFromInline @inline(__always)
+        init(pointer: UnsafeMutablePointer<IterationElement>, count: Int) {
+            self.pointer = pointer
+            self.count = count
+        }
+
+        @inlinable @inline(__always)
+        public mutating func next() -> IterationElement? {
+            guard index < count else {
+                return nil
+            }
+            let this = index
+            index += 1
+            return pointer.advanced(by: this).pointee
         }
     }
 }
@@ -462,7 +537,7 @@ struct ContiguousDense<Element> {
     @inlinable @_transparent
     var view: Span {
         _read {
-            yield ContiguousSpan(view: buffer)
+            yield ContiguousSpan(view: buffer, count: count)
         }
     }
 
@@ -482,9 +557,29 @@ struct ContiguousDense<Element> {
         count += 1
     }
 
-    @inlinable @inline(__always)
+    @inlinable @inline(__always) @discardableResult
     mutating func removeLast() -> Element {
         precondition(count > 0)
+        let index = count - 1
+        let removed = buffer.moveElement(from: index)
+        count -= 1
+        return removed
+    }
+
+    @inlinable @inline(__always)
+    mutating func removeAll(keepingCapacity: Bool = false) {
+        for index in 0..<count {
+            buffer.deinitializeElement(at: index)
+        }
+        count = 0
+        if !keepingCapacity {
+            compact(minimumCapacity: 1024)
+        }
+    }
+
+    @inlinable @inline(__always) @discardableResult
+    mutating func popLast() -> Element? {
+        guard count > 0 else { return nil }
         let index = count - 1
         let removed = buffer.moveElement(from: index)
         count -= 1
@@ -497,11 +592,11 @@ struct ContiguousDense<Element> {
     }
 
     @inlinable @inline(__always)
-    mutating func compact() {
+    mutating func compact(minimumCapacity: Int = 0) {
         guard count < buffer.count else {
             return
         }
-        let newBuffer = UnsafeMutableBufferPointer<Element>.allocate(capacity: count)
+        let newBuffer = UnsafeMutableBufferPointer<Element>.allocate(capacity: min(count, minimumCapacity))
         _ = newBuffer.moveInitialize(fromContentsOf: buffer[..<count])
         buffer.deallocate()
         buffer = newBuffer

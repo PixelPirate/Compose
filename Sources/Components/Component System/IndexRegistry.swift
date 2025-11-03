@@ -79,13 +79,40 @@ struct IndexRegistry {
         }
     }
 
-    @usableFromInline @inline(__always)
+    @inlinable @inline(__always)
+    var generationView: SlotGenerationSpan {
+        @inlinable @_transparent
+        _read {
+            yield SlotGenerationSpan(pointer: generation.withUnsafeBufferPointer { $0.baseAddress.unsafelyUnwrapped })
+        }
+    }
+
+    @inlinable @inline(__always)
     subscript(archetypeFor index: SlotIndex) -> ArchetypeLocation {
         _read {
             yield archetype[index.rawValue]
         }
         _modify {
             yield &archetype[index.rawValue]
+        }
+    }
+}
+
+@usableFromInline
+struct SlotGenerationSpan {
+    @usableFromInline
+    let pointer: UnsafePointer<UInt32>
+
+    @inlinable @_transparent
+    init(pointer: UnsafePointer<UInt32>) {
+        self.pointer = pointer
+    }
+
+    @inlinable @inline(__always)
+    subscript(_ index: SlotIndex) -> UInt32 {
+        @inlinable @_transparent
+        unsafeAddress {
+            pointer.advanced(by: index.rawValue)
         }
     }
 }

@@ -61,110 +61,110 @@ extension ComponentPool {
     }
     
     /// Precomputes all valid slot indices. Has some upfront cost, but worth it for iterating large amounts of entities.
-    @usableFromInline
-    func slots<each C: Component>(
-        _ components: repeat (each C).Type,
-        included: Set<ComponentTag> = [],
-        excluded: Set<ComponentTag> = []
-    ) -> ContiguousArray<SlotIndex> {
-        // Collect the AnyComponentArray for each requested component type.
-        var arrays: [AnyComponentArray] = []
-        var excludedArrays: [AnyComponentArray] = []
-        var isQueryingForEntityIDs = false
-
-        for component in repeat each components {
-            if component is any OptionalQueriedComponent.Type {
-                continue // Optional components can be skipped here.
-            }
-            let tag = component.QueriedComponent.componentTag
-            if component == WithEntityID.self {
-                isQueryingForEntityIDs = true
-            }
-            guard component.QueriedComponent.self != Never.self else {
-                continue
-            }
-            // If any tag is missing or empty, there can be no matches.
-            guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return []
-            }
-            arrays.append(array)
-        }
-
-        for tag in included {
-            // If any tag is missing or empty, there can be no matches.
-            guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return []
-            }
-            arrays.append(array)
-        }
-
-        for tag in excluded {
-            // If any tag is missing or empty, we can skip this exclude.
-            guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                continue
-            }
-            excludedArrays.append(array)
-        }
-
-        guard !arrays.isEmpty else {
-            if isQueryingForEntityIDs {
-                let candidates = ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites }))
-                if excluded.isEmpty {
-                    return candidates
-                } else {
-                    return candidates.filter { slot in
-                        excludedArrays.allSatisfy { componentArray in
-                            componentArray.entityToComponents[slot] == .notFound
-                        }
-                    }
-                }
-            }
-            return []
-        }
-
-        // Sort by ascending number of entities to minimise membership checks.
-        arrays.sort { lhs, rhs in
-            lhs.componentsToEntites.count < rhs.componentsToEntites.count
-        }
-
-        // Take the smallest set of IDs as the candidate base.
-        let smallest = arrays[0]
-        if arrays.count == 1 {
-            if excluded.isEmpty {
-                return ContiguousArray(smallest.componentsToEntites)
-            } else {
-                return smallest.componentsToEntites.filter { slot in
-                    excludedArrays.allSatisfy { componentArray in
-                        componentArray.entityToComponents[slot] == .notFound
-                    }
-                }
-            }
-        }
-
-        // Prepare the remaining dictionaries for O(1) membership checks.
-        let others = arrays.dropFirst().map { $0.entityToComponents }
-
-        // Filter candidate IDs by ensuring presence in all other component maps.
-        var result: ContiguousArray<SlotIndex> = []
-        result.reserveCapacity(smallest.componentsToEntites.count)
-        for slot in smallest.componentsToEntites {
-            var presentInAll = true
-            for sparseList in others {
-                if sparseList[slot] == .notFound {
-                    presentInAll = false
-                    break
-                }
-            }
-            for excluded in excludedArrays where excluded.entityToComponents[slot] != .notFound {
-                presentInAll = false
-                break
-            }
-            if presentInAll {
-                result.append(slot)
-            }
-        }
-        return result
-    }
+//    @usableFromInline
+//    func slots<each C: Component>(
+//        _ components: repeat (each C).Type,
+//        included: Set<ComponentTag> = [],
+//        excluded: Set<ComponentTag> = []
+//    ) -> ContiguousArray<SlotIndex> {
+//        // Collect the AnyComponentArray for each requested component type.
+//        var arrays: [AnyComponentArray] = []
+//        var excludedArrays: [AnyComponentArray] = []
+//        var isQueryingForEntityIDs = false
+//
+//        for component in repeat each components {
+//            if component is any OptionalQueriedComponent.Type {
+//                continue // Optional components can be skipped here.
+//            }
+//            let tag = component.QueriedComponent.componentTag
+//            if component == WithEntityID.self {
+//                isQueryingForEntityIDs = true
+//            }
+//            guard component.QueriedComponent.self != Never.self else {
+//                continue
+//            }
+//            // If any tag is missing or empty, there can be no matches.
+//            guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
+//                return []
+//            }
+//            arrays.append(array)
+//        }
+//
+//        for tag in included {
+//            // If any tag is missing or empty, there can be no matches.
+//            guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
+//                return []
+//            }
+//            arrays.append(array)
+//        }
+//
+//        for tag in excluded {
+//            // If any tag is missing or empty, we can skip this exclude.
+//            guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
+//                continue
+//            }
+//            excludedArrays.append(array)
+//        }
+//
+//        guard !arrays.isEmpty else {
+//            if isQueryingForEntityIDs {
+//                let candidates = ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites }))
+//                if excluded.isEmpty {
+//                    return candidates
+//                } else {
+//                    return candidates.filter { slot in
+//                        excludedArrays.allSatisfy { componentArray in
+//                            componentArray.entityToComponents[slot] == .notFound
+//                        }
+//                    }
+//                }
+//            }
+//            return []
+//        }
+//
+//        // Sort by ascending number of entities to minimise membership checks.
+//        arrays.sort { lhs, rhs in
+//            lhs.componentsToEntites.count < rhs.componentsToEntites.count
+//        }
+//
+//        // Take the smallest set of IDs as the candidate base.
+//        let smallest = arrays[0]
+//        if arrays.count == 1 {
+//            if excluded.isEmpty {
+//                return ContiguousArray(smallest.componentsToEntites)
+//            } else {
+//                return smallest.componentsToEntites.filter { slot in
+//                    excludedArrays.allSatisfy { componentArray in
+//                        componentArray.entityToComponents[slot] == .notFound
+//                    }
+//                }
+//            }
+//        }
+//
+//        // Prepare the remaining dictionaries for O(1) membership checks.
+//        let others = arrays.dropFirst().map { $0.entityToComponents }
+//
+//        // Filter candidate IDs by ensuring presence in all other component maps.
+//        var result: ContiguousArray<SlotIndex> = []
+//        result.reserveCapacity(smallest.componentsToEntites.count)
+//        for slot in smallest.componentsToEntites {
+//            var presentInAll = true
+//            for sparseList in others {
+//                if sparseList[slot] == .notFound {
+//                    presentInAll = false
+//                    break
+//                }
+//            }
+//            for excluded in excludedArrays where excluded.entityToComponents[slot] != .notFound {
+//                presentInAll = false
+//                break
+//            }
+//            if presentInAll {
+//                result.append(slot)
+//            }
+//        }
+//        return result
+//    }
 
     @usableFromInline
     func matches<each C: Component>(slot: SlotIndex, query: Query<repeat each C>) -> Bool {
@@ -216,7 +216,7 @@ extension ComponentPool {
         included: Set<ComponentTag> = [],
         excluded: Set<ComponentTag> = []
     )
-    -> (base: ContiguousArray<SlotIndex>, others: [SlotsSpan<ContiguousArray.Index, SlotIndex>], excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>])
+    -> (base: ContiguousSpan<SlotIndex>, others: [SlotsSpan<ContiguousArray.Index, SlotIndex>], excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>])
     {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
@@ -236,7 +236,7 @@ extension ComponentPool {
             }
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return ([], [], [])
+                return (.empty, [], [])
             }
             arrays.append(array)
         }
@@ -244,7 +244,7 @@ extension ComponentPool {
         for tag in included {
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return ([], [], [])
+                return (.empty, [], [])
             }
             arrays.append(array)
         }
@@ -262,12 +262,12 @@ extension ComponentPool {
                 return (
                     // TODO: This needs to return all entity IDs. The below does exclude empty entities (and it is slow).
                     //       Maybe use IndexRegistry.liveEntities
-                    ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites })),
+                    .empty,// ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites })),
                     [],
                     excludedArrays.map(\.entityToComponents)
                 )
             } else {
-                return ([], [], [])
+                return (.empty, [], [])
             }
         }
 
@@ -300,7 +300,7 @@ extension ComponentPool {
     func base<each C: Component>(
         _ components: repeat (each C).Type,
         included: Set<ComponentTag> = []
-    ) -> ContiguousArray<SlotIndex> {
+    ) -> ContiguousSpan<SlotIndex> {
         // Collect the AnyComponentArray for each requested component type.
         var arrays: [AnyComponentArray] = []
         var isQueryingForEntityIDs = false
@@ -318,7 +318,7 @@ extension ComponentPool {
             }
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return []
+                return .empty
             }
             arrays.append(array)
         }
@@ -326,16 +326,18 @@ extension ComponentPool {
         for tag in included {
             // If any tag is missing or empty, there can be no matches.
             guard let array = self.components[tag], !array.componentsToEntites.isEmpty else {
-                return []
+                return .empty
             }
             arrays.append(array)
         }
 
         guard !arrays.isEmpty else {
             if isQueryingForEntityIDs {
-                return ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites }))
+                // TODO: This needs to return all entity IDs. The below does exclude empty entities (and it is slow).
+                //       Maybe use IndexRegistry.liveEntities
+                return .empty // ContiguousArray(Set(self.components.values.flatMap { $0.componentsToEntites }))
             } else {
-                return []
+                return .empty
             }
         }
 
@@ -345,7 +347,7 @@ extension ComponentPool {
 
         return arrays.min { lhs, rhs in
             lhs.componentsToEntites.count < rhs.componentsToEntites.count
-        }?.componentsToEntites ?? []
+        }?.componentsToEntites ?? .empty
     }
 
     subscript<C: Component>(_ componentType: C.Type = C.self) -> ComponentArrayBox<C> {

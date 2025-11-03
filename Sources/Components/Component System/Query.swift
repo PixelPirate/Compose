@@ -268,29 +268,29 @@ extension Query {
         let tickSnapshot = context.systemTickSnapshot
 
         return withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-            let fastChangeAccessors = changeFilterMasks.isEmpty
-                ? nil
-                : prepareChangeFilterAccessors((repeat each accessors))
-            for slot in baseSlots where Self.passes(
-                slot: slot,
-                otherComponents: otherComponents,
-                excludedComponents: excludedComponents
-            ) {
-                let fullID = Entity.ID(slot: slot, generation: context.coordinator.indices[generationFor: slot])
-                guard entitySatisfiesChangeFilters(
-                    context,
-                    systemTickSnapshot: tickSnapshot,
-                    fastAccessors: fastChangeAccessors,
-                    entityID: fullID
-                ) else { continue }
-                let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
-                return (
-                    repeat (each T).makeReadOnlyResolved(
-                        access: each accessors,
-                        entityID: entityID
-                    )
-                )
-            }
+//            let fastChangeAccessors = changeFilterMasks.isEmpty
+//                ? nil
+//                : prepareChangeFilterAccessors((repeat each accessors))
+//            for slot in baseSlots where Self.passes(
+//                slot: slot,
+//                otherComponents: otherComponents,
+//                excludedComponents: excludedComponents
+//            ) {
+//                let fullID = Entity.ID(slot: slot, generation: context.coordinator.indices[generationFor: slot])
+//                guard entitySatisfiesChangeFilters(
+//                    context,
+//                    systemTickSnapshot: tickSnapshot,
+//                    fastAccessors: fastChangeAccessors,
+//                    entityID: fullID
+//                ) else { continue }
+//                let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
+//                return (
+//                    repeat (each T).makeReadOnlyResolved(
+//                        access: each accessors,
+//                        entityID: entityID
+//                    )
+//                )
+//            }
             return nil
         }
     }
@@ -299,67 +299,68 @@ extension Query {
 extension Query {
     @inlinable @inline(__always)
     public func fetchAll(_ context: some QueryContextConvertible) -> LazyQuerySequence<repeat each T> {
-        let context = context.queryContext
-        let slots = getCachedPreFilteredSlots(context.coordinator)
-
-        let accessors = withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-            (repeat each accessors)
-        }
-        var entityIDs: [Entity.ID] = []
-        entityIDs.reserveCapacity(slots.count)
-        for slot in slots {
-            let fullID = Entity.ID(slot: slot, generation: context.coordinator.indices[generationFor: slot])
-            guard satisfiesChangeFilters(context, entityID: fullID) else { continue }
-            let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
-            entityIDs.append(entityID)
-        }
-
-        return LazyQuerySequence(
-            entityIDs: entityIDs,
-            accessors: repeat each accessors
-        )
+//        let context = context.queryContext
+//        let slots = getCachedPreFilteredSlots(context.coordinator)
+//
+//        let accessors = withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+//            (repeat each accessors)
+//        }
+//        var entityIDs: [Entity.ID] = []
+//        entityIDs.reserveCapacity(slots.count)
+//        for slot in slots {
+//            let fullID = Entity.ID(slot: slot, generation: context.coordinator.indices[generationFor: slot])
+//            guard satisfiesChangeFilters(context, entityID: fullID) else { continue }
+//            let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
+//            entityIDs.append(entityID)
+//        }
+//
+//        return LazyQuerySequence(
+//            entityIDs: entityIDs,
+//            accessors: repeat each accessors
+//        )
+        fatalError()
     }
 }
 
 extension Query {
     @inlinable @inline(__always)
     public func performPreloadedParallel(_ context: some QueryContextConvertible, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
-        let context = context.queryContext
-        let slots = getCachedPreFilteredSlots(context.coordinator)
-        let tickSnapshot = context.systemTickSnapshot
-        withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-            let fastChangeAccessors = changeFilterMasks.isEmpty
-                ? nil
-                : prepareChangeFilterAccessors((repeat each accessors))
-            let cores = ProcessInfo.processInfo.processorCount
-            let chunkSize = max(1, (slots.count + cores - 1) / cores) // ceil division
-            let chunks = (slots.count + chunkSize - 1) / chunkSize // ceil number of chunks
-
-            withUnsafePointer(to: &context.coordinator.indices) {
-                nonisolated(unsafe) let indices: UnsafePointer<IndexRegistry> = $0
-                DispatchQueue.concurrentPerform(iterations: chunks) { i in
-                    let start = i * chunkSize
-                    let end = min(start + chunkSize, slots.count)
-                    if start >= end { return } // guard against empty/invalid slice
-
-                    for slot in slots[start..<end] {
-                        let generation = indices.pointee[generationFor: slot]
-                        let fullID = Entity.ID(slot: slot, generation: generation)
-                        if !entitySatisfiesChangeFilters(
-                            context,
-                            systemTickSnapshot: tickSnapshot,
-                            fastAccessors: fastChangeAccessors,
-                            entityID: fullID
-                        ) { continue }
-                        let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
-                        handler(repeat (each T).makeResolved(
-                            access: each accessors,
-                            entityID: entityID
-                        ))
-                    }
-                }
-            }
-        }
+//        let context = context.queryContext
+//        let slots = getCachedPreFilteredSlots(context.coordinator)
+//        let tickSnapshot = context.systemTickSnapshot
+//        withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+//            let fastChangeAccessors = changeFilterMasks.isEmpty
+//                ? nil
+//                : prepareChangeFilterAccessors((repeat each accessors))
+//            let cores = ProcessInfo.processInfo.processorCount
+//            let chunkSize = max(1, (slots.count + cores - 1) / cores) // ceil division
+//            let chunks = (slots.count + chunkSize - 1) / chunkSize // ceil number of chunks
+//
+//            withUnsafePointer(to: &context.coordinator.indices) {
+//                nonisolated(unsafe) let indices: UnsafePointer<IndexRegistry> = $0
+//                DispatchQueue.concurrentPerform(iterations: chunks) { i in
+//                    let start = i * chunkSize
+//                    let end = min(start + chunkSize, slots.count)
+//                    if start >= end { return } // guard against empty/invalid slice
+//
+//                    for slot in slots[start..<end] {
+//                        let generation = indices.pointee[generationFor: slot]
+//                        let fullID = Entity.ID(slot: slot, generation: generation)
+//                        if !entitySatisfiesChangeFilters(
+//                            context,
+//                            systemTickSnapshot: tickSnapshot,
+//                            fastAccessors: fastChangeAccessors,
+//                            entityID: fullID
+//                        ) { continue }
+//                        let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
+//                        handler(repeat (each T).makeResolved(
+//                            access: each accessors,
+//                            entityID: entityID
+//                        ))
+//                    }
+//                }
+//            }
+//        }
     }
 }
 
@@ -379,40 +380,40 @@ extension Query {
             let chunkSize = max(1, (slots.count + cores - 1) / cores) // ceil division
             let chunks = (slots.count + chunkSize - 1) / chunkSize // ceil number of chunks
 
-            withUnsafePointer(to: &context.coordinator.indices) {
-                nonisolated(unsafe) let indices: UnsafePointer<IndexRegistry> = $0
-                DispatchQueue.concurrentPerform(iterations: chunks) { i in
-                    let start = i * chunkSize
-                    let end = min(start + chunkSize, slots.count)
-                    if start >= end { return } // guard against empty/invalid slice
-
-                    for slot in slots[start..<end] {
-                        let slotRaw = slot.rawValue
-                        let signature = context.coordinator.entitySignatures[slotRaw]
-                        guard
-                            signature.rawHashValue.isSuperset(
-                                of: querySignature.rawHashValue,
-                                isDisjoint: excludedSignature.rawHashValue
-                            )
-                        else {
-                            continue
-                        }
-                        let generation = indices.pointee[generationFor: slot]
-                        let fullID = Entity.ID(slot: slot, generation: generation)
-                        if !entitySatisfiesChangeFilters(
-                            context,
-                            systemTickSnapshot: tickSnapshot,
-                            fastAccessors: fastChangeAccessors,
-                            entityID: fullID
-                        ) { continue }
-                        let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
-                        handler(repeat (each T).makeResolved(
-                            access: each accessors,
-                            entityID: entityID
-                        ))
-                    }
-                }
-            }
+//            withUnsafePointer(to: &context.coordinator.indices) {
+//                nonisolated(unsafe) let indices: UnsafePointer<IndexRegistry> = $0
+//                DispatchQueue.concurrentPerform(iterations: chunks) { i in
+//                    let start = i * chunkSize
+//                    let end = min(start + chunkSize, slots.count)
+//                    if start >= end { return } // guard against empty/invalid slice
+//
+//                    for slot in slots[start..<end] {
+//                        let slotRaw = slot.rawValue
+//                        let signature = context.coordinator.entitySignatures[slotRaw]
+//                        guard
+//                            signature.rawHashValue.isSuperset(
+//                                of: querySignature.rawHashValue,
+//                                isDisjoint: excludedSignature.rawHashValue
+//                            )
+//                        else {
+//                            continue
+//                        }
+//                        let generation = indices.pointee[generationFor: slot]
+//                        let fullID = Entity.ID(slot: slot, generation: generation)
+//                        if !entitySatisfiesChangeFilters(
+//                            context,
+//                            systemTickSnapshot: tickSnapshot,
+//                            fastAccessors: fastChangeAccessors,
+//                            entityID: fullID
+//                        ) { continue }
+//                        let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
+//                        handler(repeat (each T).makeResolved(
+//                            access: each accessors,
+//                            entityID: entityID
+//                        ))
+//                    }
+//                }
+//            }
         }
     }
 }
@@ -424,44 +425,44 @@ extension Query {
         let context = context.queryContext
         let baseSlots = getCachedBaseSlots(context.coordinator)
         let tickSnapshot = context.systemTickSnapshot
-        withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-            let fastChangeAccessors = changeFilterMasks.isEmpty
-                ? nil
-                : prepareChangeFilterAccessors((repeat each accessors))
-            let querySignature = self.signature
-            let excludedSignature = self.excludedSignature
-
-            slotLoop: for slot in baseSlots {
-                let slotRaw = slot.rawValue
-                let signature = context.coordinator.entitySignatures[slotRaw]
-
-                guard
-                    signature.rawHashValue.isSuperset(
-                        of: querySignature.rawHashValue,
-                        isDisjoint: excludedSignature.rawHashValue
-                    )
-                else {
-                    continue slotLoop
-                }
-
-                let generation = context.coordinator.indices[generationFor: slot]
-                let fullID = Entity.ID(
-                    slot: SlotIndex(rawValue: slotRaw),
-                    generation: generation
-                )
-                guard entitySatisfiesChangeFilters(
-                    context,
-                    systemTickSnapshot: tickSnapshot,
-                    fastAccessors: fastChangeAccessors,
-                    entityID: fullID
-                ) else { continue }
-                let entityID = isQueryingForEntityID ? fullID : Entity.ID(
-                    slot: SlotIndex(rawValue: slotRaw),
-                    generation: 0
-                )
-                handler(repeat (each T).makeResolved(access: each accessors, entityID: entityID))
-            }
-        }
+//        withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+//            let fastChangeAccessors = changeFilterMasks.isEmpty
+//                ? nil
+//                : prepareChangeFilterAccessors((repeat each accessors))
+//            let querySignature = self.signature
+//            let excludedSignature = self.excludedSignature
+//
+//            slotLoop: for slot in baseSlots {
+//                let slotRaw = slot.rawValue
+//                let signature = context.coordinator.entitySignatures[slotRaw]
+//
+//                guard
+//                    signature.rawHashValue.isSuperset(
+//                        of: querySignature.rawHashValue,
+//                        isDisjoint: excludedSignature.rawHashValue
+//                    )
+//                else {
+//                    continue slotLoop
+//                }
+//
+//                let generation = context.coordinator.indices[generationFor: slot]
+//                let fullID = Entity.ID(
+//                    slot: SlotIndex(rawValue: slotRaw),
+//                    generation: generation
+//                )
+//                guard entitySatisfiesChangeFilters(
+//                    context,
+//                    systemTickSnapshot: tickSnapshot,
+//                    fastAccessors: fastChangeAccessors,
+//                    entityID: fullID
+//                ) else { continue }
+//                let entityID = isQueryingForEntityID ? fullID : Entity.ID(
+//                    slot: SlotIndex(rawValue: slotRaw),
+//                    generation: 0
+//                )
+//                handler(repeat (each T).makeResolved(access: each accessors, entityID: entityID))
+//            }
+//        }
     }
 }
 
@@ -471,38 +472,38 @@ extension Query {
         _ context: some QueryContextConvertible,
         _ handler: (CombinationPack<repeat (each T).ResolvedType>, CombinationPack<repeat (each T).ResolvedType>) -> Void
     ) {
-        let context = context.queryContext
-        let filteredSlots = getCachedPreFilteredSlots(context.coordinator)
-        let tickSnapshot = context.systemTickSnapshot
-        withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-            let fastChangeAccessors = changeFilterMasks.isEmpty
-                ? nil
-                : prepareChangeFilterAccessors((repeat each accessors))
-            let indices = context.coordinator.indices
-            var resolved: [CombinationPack<repeat (each T).ResolvedType>] = []
-            resolved.reserveCapacity(filteredSlots.count)
-            for slot in filteredSlots {
-                let generation = indices[generationFor: slot]
-                let fullID = Entity.ID(slot: slot, generation: generation)
-                guard entitySatisfiesChangeFilters(
-                    context,
-                    systemTickSnapshot: tickSnapshot,
-                    fastAccessors: fastChangeAccessors,
-                    entityID: fullID
-                ) else { continue }
-                let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
-                let pack = CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: entityID)))
-                resolved.append(pack)
-            }
-            for i in 0..<resolved.count {
-                for j in i+1..<resolved.count {
-                    handler(
-                        resolved[i],
-                        resolved[j]
-                    )
-                }
-            }
-        }
+//        let context = context.queryContext
+//        let filteredSlots = getCachedPreFilteredSlots(context.coordinator)
+//        let tickSnapshot = context.systemTickSnapshot
+//        withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+//            let fastChangeAccessors = changeFilterMasks.isEmpty
+//                ? nil
+//                : prepareChangeFilterAccessors((repeat each accessors))
+//            let indices = context.coordinator.indices
+//            var resolved: [CombinationPack<repeat (each T).ResolvedType>] = []
+//            resolved.reserveCapacity(filteredSlots.count)
+//            for slot in filteredSlots {
+//                let generation = indices[generationFor: slot]
+//                let fullID = Entity.ID(slot: slot, generation: generation)
+//                guard entitySatisfiesChangeFilters(
+//                    context,
+//                    systemTickSnapshot: tickSnapshot,
+//                    fastAccessors: fastChangeAccessors,
+//                    entityID: fullID
+//                ) else { continue }
+//                let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
+//                let pack = CombinationPack((repeat (each T).makeResolved(access: each accessors, entityID: entityID)))
+//                resolved.append(pack)
+//            }
+//            for i in 0..<resolved.count {
+//                for j in i+1..<resolved.count {
+//                    handler(
+//                        resolved[i],
+//                        resolved[j]
+//                    )
+//                }
+//            }
+//        }
     }
 }
 
@@ -637,18 +638,15 @@ extension Query {
     func entitySatisfiesChangeFilters(
         _ context: QueryContext,
         systemTickSnapshot: Coordinator.SystemTickSnapshot?,
-        fastAccessors: [ComponentTag: ChangeFilterAccessor]?,
+        fastAccessors: [ComponentTag: ChangeFilterAccessor],
         entityID: Entity.ID
     ) -> Bool {
         guard !changeFilterMasks.isEmpty else { return true }
-        if let fastAccessors {
-            return satisfiesChangeFiltersFast(
-                systemTickSnapshot: systemTickSnapshot,
-                changeAccessors: fastAccessors,
-                entityID: entityID
-            )
-        }
-        return satisfiesChangeFilters(context, entityID: entityID)
+        return satisfiesChangeFiltersFast(
+            systemTickSnapshot: systemTickSnapshot,
+            changeAccessors: fastAccessors,
+            entityID: entityID
+        )
     }
 
     @inlinable @inline(__always)
@@ -658,34 +656,44 @@ extension Query {
         // TODO: Use RigidArray or TailAllocated here
 
         let tickSnapshot = context.systemTickSnapshot
-        withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-                let fastChangeAccessors = changeFilterMasks.isEmpty
-                    ? nil
-                    : prepareChangeFilterAccessors((repeat each accessors))
+        let indices = context.coordinator.indices.generationView
+        withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+            let fastChangeAccessors = changeFilterMasks.isEmpty
+                ? nil
+                : prepareChangeFilterAccessors((repeat each accessors))
+
+            if let fastChangeAccessors {
                 for slot in baseSlots where Self.passes(
                     slot: slot,
                     otherComponents: otherComponents,
                     excludedComponents: excludedComponents
                 ) {
-                    let generation = indices.pointee[generationFor: slot]
-                    let fullID = Entity.ID(
+                    let id = Entity.ID(
                         slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: generation
+                        generation: isQueryingForEntityID ? indices[slot] : 0
                     )
                     guard entitySatisfiesChangeFilters(
                         context,
                         systemTickSnapshot: tickSnapshot,
                         fastAccessors: fastChangeAccessors,
-                        entityID: fullID
+                        entityID: id
                     ) else {
                         continue
                     }
-                    let entityID = isQueryingForEntityID ? fullID : Entity.ID(
+
+                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                }
+            } else {
+                for slot in baseSlots where Self.passes(
+                    slot: slot,
+                    otherComponents: otherComponents,
+                    excludedComponents: excludedComponents
+                ) {
+                    let id = Entity.ID(
                         slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: 0
+                        generation: isQueryingForEntityID ? indices[slot] : 0
                     )
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: entityID))
+                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
                 }
             }
         }
@@ -695,139 +703,139 @@ extension Query {
 extension Query {
     @inlinable @inline(__always)
     public func performPreloaded(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        let context = context.queryContext
-        let slots = getCachedPreFilteredSlots(context.coordinator) // TODO: Allow custom order.
-        let tickSnapshot = context.systemTickSnapshot
-        withUnsafePointer(to: context.coordinator.indices) { indices in
-            withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-                let fastChangeAccessors = changeFilterMasks.isEmpty
-                    ? nil
-                    : prepareChangeFilterAccessors((repeat each accessors))
-                for slot in slots {
-                    let generation = indices.pointee[generationFor: slot]
-                    let fullID = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: generation
-                    )
-                    guard entitySatisfiesChangeFilters(
-                        context,
-                        systemTickSnapshot: tickSnapshot,
-                        fastAccessors: fastChangeAccessors,
-                        entityID: fullID
-                    ) else { continue }
-                    let entityID = isQueryingForEntityID ? fullID : Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: 0
-                    )
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: entityID))
-                }
-            }
-        }
+//        let context = context.queryContext
+//        let slots = getCachedPreFilteredSlots(context.coordinator) // TODO: Allow custom order.
+//        let tickSnapshot = context.systemTickSnapshot
+//        withUnsafePointer(to: context.coordinator.indices) { indices in
+//            withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+//                let fastChangeAccessors = changeFilterMasks.isEmpty
+//                    ? nil
+//                    : prepareChangeFilterAccessors((repeat each accessors))
+//                for slot in slots {
+//                    let generation = indices.pointee[generationFor: slot]
+//                    let fullID = Entity.ID(
+//                        slot: SlotIndex(rawValue: slot.rawValue),
+//                        generation: generation
+//                    )
+//                    guard entitySatisfiesChangeFilters(
+//                        context,
+//                        systemTickSnapshot: tickSnapshot,
+//                        fastAccessors: fastChangeAccessors,
+//                        entityID: fullID
+//                    ) else { continue }
+//                    let entityID = isQueryingForEntityID ? fullID : Entity.ID(
+//                        slot: SlotIndex(rawValue: slot.rawValue),
+//                        generation: 0
+//                    )
+//                    handler(repeat (each T).makeResolved(access: each accessors, entityID: entityID))
+//                }
+//            }
+//        }
     }
 
     @inlinable @inline(__always)
     public func performGroup(_ context: some QueryContextConvertible, requireGroup: Bool = false, _ handler: (repeat (each T).ResolvedType) -> Void) {
-        let context = context.queryContext
-        let tickSnapshot = context.systemTickSnapshot
-
-        // Prefer a best-fitting group if available; otherwise fall back to cached slots.
-        let best = context.coordinator.bestGroup(for: querySignature)
-        let slotsSlice: ArraySlice<SlotIndex>
-        let exactGroupMatch: Bool
-        let owned: ComponentSignature
-        if let best {
-            slotsSlice = best.slots
-            exactGroupMatch = best.exact
-            owned = best.owned
-        } else if !requireGroup {
-            // No group found for query, fall back to precomputed slots.
-            slotsSlice = context.coordinator.pool.slots(
-                repeat (each T).self,
-                included: backstageComponents,
-                excluded: excludedComponents
-            )[...]
-            exactGroupMatch = false
-            owned = ComponentSignature()
-            print("No group found for query, falling back to precomputed slots. Consider adding a group matching this query.")
-        } else {
-            slotsSlice = []
-            exactGroupMatch = false
-            owned = ComponentSignature()
-            print("No group found for query. Consider adding a group matching this query.")
-        }
-
-        if exactGroupMatch {
-            withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-                    let fastChangeAccessors = changeFilterMasks.isEmpty
-                        ? nil
-                        : prepareChangeFilterAccessors((repeat each accessors))
-                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                    for (denseIndex, slot) in slotsSlice.enumerated() {
-                        let generation = indices.pointee[generationFor: slot]
-                        let fullID = Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: generation
-                        )
-                        guard entitySatisfiesChangeFilters(
-                            context,
-                            systemTickSnapshot: tickSnapshot,
-                            fastAccessors: fastChangeAccessors,
-                            entityID: fullID
-                        ) else { continue }
-                        let entityID = isQueryingForEntityID ? fullID : Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: 0
-                        )
-                        handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: entityID))
-                    }
-                }
-            }
-        } else {
-            let querySignature = self.signature
-            let excludedSignature = self.excludedSignature
-            withUnsafePointer(to: context.coordinator.indices) { indices in
-                withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-                    let fastChangeAccessors = changeFilterMasks.isEmpty
-                        ? nil
-                        : prepareChangeFilterAccessors((repeat each accessors))
-                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                    for (denseIndex, slot) in slotsSlice.enumerated() {
-                        // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
-                        // TODO: Optional components are ignored.
-                        let entitySignature = context.coordinator.entitySignatures[slot.index]
-                        guard entitySignature.isSuperset(of: querySignature, isDisjoint: excludedSignature) else {
-                            continue
-                        }
-                        let generation = indices.pointee[generationFor: slot]
-                        let fullID = Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: generation
-                        )
-                        if !entitySatisfiesChangeFilters(
-                            context,
-                            systemTickSnapshot: tickSnapshot,
-                            fastAccessors: fastChangeAccessors,
-                            entityID: fullID
-                        ) { continue }
-                        let entityID = isQueryingForEntityID ? fullID : Entity.ID(
-                            slot: SlotIndex(rawValue: slot.rawValue),
-                            generation: 0
-                        )
-
-                        @inline(__always)
-                        func resolve<C: Component>(_ type: C.Type, access: TypedAccess<C>, denseIndex: Int, entityID: Entity.ID, owned: ComponentSignature) -> C.ResolvedType {
-                            if owned.contains(C.componentTag) { // TODO: Does this `if` actually help with performance?
-                                type.makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
-                            } else {
-                                type.makeResolved(access: access, entityID: entityID)
-                            }
-                        }
-                        handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: entityID, owned: owned))
-                    }
-                }
-            }
-        }
+//        let context = context.queryContext
+//        let tickSnapshot = context.systemTickSnapshot
+//
+//        // Prefer a best-fitting group if available; otherwise fall back to cached slots.
+//        let best = context.coordinator.bestGroup(for: querySignature)
+//        let slotsSlice: ArraySlice<SlotIndex>
+//        let exactGroupMatch: Bool
+//        let owned: ComponentSignature
+//        if let best {
+//            slotsSlice = best.slots
+//            exactGroupMatch = best.exact
+//            owned = best.owned
+//        } else if !requireGroup {
+//            // No group found for query, fall back to precomputed slots.
+//            slotsSlice = context.coordinator.pool.slots(
+//                repeat (each T).self,
+//                included: backstageComponents,
+//                excluded: excludedComponents
+//            )[...]
+//            exactGroupMatch = false
+//            owned = ComponentSignature()
+//            print("No group found for query, falling back to precomputed slots. Consider adding a group matching this query.")
+//        } else {
+//            slotsSlice = []
+//            exactGroupMatch = false
+//            owned = ComponentSignature()
+//            print("No group found for query. Consider adding a group matching this query.")
+//        }
+//
+//        if exactGroupMatch {
+//            withUnsafePointer(to: context.coordinator.indices) { indices in
+//                withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+//                    let fastChangeAccessors = changeFilterMasks.isEmpty
+//                        ? nil
+//                        : prepareChangeFilterAccessors((repeat each accessors))
+//                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
+//                    for (denseIndex, slot) in slotsSlice.enumerated() {
+//                        let generation = indices.pointee[generationFor: slot]
+//                        let fullID = Entity.ID(
+//                            slot: SlotIndex(rawValue: slot.rawValue),
+//                            generation: generation
+//                        )
+//                        guard entitySatisfiesChangeFilters(
+//                            context,
+//                            systemTickSnapshot: tickSnapshot,
+//                            fastAccessors: fastChangeAccessors,
+//                            entityID: fullID
+//                        ) else { continue }
+//                        let entityID = isQueryingForEntityID ? fullID : Entity.ID(
+//                            slot: SlotIndex(rawValue: slot.rawValue),
+//                            generation: 0
+//                        )
+//                        handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: entityID))
+//                    }
+//                }
+//            }
+//        } else {
+//            let querySignature = self.signature
+//            let excludedSignature = self.excludedSignature
+//            withUnsafePointer(to: context.coordinator.indices) { indices in
+//                withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+//                    let fastChangeAccessors = changeFilterMasks.isEmpty
+//                        ? nil
+//                        : prepareChangeFilterAccessors((repeat each accessors))
+//                    // Enumerate dense indices directly: 0..<size aligned across all owned storages
+//                    for (denseIndex, slot) in slotsSlice.enumerated() {
+//                        // Skip entities that don't satisfy the query when reusing a non-exact group (future use).
+//                        // TODO: Optional components are ignored.
+//                        let entitySignature = context.coordinator.entitySignatures[slot.index]
+//                        guard entitySignature.isSuperset(of: querySignature, isDisjoint: excludedSignature) else {
+//                            continue
+//                        }
+//                        let generation = indices.pointee[generationFor: slot]
+//                        let fullID = Entity.ID(
+//                            slot: SlotIndex(rawValue: slot.rawValue),
+//                            generation: generation
+//                        )
+//                        if !entitySatisfiesChangeFilters(
+//                            context,
+//                            systemTickSnapshot: tickSnapshot,
+//                            fastAccessors: fastChangeAccessors,
+//                            entityID: fullID
+//                        ) { continue }
+//                        let entityID = isQueryingForEntityID ? fullID : Entity.ID(
+//                            slot: SlotIndex(rawValue: slot.rawValue),
+//                            generation: 0
+//                        )
+//
+//                        @inline(__always)
+//                        func resolve<C: Component>(_ type: C.Type, access: TypedAccess<C>, denseIndex: Int, entityID: Entity.ID, owned: ComponentSignature) -> C.ResolvedType {
+//                            if owned.contains(C.componentTag) { // TODO: Does this `if` actually help with performance?
+//                                type.makeResolvedDense(access: access, denseIndex: denseIndex, entityID: entityID)
+//                            } else {
+//                                type.makeResolved(access: access, entityID: entityID)
+//                            }
+//                        }
+//                        handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: entityID, owned: owned))
+//                    }
+//                }
+//            }
+//        }
     }
 }
 
@@ -853,24 +861,25 @@ extension Query {
 extension Query {
     @inlinable @inline(__always)
     public func unsafeFetchAllWritable(_ context: some QueryContextConvertible) -> LazyWritableQuerySequence<repeat each T> {
-        let context = context.queryContext
-        let slots = getCachedPreFilteredSlots(context.coordinator)
-
-        let accessors = withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-            (repeat each accessors)
-        }
-        var entityIDs: [Entity.ID] = []
-        entityIDs.reserveCapacity(slots.count)
-        for slot in slots {
-            let fullID = Entity.ID(slot: slot, generation: context.coordinator.indices[generationFor: slot])
-            guard satisfiesChangeFilters(context, entityID: fullID) else { continue }
-            let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
-            entityIDs.append(entityID)
-        }
-
-        return LazyWritableQuerySequence(
-            entityIDs: entityIDs,
-            accessors: repeat each accessors
-        )
+//        let context = context.queryContext
+//        let slots = getCachedPreFilteredSlots(context.coordinator)
+//
+//        let accessors = withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+//            (repeat each accessors)
+//        }
+//        var entityIDs: [Entity.ID] = []
+//        entityIDs.reserveCapacity(slots.count)
+//        for slot in slots {
+//            let fullID = Entity.ID(slot: slot, generation: context.coordinator.indices[generationFor: slot])
+//            guard satisfiesChangeFilters(context, entityID: fullID) else { continue }
+//            let entityID = isQueryingForEntityID ? fullID : Entity.ID(slot: slot, generation: 0)
+//            entityIDs.append(entityID)
+//        }
+//
+//        return LazyWritableQuerySequence(
+//            entityIDs: entityIDs,
+//            accessors: repeat each accessors
+//        )
+        fatalError()
     }
 }

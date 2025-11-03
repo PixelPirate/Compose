@@ -37,25 +37,8 @@ public struct ComponentArray<C: Component> {
 
     @inlinable @inline(__always)
     mutating func append(_ component: C, to entityID: Entity.ID, changeTick: UInt64) {
-        let slot = entityID.slot
-        let denseIndex = storage.componentIndex(slot)
-        if denseIndex != .notFound {
-            storage[slot: slot] = component
-            ticks[denseIndex].markChanged(at: changeTick)
-            return
-        }
-
-        storage.append(component, to: slot)
+        storage.append(component, to: entityID.slot)
         ticks.append(ComponentTicks(tick: changeTick))
-    }
-
-    @inlinable @inline(__always)
-    mutating func set(_ component: C, for entityID: Entity.ID, changeTick: UInt64) {
-        let slot = entityID.slot
-        let denseIndex = storage.componentIndex(slot)
-        precondition(denseIndex != .notFound, "Attempted to set a component that does not exist.")
-        storage[slot: slot] = component
-        ticks[denseIndex].markChanged(at: changeTick)
     }
 
     @inlinable @inline(__always)
@@ -63,20 +46,15 @@ public struct ComponentArray<C: Component> {
         remove(slot: entityID.slot)
     }
 
-    @inlinable @inline(__always)
-    mutating func remove(slot: SlotIndex) {
-        let denseIndex = storage.componentIndex(slot)
-        guard denseIndex != .notFound else { return }
+    @inlinable @inline(__always) @discardableResult
+    mutating func remove(slot: SlotIndex) -> C? {
         let lastIndex = storage.endIndex - 1
+        guard let (removedComponent, denseIndex) = storage.remove(slot) else { return nil }
         if denseIndex != lastIndex {
-            let movedTicks = ticks[lastIndex]
-            _ = storage.remove(slot)
-            ticks[denseIndex] = movedTicks
-            _ = ticks.removeLast()
-        } else {
-            _ = storage.remove(slot)
-            _ = ticks.removeLast()
+            ticks.swapAt(denseIndex, lastIndex)
         }
+        ticks.removeLast()
+        return removedComponent
     }
 
     @inlinable @inline(__always)
@@ -116,24 +94,36 @@ public struct ComponentArray<C: Component> {
         ticks.mutablePointer(for: index)
     }
 
-    @inlinable @inline(__always)
+    @inlinable @_transparent
     var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> {
-        storage.slots.view
+        @_transparent
+        _read {
+            yield storage.slots.view
+        }
     }
 
-    @inlinable @inline(__always)
-    var componentsToEntites: ContiguousArray<SlotIndex> {
-        storage.keys
+    @inlinable @_transparent
+    var componentsToEntites: ContiguousSpan<SlotIndex> {
+        @_transparent
+        _read {
+            yield storage.keys.view
+        }
     }
 
-    @inlinable @inline(__always)
+    @inlinable @_transparent
     var view: SparseSet<C, SlotIndex>.DenseSpan {
-        storage.view
+        @_transparent
+        _read {
+            yield storage.view
+        }
     }
 
-    @inlinable @inline(__always)
+    @inlinable @_transparent
     var tickView: ContiguousSpan<ComponentTicks> {
-        ticks.view
+        @_transparent
+        _read {
+            yield ticks.view
+        }
     }
 }
 public protocol AnyComponentArrayBox: AnyObject {
@@ -147,13 +137,10 @@ public protocol AnyComponentArrayBox: AnyObject {
     func get(_ id: Entity.ID) -> any Component
 
     @inlinable @inline(__always)
-    func set(_ id: Entity.ID, newValue: any Component, changeTick: UInt64)
-
-    @inlinable @inline(__always)
     var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> { get }
 
     @inlinable @inline(__always)
-    var componentsToEntites: ContiguousArray<SlotIndex> { get }
+    var componentsToEntites: ContiguousSpan<SlotIndex> { get }
 
     @inlinable @inline(__always)
     func ensureEntity(_ entityID: Entity.ID)
@@ -209,18 +196,17 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     }
 
     @inlinable @inline(__always)
-    func set(_ id: Entity.ID, newValue: any Component, changeTick: UInt64) {
-        base.set(newValue as! C, for: id, changeTick: changeTick)
-    }
-
-    @inlinable @inline(__always)
     var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> {
-        base.entityToComponents
+        _read {
+            yield base.entityToComponents
+        }
     }
 
     @inlinable @inline(__always)
-    var componentsToEntites: ContiguousArray<SlotIndex> {
-        base.componentsToEntites
+    var componentsToEntites: ContiguousSpan<SlotIndex> {
+        _read {
+            yield base.componentsToEntites
+        }
     }
 
     @inlinable @inline(__always)
@@ -290,11 +276,6 @@ public struct AnyComponentArray {
     }
 
     @inlinable @inline(__always)
-    public func set(_ entityID: Entity.ID, to newValue: any Component, changeTick: UInt64) {
-        base.set(entityID, newValue: newValue, changeTick: changeTick)
-    }
-
-    @inlinable @inline(__always)
     public subscript(entityID entityID: Entity.ID) -> any Component {
         _read {
             yield base.get(entityID)
@@ -303,12 +284,16 @@ public struct AnyComponentArray {
 
     @usableFromInline @inline(__always)
     var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> {
-        base.entityToComponents
+        _read {
+            yield base.entityToComponents
+        }
     }
 
     @usableFromInline @inline(__always)
-    var componentsToEntites: ContiguousArray<SlotIndex> {
-        base.componentsToEntites
+    var componentsToEntites: ContiguousSpan<SlotIndex> {
+        _read {
+            yield base.componentsToEntites
+        }
     }
 
     @usableFromInline @inline(__always)

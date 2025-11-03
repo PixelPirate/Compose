@@ -37,7 +37,7 @@ struct Groups {
     }
 
     @usableFromInline
-    func groupSlots(_ signature: GroupSignature, in pool: inout ComponentPool) -> ArraySlice<SlotIndex>? {
+    func groupSlots(_ signature: GroupSignature, in pool: inout ComponentPool) -> ContiguousSpan<SlotIndex>? {
         guard let group = storage.groups[signature] else {
             return nil
         }
@@ -45,7 +45,7 @@ struct Groups {
     }
 
     @usableFromInline
-    func groupSlotsWithOwned(_ signature: GroupSignature, in pool: inout ComponentPool) -> (ArraySlice<SlotIndex>, ComponentSignature)? {
+    func groupSlotsWithOwned(_ signature: GroupSignature, in pool: inout ComponentPool) -> (ContiguousSpan<SlotIndex>, ComponentSignature)? {
         guard let group = storage.groups[signature] else {
             return nil
         }
@@ -115,7 +115,7 @@ protocol GroupProtocol {
     var size: Int { get }
     var primary: ComponentTag { get }
 
-    func slotsSlice(in pool: inout ComponentPool) -> ArraySlice<SlotIndex>
+    func slotsSlice(in pool: inout ComponentPool) -> ContiguousSpan<SlotIndex>
 
     var isOwning: Bool { get }
 }
@@ -244,7 +244,7 @@ public final class Group<each Owned: Component>: GroupProtocol {
             // 2) Mirror the primary permutation to all other owned storages with a single-pass placement
             if self.size > 0 {
                 // Capture the packed primary order for indices 0..<size
-                let primaryPacked = primaryArray.componentsToEntites[..<self.size]
+                let primaryPacked = primaryArray.componentsToEntites
 
                 for otherOwnedType in repeat (each Owned).QueriedComponent.self {
                     let tag = otherOwnedType.componentTag
@@ -418,8 +418,8 @@ public final class Group<each Owned: Component>: GroupProtocol {
     
     public var isOwning: Bool { true }
     
-    public func slotsSlice(in pool: inout ComponentPool) -> ArraySlice<SlotIndex> {
-        return pool.components[primary]?.componentsToEntites[..<size] ?? []
+    public func slotsSlice(in pool: inout ComponentPool) -> ContiguousSpan<SlotIndex> {
+        return pool.components[primary]?.componentsToEntites[..<size] ?? .empty
     }
 }
 
@@ -436,7 +436,7 @@ public final class NonOwningGroup: GroupProtocol {
     private let excludedComponents: Set<ComponentTag>
 
     // Internal packed list and sparse index for O(1) membership
-    private var slots: ContiguousArray<SlotIndex> = []
+    private var slots: ContiguousDense<SlotIndex> = ContiguousDense()
     private var sparseIndex: ContiguousArray<Int?> = [] // maps slot.rawValue -> dense index in `slots`
 
     public init(required: Set<ComponentTag>, excluded: Set<ComponentTag>) {
@@ -554,7 +554,7 @@ public final class NonOwningGroup: GroupProtocol {
     func release(from signature: inout ComponentSignature) {
     }
 
-    public func slotsSlice(in pool: inout ComponentPool) -> ArraySlice<SlotIndex> {
-        return slots[...]
+    public func slotsSlice(in pool: inout ComponentPool) -> ContiguousSpan<SlotIndex> {
+        return slots.view
     }
 }

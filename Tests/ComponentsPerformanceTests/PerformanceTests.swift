@@ -46,23 +46,23 @@ extension Tag {
         let coordinator = Coordinator()
 
         let setup = clock.measure {
-            for _ in 0...500_000 {
+            for _ in 0..<500_000 {
                 coordinator.spawn(
                      Gravity(force: Vector3(x: 1, y: 1, z: 1))
                 )
             }
-            for _ in 0...500_000 {
+            for _ in 0..<500_000 {
                 coordinator.spawn(
                     Transform(position: .zero, rotation: .zero, scale: .zero),
                     Gravity(force: Vector3(x: 1, y: 1, z: 1))
                 )
             }
-            for _ in 0...500_000 {
+            for _ in 0..<500_000 {
                 coordinator.spawn(
                     Transform(position: .zero, rotation: .zero, scale: .zero)
                 )
             }
-            for _ in 0...500_000 {
+            for _ in 0..<500_000 {
                 coordinator.spawn(
                     Transform(position: .zero, rotation: .zero, scale: .zero),
                     Gravity(force: Vector3(x: 1, y: 1, z: 1))

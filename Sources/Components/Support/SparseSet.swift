@@ -10,7 +10,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
         @usableFromInline @_transparent
         init() {
-            self.span = ContiguousDense<Component>.Span(view: UnsafeMutableBufferPointer<Component>(start: nil, count: 0))
+            self.span = ContiguousDense<Component>.Span(view: UnsafeMutableBufferPointer<Component>(start: nil, count: 0), count: 0)
         }
 
         @inlinable @_transparent
@@ -43,7 +43,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     /// Indexed by `components`  index.
     @usableFromInline
-    private(set) var keys: ContiguousArray<SlotIndex> = []
+    private(set) var keys: ContiguousDense<SlotIndex> = ContiguousDense()
 
     @inlinable @inline(__always)
     public var startIndex: ContiguousArray.Index { 0 }
@@ -66,7 +66,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
 //        components.reserveCapacity(minimumComponentCapacity)
-        keys.reserveCapacity(minimumComponentCapacity)
+        keys.ensureCapacity(minimumComponentCapacity)
         slots.ensureCapacity(forIndex: SlotIndex(index: minimumSlotCapacity - 1))
     }
 
@@ -130,19 +130,14 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     public mutating func append(_ component: Component, to slot: SlotIndex) {
-        let index = componentIndex(slot)
-        if index != .notFound {
-            storage[index] = component
-            return
-        }
-
+        precondition(componentIndex(slot) == .notFound)
         storage.append(component)
         keys.append(slot)
         slots[slot] = storage.count - 1
     }
 
     @inlinable @inline(__always) @discardableResult
-    public mutating func remove(_ slot: SlotIndex) -> Component? {
+    public mutating func remove(_ slot: SlotIndex) -> (Component, denseIndex: Int)? {
         let componentIndex = slots[slot]
         guard componentIndex != .notFound else {
             return nil
@@ -151,7 +146,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         guard componentIndex != storage.count - 1 else {
             keys.removeLast()
             slots[slot] = .notFound
-            return storage.removeLast()
+            return (storage.removeLast(), denseIndex: componentIndex)
         }
 
         guard let lastComponentSlot = keys.popLast() else {
@@ -162,7 +157,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         keys[componentIndex] = lastComponentSlot
         slots[lastComponentSlot] = componentIndex
         slots[slot] = .notFound
-        return old
+        return (old, componentIndex)
     }
 
     @inlinable @inline(__always) @discardableResult
@@ -339,6 +334,7 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
 
     @inlinable @_transparent
     public var view: SlotsSpan<Value, Index> {
+        @_transparent
         _read {
             yield values.view
         }

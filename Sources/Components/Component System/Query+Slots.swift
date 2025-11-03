@@ -1,7 +1,7 @@
 extension Query {
     @usableFromInline @inline(__always)
     internal func getCachedArrays(_ coordinator: Coordinator)
-    -> (base: ContiguousArray<SlotIndex>, others: [SlotsSpan<ContiguousArray.Index, SlotIndex>], excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>])
+    -> (base: ContiguousSpan<SlotIndex>, others: [SlotsSpan<ContiguousArray.Index, SlotIndex>], excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>])
     {
         coordinator.sparseQueryCacheLock.lock()
         if
@@ -35,7 +35,7 @@ extension Query {
     }
 
     @usableFromInline @inline(__always)
-    internal func getCachedBaseSlots(_ coordinator: Coordinator) -> ContiguousArray<SlotIndex> {
+    internal func getCachedBaseSlots(_ coordinator: Coordinator) -> ContiguousSpan<SlotIndex> {
         coordinator.signatureQueryCacheLock.lock()
         if
             let cached = coordinator.signatureQueryCache[hash],
@@ -60,36 +60,36 @@ extension Query {
         }
     }
 
-    @usableFromInline @inline(__always)
-    internal func getCachedPreFilteredSlots(_ coordinator: Coordinator) -> ArraySlice<SlotIndex> {
-        // If there is a group matching this query, then the slots are just the entities of the primary component
-        let groupSignature = GroupSignature(querySignature)
-        if let slots = coordinator.groupSlots(groupSignature) {
-            return slots
-        }
-
-        coordinator.slotsQueryCacheLock.lock()
-        if
-            let cached = coordinator.slotsQueryCache[hash],
-            cached.version == coordinator.worldVersion
-        {
-            coordinator.slotsQueryCacheLock.unlock()
-            return cached.base[...]
-        } else {
-            coordinator.slotsQueryCacheLock.unlock()
-            let new = coordinator.pool.slots(
-                repeat (each T).self,
-                included: backstageComponents,
-                excluded: excludedComponents
-            )
-            let newCache = SlotsQueryPlan(
-                base: new,
-                version: coordinator.worldVersion
-            )
-            coordinator.slotsQueryCacheLock.lock()
-            coordinator.slotsQueryCache[hash] = newCache
-            coordinator.slotsQueryCacheLock.unlock()
-            return new[...]
-        }
-    }
+//    @usableFromInline @inline(__always)
+//    internal func getCachedPreFilteredSlots(_ coordinator: Coordinator) -> ArraySlice<SlotIndex> {
+//        // If there is a group matching this query, then the slots are just the entities of the primary component
+//        let groupSignature = GroupSignature(querySignature)
+//        if let slots = coordinator.groupSlots(groupSignature) {
+//            return slots
+//        }
+//
+//        coordinator.slotsQueryCacheLock.lock()
+//        if
+//            let cached = coordinator.slotsQueryCache[hash],
+//            cached.version == coordinator.worldVersion
+//        {
+//            coordinator.slotsQueryCacheLock.unlock()
+//            return cached.base[...]
+//        } else {
+//            coordinator.slotsQueryCacheLock.unlock()
+//            let new = coordinator.pool.slots(
+//                repeat (each T).self,
+//                included: backstageComponents,
+//                excluded: excludedComponents
+//            )
+//            let newCache = SlotsQueryPlan(
+//                base: new,
+//                version: coordinator.worldVersion
+//            )
+//            coordinator.slotsQueryCacheLock.lock()
+//            coordinator.slotsQueryCache[hash] = newCache
+//            coordinator.slotsQueryCacheLock.unlock()
+//            return new[...]
+//        }
+//    }
 }

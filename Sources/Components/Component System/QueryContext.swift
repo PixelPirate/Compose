@@ -79,8 +79,13 @@ public struct QueryContext: QueryContextConvertible, Sendable {
         }
     }
 
-    @usableFromInline @inline(__always)
-    internal var systemTickSnapshot: Coordinator.SystemTickSnapshot? { systemTicks }
+    @usableFromInline @_transparent
+    internal var systemTickSnapshot: Coordinator.SystemTickSnapshot? {
+        @_transparent
+        _read {
+            yield systemTicks
+        }
+    }
 }
 
 extension Coordinator: QueryContextConvertible {

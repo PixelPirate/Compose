@@ -44,7 +44,7 @@ public struct QueryHash: Hashable {
 @usableFromInline
 struct SparseQueryPlan {
     @usableFromInline
-    let base: ContiguousArray<SlotIndex>
+    let base: ContiguousSpan<SlotIndex>
     @usableFromInline
     let others: [SlotsSpan<ContiguousArray.Index, SlotIndex>] // entityToComponents maps
     @usableFromInline
@@ -54,7 +54,7 @@ struct SparseQueryPlan {
 
     @usableFromInline
     init(
-        base: ContiguousArray<SlotIndex>,
+        base: ContiguousSpan<SlotIndex>,
         others: [SlotsSpan<ContiguousArray.Index, SlotIndex>],
         excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>],
         version: UInt64
@@ -69,13 +69,13 @@ struct SparseQueryPlan {
 @usableFromInline
 struct SignatureQueryPlan {
     @usableFromInline
-    let base: ContiguousArray<SlotIndex>
+    let base: ContiguousSpan<SlotIndex>
     @usableFromInline
     let version: UInt64
 
     @usableFromInline
     init(
-        base: ContiguousArray<SlotIndex>,
+        base: ContiguousSpan<SlotIndex>,
         version: UInt64
     ) {
         self.base = base
@@ -86,13 +86,13 @@ struct SignatureQueryPlan {
 @usableFromInline
 struct SlotsQueryPlan {
     @usableFromInline
-    let base: ContiguousArray<SlotIndex>
+    let base: ContiguousSpan<SlotIndex>
     @usableFromInline
     let version: UInt64
 
     @usableFromInline
     init(
-        base: ContiguousArray<SlotIndex>,
+        base: ContiguousSpan<SlotIndex>,
         version: UInt64
     ) {
         self.base = base
