@@ -1,7 +1,7 @@
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var pointer: SparseSet<C.QueriedComponent, SlotIndex>.DenseSpan
     @usableFromInline internal var indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
-    @usableFromInline internal var ticks: ContiguousSpan<ComponentTicks>?
+    @usableFromInline internal var ticks: ContiguousSpan<ComponentTicks>
     @usableFromInline internal let changeTick: UInt64
     @usableFromInline internal let tag: ComponentTag
 
@@ -9,7 +9,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     init(
         pointer: SparseSet<C.QueriedComponent, SlotIndex>.DenseSpan,
         indices: SlotsSpan<ContiguousArray.Index, SlotIndex>,
-        ticks: ContiguousSpan<ComponentTicks>?,
+        ticks: ContiguousSpan<ComponentTicks>,
         changeTick: UInt64
     ) {
         self.pointer = pointer
@@ -75,7 +75,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
 
     @inlinable @inline(__always)
     public func accessDense(_ denseIndex: Int) -> SingleTypedAccess<C.QueriedComponent> {
-        let tickPointer = ticks?.mutablePointer(at: denseIndex)
+        let tickPointer = ticks.mutablePointer(at: denseIndex)
         return SingleTypedAccess(
             buffer: pointer.mutablePointer(at: denseIndex),
             tickPointer: tickPointer,
@@ -86,7 +86,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @inlinable @inline(__always)
     public func access(_ id: Entity.ID) -> SingleTypedAccess<C.QueriedComponent> {
         let dense = indices[id.slot]
-        let tickPointer = ticks?.mutablePointer(at: dense)
+        let tickPointer = ticks.mutablePointer(at: dense)
         return SingleTypedAccess(
             buffer: pointer.mutablePointer(at: dense),
             tickPointer: tickPointer,
@@ -100,7 +100,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
         guard index != .notFound else {
             return nil
         }
-        let tickPointer = ticks?.mutablePointer(at: index)
+        let tickPointer = ticks.mutablePointer(at: index)
         return SingleTypedAccess(
             buffer: pointer.mutablePointer(at: indices[id.slot]),
             tickPointer: tickPointer,
@@ -117,7 +117,7 @@ extension TypedAccess {
             indices: SlotsSpan(
                 view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
             ),
-            ticks: nil,
+            ticks: ContiguousSpan(buffer: nil, count: 0),
             changeTick: changeTick
         )
     }
@@ -126,18 +126,17 @@ extension TypedAccess {
 extension TypedAccess {
     @usableFromInline @inline(__always)
     func markChanged(at denseIndex: Int) {
-        guard let ticks else { return }
         ticks.mutablePointer(at: denseIndex).pointee.markChanged(at: changeTick)
     }
 }
 
 public struct SingleTypedAccess<C: Component> {
     @usableFromInline internal var buffer: UnsafeMutablePointer<C>
-    @usableFromInline internal var tickPointer: UnsafeMutablePointer<ComponentTicks>?
+    @usableFromInline internal var tickPointer: UnsafeMutablePointer<ComponentTicks>
     @usableFromInline internal let changeTick: UInt64
 
     @inlinable @inline(__always)
-    init(buffer: UnsafeMutablePointer<C>, tickPointer: UnsafeMutablePointer<ComponentTicks>?, changeTick: UInt64) {
+    init(buffer: UnsafeMutablePointer<C>, tickPointer: UnsafeMutablePointer<ComponentTicks>, changeTick: UInt64) {
         self.buffer = buffer
         self.tickPointer = tickPointer
         self.changeTick = changeTick
@@ -149,7 +148,7 @@ public struct SingleTypedAccess<C: Component> {
             UnsafePointer(buffer)
         }
         nonmutating unsafeMutableAddress {
-            defer { tickPointer?.pointee.markChanged(at: changeTick) }
+            defer { tickPointer.pointee.markChanged(at: changeTick) }
             return buffer
         }
     }

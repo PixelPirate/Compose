@@ -70,6 +70,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         changeFilters: Set<ChangeFilter>,
         isQueryingForEntityID: Bool
     ) {
+        precondition(Self.hasUniqueQueriedComponents())
         self.backstageComponents = backstageComponents
         self.backstageSignature = ComponentSignature(backstageComponents)
         self.excludedComponents = excludedComponents
@@ -318,7 +319,7 @@ extension Query {
 //            entityIDs: entityIDs,
 //            accessors: repeat each accessors
 //        )
-        fatalError()
+        return LazyQuerySequence()
     }
 }
 
@@ -550,6 +551,19 @@ enum ChangeFilterStrategy {
 
 extension Query {
     @inlinable @inline(__always)
+    static func hasUniqueQueriedComponents() -> Bool {
+        var seen = ComponentSignature()
+        for queried in repeat (each T).self {
+            guard queried.QueriedComponent.componentTag.rawValue > 0 else { continue }
+            guard !seen.contains(queried.QueriedComponent.componentTag) else {
+                return false
+            }
+            seen.append(queried.QueriedComponent.componentTag)
+        }
+        return true
+    }
+
+    @inlinable @inline(__always)
     static func makeChangeFilterMasks(_ filters: Set<ChangeFilter>) -> [ComponentTag: ChangeFilterMask] {
         guard !filters.isEmpty else { return [:] }
         var masks: [ComponentTag: ChangeFilterMask] = [:]
@@ -574,30 +588,12 @@ extension Query {
         var prepared: ContiguousArray<ChangeFilterAccessor> = []
         prepared.reserveCapacity(changeFilterMasks.count)
 
-        var preparedTags: ContiguousArray<ComponentTag> = []
-        preparedTags.reserveCapacity(changeFilterMasks.count)
-
         for access in repeat each accessors {
             guard let mask = changeFilterMasks[access.tag] else { continue }
-            guard let ticks = access.ticks else { return nil }
-
-            let accessor = ChangeFilterAccessor(mask: mask, indices: access.indices, ticks: ticks)
-
-            var index = 0
-            while index < preparedTags.count {
-                if preparedTags[index] == access.tag {
-                    prepared[index] = accessor
-                    break
-                }
-                index &+= 1
-            }
-
-            if index == preparedTags.count {
-                preparedTags.append(access.tag)
-                prepared.append(accessor)
-            }
+            prepared.append(ChangeFilterAccessor(mask: mask, indices: access.indices, ticks: access.ticks))
         }
 
+        // TODO: This is silly, instead throwing stuff away, I should just fill up the missing pieces which are not in the accessors.
         guard prepared.count == changeFilterMasks.count else { return nil }
         return prepared
     }
@@ -700,13 +696,12 @@ extension Query {
         let tickSnapshot = context.systemTickSnapshot
         let indices = context.coordinator.indices.generationView
         withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-            let strategy: ChangeFilterStrategy
-            if changeFilterMasks.isEmpty {
-                strategy = .none
+            let strategy: ChangeFilterStrategy = if changeFilterMasks.isEmpty {
+                .none
             } else if let prepared = prepareChangeFilterAccessors((repeat each accessors)) {
-                strategy = .fast(prepared)
+                .fast(prepared)
             } else {
-                strategy = .slow
+                .slow
             }
 
             let indicesPointer = indices.pointer

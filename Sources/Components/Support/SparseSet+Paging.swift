@@ -587,6 +587,26 @@ struct ContiguousDense<Element> {
     }
 
     @inlinable @inline(__always)
+    var last: Element? {
+        @_transparent
+        _read {
+            guard count > 0 else {
+                yield nil
+                return
+            }
+            yield buffer.baseAddress.unsafelyUnwrapped.advanced(by: count - 1).pointee
+        }
+    }
+
+    @inlinable @inline(__always)
+    var isEmpty: Bool {
+        @_transparent
+        _read {
+            yield count == 0
+        }
+    }
+
+    @inlinable @inline(__always)
     public mutating func swapAt(_ i: Int, _ j: Int) {
         buffer.swapAt(i, j)
     }

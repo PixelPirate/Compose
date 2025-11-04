@@ -137,7 +137,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     }
 
     @inlinable @inline(__always) @discardableResult
-    public mutating func remove(_ slot: SlotIndex) -> (Component, denseIndex: Int)? {
+    public mutating func remove(_ slot: SlotIndex) -> (component: Component, denseIndex: Int)? {
         let componentIndex = slots[slot]
         guard componentIndex != .notFound else {
             return nil
@@ -146,7 +146,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         guard componentIndex != storage.count - 1 else {
             keys.removeLast()
             slots[slot] = .notFound
-            return (storage.removeLast(), denseIndex: componentIndex)
+            return (component: storage.removeLast(), denseIndex: componentIndex)
         }
 
         guard let lastComponentSlot = keys.popLast() else {
