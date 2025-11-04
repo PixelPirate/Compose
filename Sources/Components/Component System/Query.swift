@@ -524,31 +524,31 @@ struct ChangeFilterMask: OptionSet, Sendable {
     static let changed = ChangeFilterMask(rawValue: 1 << 1)
 }
 
+@usableFromInline
+struct ChangeFilterAccessor {
+    @usableFromInline
+    let mask: ChangeFilterMask
+    @usableFromInline
+    let indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
+    @usableFromInline
+    let ticks: ContiguousSpan<ComponentTicks>
+
+    @usableFromInline
+    init(mask: ChangeFilterMask, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>, ticks: ContiguousSpan<ComponentTicks>) {
+        self.mask = mask
+        self.indices = indices
+        self.ticks = ticks
+    }
+}
+
+@usableFromInline
+enum ChangeFilterStrategy {
+    case none
+    case fast(ContiguousArray<ChangeFilterAccessor>)
+    case slow
+}
+
 extension Query {
-    @usableFromInline
-    struct ChangeFilterAccessor {
-        @usableFromInline
-        let mask: ChangeFilterMask
-        @usableFromInline
-        let indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
-        @usableFromInline
-        let ticks: ContiguousSpan<ComponentTicks>
-
-        @usableFromInline
-        init(mask: ChangeFilterMask, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>, ticks: ContiguousSpan<ComponentTicks>) {
-            self.mask = mask
-            self.indices = indices
-            self.ticks = ticks
-        }
-    }
-
-    @usableFromInline
-    enum ChangeFilterStrategy {
-        case none
-        case fast(ContiguousArray<ChangeFilterAccessor>)
-        case slow
-    }
-
     @inlinable @inline(__always)
     static func makeChangeFilterMasks(_ filters: Set<ChangeFilter>) -> [ComponentTag: ChangeFilterMask] {
         guard !filters.isEmpty else { return [:] }
