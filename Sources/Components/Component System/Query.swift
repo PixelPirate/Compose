@@ -70,6 +70,7 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         changeFilters: Set<ChangeFilter>,
         isQueryingForEntityID: Bool
     ) {
+        precondition(Self.hasUniqueQueriedComponents())
         self.backstageComponents = backstageComponents
         self.backstageSignature = ComponentSignature(backstageComponents)
         self.excludedComponents = excludedComponents
@@ -524,22 +525,35 @@ struct ChangeFilterMask: OptionSet, Sendable {
     static let changed = ChangeFilterMask(rawValue: 1 << 1)
 }
 
-extension Query {
+@usableFromInline
+struct ChangeFilterAccessor {
     @usableFromInline
-    struct ChangeFilterAccessor {
-        @usableFromInline
-        let mask: ChangeFilterMask
-        @usableFromInline
-        let indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
-        @usableFromInline
-        let ticks: ContiguousSpan<ComponentTicks>
+    let mask: ChangeFilterMask
+    @usableFromInline
+    let indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
+    @usableFromInline
+    let ticks: ContiguousSpan<ComponentTicks>
 
-        @usableFromInline
-        init(mask: ChangeFilterMask, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>, ticks: ContiguousSpan<ComponentTicks>) {
-            self.mask = mask
-            self.indices = indices
-            self.ticks = ticks
+    @usableFromInline
+    init(mask: ChangeFilterMask, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>, ticks: ContiguousSpan<ComponentTicks>) {
+        self.mask = mask
+        self.indices = indices
+        self.ticks = ticks
+    }
+}
+
+extension Query {
+    @inlinable @inline(__always)
+    static func hasUniqueQueriedComponents() -> Bool {
+        var seen = ComponentSignature()
+        for queried in repeat (each T).self {
+            guard queried.QueriedComponent.componentTag.rawValue > 0 else { continue }
+            guard !seen.contains(queried.QueriedComponent.componentTag) else {
+                return false
+            }
+            seen.append(queried.QueriedComponent.componentTag)
         }
+        return true
     }
 
     @inlinable @inline(__always)

@@ -157,7 +157,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
         keys[componentIndex] = lastComponentSlot
         slots[lastComponentSlot] = componentIndex
         slots[slot] = .notFound
-        return (component: old, componentIndex)
+        return (component: old, denseIndex: componentIndex)
     }
 
     @inlinable @inline(__always) @discardableResult
