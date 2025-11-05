@@ -343,7 +343,7 @@ public struct AnyComponentArray {
 @discardableResult
 @usableFromInline @inline(__always)
 func withTypedBuffers<each C: ComponentResolving, R>(
-    _ pool: inout ComponentPool,
+    _ pool: UnsafePointer<ComponentPool>,
     changeTick: UInt64,
     _ body: (repeat TypedAccess<each C>) throws -> R
 ) rethrows -> R {
@@ -357,7 +357,7 @@ func withTypedBuffers<each C: ComponentResolving, R>(
         guard D.QueriedComponent.self != Never.self else {
             return TypedAccess<D>.empty(changeTick: changeTick)
         }
-        guard let anyArray = pool.components[D.QueriedComponent.componentTag] else {
+        guard let anyArray = pool.pointee.components[D.QueriedComponent.componentTag] else {
             guard D.self is any OptionalQueriedComponent.Type else {
                 fatalError("Unknown component.")
             }

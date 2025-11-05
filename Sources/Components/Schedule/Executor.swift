@@ -83,7 +83,6 @@ public struct UnsafeUncheckedMultiThreadedExecutor: Executor {
 
     @inlinable
     public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
-
         let cores = ProcessInfo.processInfo.processorCount
         let chunkSize = (systems.count + cores - 1) / cores
 

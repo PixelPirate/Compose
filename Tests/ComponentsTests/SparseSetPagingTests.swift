@@ -42,7 +42,7 @@ import Testing
         #expect(storage.slots.values.liveCounts[1] == 4096)
 
         let removedFirstOnLastPage = storage.remove(PagedSlotToDenseConstants.pageSize)
-        #expect(removedFirstOnLastPage == TestComponent(value: PagedSlotToDenseConstants.pageSize))
+        #expect(removedFirstOnLastPage?.component == TestComponent(value: PagedSlotToDenseConstants.pageSize))
         #expect(storage[PagedSlotToDenseConstants.pageSize] == TestComponent(value: total - 1))
         #expect(storage.count == total - 1)
         #expect(storage.slotPages == 2)
@@ -51,7 +51,7 @@ import Testing
         #expect(storage.slots.values.liveCounts[1] == 4095)
 
         let removedCrossPage = storage.remove(PagedSlotToDenseConstants.pageSize - 1)
-        #expect(removedCrossPage == TestComponent(value: PagedSlotToDenseConstants.pageSize - 1))
+        #expect(removedCrossPage?.component == TestComponent(value: PagedSlotToDenseConstants.pageSize - 1))
         #expect(storage[PagedSlotToDenseConstants.pageSize - 1] == TestComponent(value: total - 2))
         #expect(storage.count == total - 2)
         #expect(storage.slotPages == 2)
