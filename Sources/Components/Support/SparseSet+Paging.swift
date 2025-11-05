@@ -483,7 +483,7 @@ public struct ContiguousSpan<Element>: Sequence {
 //        }
 //    }
 
-    @inlinable @inline(__always)
+    @inlinable @inline(__always) @_transparent
     public func makeIterator() -> some IteratorProtocol<Element> {
         assert(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
         let pointer = buffer.unsafelyUnwrapped
@@ -500,13 +500,13 @@ public struct ContiguousSpan<Element>: Sequence {
         @usableFromInline
         private(set) var index: Int = 0
 
-        @usableFromInline @inline(__always)
+        @usableFromInline @inline(__always) @_transparent
         init(pointer: UnsafeMutablePointer<IterationElement>, count: Int) {
             self.pointer = pointer
             self.count = count
         }
 
-        @inlinable @inline(__always)
+        @inlinable @inline(__always) @_transparent
         public mutating func next() -> IterationElement? {
             guard index < count else {
                 return nil
