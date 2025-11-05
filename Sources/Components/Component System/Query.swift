@@ -567,8 +567,7 @@ extension Query {
         prepared.reserveCapacity(changeFilterMasks.count)
         for access in repeat each accessors {
             guard let mask = changeFilterMasks[access.tag] else { continue }
-            guard let ticks = access.ticks else { return nil }
-            prepared[access.tag] = ChangeFilterAccessor(mask: mask, indices: access.indices, ticks: ticks)
+            prepared[access.tag] = ChangeFilterAccessor(mask: mask, indices: access.indices, ticks: access.ticks)
         }
         guard prepared.count == changeFilterMasks.count else { return nil }
         return prepared
@@ -577,8 +576,8 @@ extension Query {
     @inlinable @inline(__always)
     static func passes(
         slot: SlotIndex,
-        otherComponents: [SlotsSpan<ContiguousArray.Index, SlotIndex>],
-        excludedComponents: [SlotsSpan<ContiguousArray.Index, SlotIndex>]
+        otherComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>,
+        excludedComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>
     ) -> Bool {
         for component in otherComponents where component[slot] == .notFound {
             // Entity does not have all required components, skip.
@@ -663,37 +662,45 @@ extension Query {
                 : prepareChangeFilterAccessors((repeat each accessors))
 
             if let fastChangeAccessors {
-                for slot in baseSlots where Self.passes(
-                    slot: slot,
-                    otherComponents: otherComponents,
-                    excludedComponents: excludedComponents
-                ) {
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: isQueryingForEntityID ? indices[slot] : 0
-                    )
-                    guard entitySatisfiesChangeFilters(
-                        context,
-                        systemTickSnapshot: tickSnapshot,
-                        fastAccessors: fastChangeAccessors,
-                        entityID: id
-                    ) else {
-                        continue
-                    }
+                otherComponents.withUnsafeBufferPointer { otherBuffer in
+                    excludedComponents.withUnsafeBufferPointer { excludedBuffer in
+                        for slot in baseSlots where Self.passes(
+                            slot: slot,
+                            otherComponents: otherBuffer,
+                            excludedComponents: excludedBuffer
+                        ) {
+                            let id = Entity.ID(
+                                slot: SlotIndex(rawValue: slot.rawValue),
+                                generation: isQueryingForEntityID ? indices[slot] : 0
+                            )
+                            guard entitySatisfiesChangeFilters(
+                                context,
+                                systemTickSnapshot: tickSnapshot,
+                                fastAccessors: fastChangeAccessors,
+                                entityID: id
+                            ) else {
+                                continue
+                            }
 
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                            handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                        }
+                    }
                 }
             } else {
-                for slot in baseSlots where Self.passes(
-                    slot: slot,
-                    otherComponents: otherComponents,
-                    excludedComponents: excludedComponents
-                ) {
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: isQueryingForEntityID ? indices[slot] : 0
-                    )
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                otherComponents.withUnsafeBufferPointer { otherBuffer in
+                    excludedComponents.withUnsafeBufferPointer { excludedBuffer in
+                        for slot in baseSlots where Self.passes(
+                            slot: slot,
+                            otherComponents: otherBuffer,
+                            excludedComponents: excludedBuffer
+                        ) {
+                            let id = Entity.ID(
+                                slot: SlotIndex(rawValue: slot.rawValue),
+                                generation: isQueryingForEntityID ? indices[slot] : 0
+                            )
+                            handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                        }
+                    }
                 }
             }
         }
