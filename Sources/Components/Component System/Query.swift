@@ -652,26 +652,14 @@ extension Query {
         requiredComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>,
         excludedComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>
     ) -> Bool {
-        if let base = requiredComponents.baseAddress {
-            var pointer = base
-            let end = base.advanced(by: requiredComponents.count)
-            while pointer != end {
-                if pointer.pointee[slot] == .notFound {
-                    return false
-                }
-                pointer = pointer.advanced(by: 1)
-            }
+        for component in requiredComponents where component[slot] == .notFound {
+            // Entity does not have all required components, skip.
+            return false
         }
 
-        if let base = excludedComponents.baseAddress {
-            var pointer = base
-            let end = base.advanced(by: excludedComponents.count)
-            while pointer != end {
-                if pointer.pointee[slot] != .notFound {
-                    return false
-                }
-                pointer = pointer.advanced(by: 1)
-            }
+        for component in excludedComponents where component[slot] != .notFound {
+            // Entity has at least one excluded component, skip.
+            return false
         }
 
         return true
