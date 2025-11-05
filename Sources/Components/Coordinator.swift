@@ -151,7 +151,6 @@ public final class Coordinator {
         }
         setSpawnedSignature(newEntity, signature: signature)
 
-        // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
         pool.ensureSparseSetCount(includes: newEntity)
 
         for component in repeat each components {
@@ -170,11 +169,13 @@ public final class Coordinator {
     @inlinable @inline(__always)
     @discardableResult
     public func spawn() -> Entity.ID {
+        defer {
+            worldVersion &+= 1
+        }
         let newEntity = indices.allocateID()
         let signature = ComponentSignature()
         setSpawnedSignature(newEntity, signature: signature)
 
-        // I could do this and not do the check in the Query. Trades setup time with iteration time. But I couldn't really measure a difference.
         pool.ensureSparseSetCount(includes: newEntity)
 
         return newEntity

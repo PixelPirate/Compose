@@ -319,7 +319,7 @@ extension Query {
 //            entityIDs: entityIDs,
 //            accessors: repeat each accessors
 //        )
-        fatalError()
+        return LazyQuerySequence()
     }
 }
 
@@ -575,14 +575,18 @@ extension Query {
     }
 
     @inlinable @inline(__always)
-    func prepareChangeFilterAccessors(_ accessors: (repeat TypedAccess<each T>)) -> [ComponentTag: ChangeFilterAccessor]? {
+    func prepareChangeFilterAccessors(_ accessors: (repeat TypedAccess<each T>)) -> ContiguousArray<ChangeFilterAccessor>? {
         guard !changeFilterMasks.isEmpty else { return nil }
-        var prepared: [ComponentTag: ChangeFilterAccessor] = [:]
+
+        var prepared: ContiguousArray<ChangeFilterAccessor> = []
         prepared.reserveCapacity(changeFilterMasks.count)
+
         for access in repeat each accessors {
             guard let mask = changeFilterMasks[access.tag] else { continue }
-            prepared[access.tag] = ChangeFilterAccessor(mask: mask, indices: access.indices, ticks: access.ticks)
+            prepared.append(ChangeFilterAccessor(mask: mask, indices: access.indices, ticks: access.ticks))
         }
+
+        // TODO: This is silly, instead throwing stuff away, I should just fill up the missing pieces which are not in the accessors.
         guard prepared.count == changeFilterMasks.count else { return nil }
         return prepared
     }
@@ -590,10 +594,10 @@ extension Query {
     @inlinable @inline(__always)
     static func passes(
         slot: SlotIndex,
-        otherComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>,
+        requiredComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>,
         excludedComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>
     ) -> Bool {
-        for component in otherComponents where component[slot] == .notFound {
+        for component in requiredComponents where component[slot] == .notFound {
             // Entity does not have all required components, skip.
             return false
         }
@@ -626,32 +630,42 @@ extension Query {
     @inlinable @inline(__always)
     func satisfiesChangeFiltersFast(
         systemTickSnapshot: Coordinator.SystemTickSnapshot?,
-        changeAccessors: [ComponentTag: ChangeFilterAccessor],
+        changeAccessors: ContiguousArray<ChangeFilterAccessor>,
         entityID: Entity.ID
     ) -> Bool {
         guard !changeFilterMasks.isEmpty else { return true }
         guard let snapshot = systemTickSnapshot else { return false }
         guard changeAccessors.count == changeFilterMasks.count else { return false }
 
-        for accessor in changeAccessors.values {
-            let denseIndex = accessor.indices[entityID.slot]
-            guard denseIndex != .notFound else { return false }
-            let ticks = accessor.ticks[denseIndex]
-            if accessor.mask.contains(.added) && !ticks.isAdded(since: snapshot.lastRun, upTo: snapshot.thisRun) {
-                return false
+        let addedMask = ChangeFilterMask.added.rawValue
+        let changedMask = ChangeFilterMask.changed.rawValue
+
+        return changeAccessors.withUnsafeBufferPointer { accessors in
+            var index = 0
+            while index < accessors.count {
+                let accessor = accessors[index]
+                let denseIndex = accessor.indices[entityID.slot]
+                guard denseIndex != .notFound else { return false }
+                let ticksPointer = accessor.ticks.mutablePointer(at: denseIndex)
+                let ticks = ticksPointer.pointee
+                let mask = accessor.mask.rawValue
+                if mask & addedMask != 0 && !ticks.isAdded(since: snapshot.lastRun, upTo: snapshot.thisRun) {
+                    return false
+                }
+                if mask & changedMask != 0 && !ticks.isChanged(since: snapshot.lastRun, upTo: snapshot.thisRun) {
+                    return false
+                }
+                index &+= 1
             }
-            if accessor.mask.contains(.changed) && !ticks.isChanged(since: snapshot.lastRun, upTo: snapshot.thisRun) {
-                return false
-            }
+            return true
         }
-        return true
     }
 
     @inlinable @inline(__always)
     func entitySatisfiesChangeFilters(
         _ context: QueryContext,
         systemTickSnapshot: Coordinator.SystemTickSnapshot?,
-        fastAccessors: [ComponentTag: ChangeFilterAccessor],
+        fastAccessors: ContiguousArray<ChangeFilterAccessor>,
         entityID: Entity.ID
     ) -> Bool {
         guard !changeFilterMasks.isEmpty else { return true }
@@ -680,7 +694,7 @@ extension Query {
                     excludedComponents.withUnsafeBufferPointer { excludedBuffer in
                         for slot in baseSlots where Self.passes(
                             slot: slot,
-                            otherComponents: otherBuffer,
+                            requiredComponents: otherBuffer,
                             excludedComponents: excludedBuffer
                         ) {
                             let id = Entity.ID(
@@ -705,7 +719,7 @@ extension Query {
                     excludedComponents.withUnsafeBufferPointer { excludedBuffer in
                         for slot in baseSlots where Self.passes(
                             slot: slot,
-                            otherComponents: otherBuffer,
+                            requiredComponents: otherBuffer,
                             excludedComponents: excludedBuffer
                         ) {
                             let id = Entity.ID(
