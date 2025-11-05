@@ -42,31 +42,6 @@ public struct QueryHash: Hashable {
 }
 
 @usableFromInline
-struct SparseQueryPlan {
-    @usableFromInline
-    let base: ContiguousSpan<SlotIndex>
-    @usableFromInline
-    let others: [SlotsSpan<ContiguousArray.Index, SlotIndex>] // entityToComponents maps
-    @usableFromInline
-    let excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>]
-    @usableFromInline
-    let version: UInt64
-
-    @usableFromInline
-    init(
-        base: ContiguousSpan<SlotIndex>,
-        others: [SlotsSpan<ContiguousArray.Index, SlotIndex>],
-        excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>],
-        version: UInt64
-    ) {
-        self.base = base
-        self.others = others
-        self.excluded = excluded
-        self.version = version
-    }
-}
-
-@usableFromInline
 struct SignatureQueryPlan {
     @usableFromInline
     let base: ContiguousSpan<SlotIndex>

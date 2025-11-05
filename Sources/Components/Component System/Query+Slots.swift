@@ -1,40 +1,5 @@
 extension Query {
     @usableFromInline @inline(__always)
-    internal func getCachedArrays(_ coordinator: Coordinator)
-    -> (base: ContiguousSpan<SlotIndex>, others: [SlotsSpan<ContiguousArray.Index, SlotIndex>], excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>])
-    {
-        coordinator.sparseQueryCacheLock.lock()
-        if
-            let cached = coordinator.sparseQueryCache[hash],
-            cached.version == coordinator.worldVersion
-        {
-            coordinator.sparseQueryCacheLock.unlock()
-            return (
-                cached.base,
-                cached.others,
-                cached.excluded
-            )
-        } else {
-            coordinator.sparseQueryCacheLock.unlock()
-            let new = coordinator.pool.baseAndOthers(
-                repeat (each T).self,
-                included: backstageComponents,
-                excluded: excludedComponents
-            )
-            let newPlan = SparseQueryPlan(
-                base: new.base,
-                others: new.others,
-                excluded: new.excluded,
-                version: coordinator.worldVersion
-            )
-            coordinator.sparseQueryCacheLock.lock()
-            coordinator.sparseQueryCache[hash] = newPlan
-            coordinator.sparseQueryCacheLock.unlock()
-            return new
-        }
-    }
-
-    @usableFromInline @inline(__always)
     internal func getCachedBaseSlots(_ coordinator: Coordinator) -> ContiguousSpan<SlotIndex> {
         coordinator.signatureQueryCacheLock.lock()
         if

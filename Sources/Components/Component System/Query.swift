@@ -264,7 +264,6 @@ extension Query {
     @inlinable @inline(__always)
     public func fetchOne(_ context: some QueryContextConvertible) -> (repeat (each T).ReadOnlyResolvedType)? {
         let context = context.queryContext
-        let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
         let tickSnapshot = context.systemTickSnapshot
 
         return withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
@@ -561,6 +560,55 @@ extension Query {
     }
 
     @inlinable @inline(__always)
+    func makeSlotSpans(_ coordinator: Coordinator) -> ([SlotsSpan<ContiguousArray.Index, SlotIndex>], [SlotsSpan<ContiguousArray.Index, SlotIndex>])? {
+        var requiredCapacity = backstageComponents.count
+        for component in repeat (each T).self {
+            if component is any OptionalQueriedComponent.Type { continue }
+            if component == WithEntityID.self { continue }
+            if component.QueriedComponent.self == Never.self { continue }
+            requiredCapacity &+= 1
+        }
+
+        var required: [SlotsSpan<ContiguousArray.Index, SlotIndex>] = []
+        required.reserveCapacity(requiredCapacity)
+
+        func appendRequired(for tag: ComponentTag) -> Bool {
+            guard let array = coordinator.pool.components[tag], !array.componentsToEntites.isEmpty else {
+                return false
+            }
+            required.append(array.entityToComponents)
+            return true
+        }
+
+        for component in repeat (each T).self {
+            if component is any OptionalQueriedComponent.Type { continue }
+            if component == WithEntityID.self { continue }
+            if component.QueriedComponent.self == Never.self { continue }
+            guard appendRequired(for: component.QueriedComponent.componentTag) else {
+                return nil
+            }
+        }
+
+        for tag in backstageComponents {
+            guard appendRequired(for: tag) else {
+                return nil
+            }
+        }
+
+        var excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>] = []
+        excluded.reserveCapacity(excludedComponents.count)
+
+        for tag in excludedComponents {
+            guard let array = coordinator.pool.components[tag], !array.componentsToEntites.isEmpty else {
+                continue
+            }
+            excluded.append(array.entityToComponents)
+        }
+
+        return (required, excluded)
+    }
+
+    @inlinable @inline(__always)
     func prepareChangeFilterAccessors(_ accessors: (repeat TypedAccess<each T>)) -> [ComponentTag: ChangeFilterAccessor]? {
         guard !changeFilterMasks.isEmpty else { return nil }
         var prepared: [ComponentTag: ChangeFilterAccessor] = [:]
@@ -577,16 +625,29 @@ extension Query {
     @inlinable @inline(__always)
     static func passes(
         slot: SlotIndex,
-        otherComponents: [SlotsSpan<ContiguousArray.Index, SlotIndex>],
-        excludedComponents: [SlotsSpan<ContiguousArray.Index, SlotIndex>]
+        requiredComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>,
+        excludedComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>
     ) -> Bool {
-        for component in otherComponents where component[slot] == .notFound {
-            // Entity does not have all required components, skip.
-            return false
+        if let base = requiredComponents.baseAddress {
+            var pointer = base
+            let end = base.advanced(by: requiredComponents.count)
+            while pointer != end {
+                if pointer.pointee[slot] == .notFound {
+                    return false
+                }
+                pointer = pointer.advanced(by: 1)
+            }
         }
-        for component in excludedComponents where component[slot] != .notFound {
-            // Entity has at least one excluded component, skip.
-            return false
+
+        if let base = excludedComponents.baseAddress {
+            var pointer = base
+            let end = base.advanced(by: excludedComponents.count)
+            while pointer != end {
+                if pointer.pointee[slot] != .notFound {
+                    return false
+                }
+                pointer = pointer.advanced(by: 1)
+            }
         }
 
         return true
@@ -652,48 +713,54 @@ extension Query {
     @inlinable @inline(__always)
     public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
-        let (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
+        let baseSlots = getCachedBaseSlots(context.coordinator)
+        guard !baseSlots.isEmpty else { return }
+        guard let (requiredComponents, excludedComponents) = makeSlotSpans(context.coordinator) else { return }
         // TODO: Use RigidArray or TailAllocated here
 
         let tickSnapshot = context.systemTickSnapshot
         let indices = context.coordinator.indices.generationView
-        withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-            let fastChangeAccessors = changeFilterMasks.isEmpty
-                ? nil
-                : prepareChangeFilterAccessors((repeat each accessors))
+        requiredComponents.withUnsafeBufferPointer { requiredBuffer in
+            excludedComponents.withUnsafeBufferPointer { excludedBuffer in
+                withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+                    let fastChangeAccessors = changeFilterMasks.isEmpty
+                        ? nil
+                        : prepareChangeFilterAccessors((repeat each accessors))
 
-            if let fastChangeAccessors {
-                for slot in baseSlots where Self.passes(
-                    slot: slot,
-                    otherComponents: otherComponents,
-                    excludedComponents: excludedComponents
-                ) {
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: isQueryingForEntityID ? indices[slot] : 0
-                    )
-                    guard entitySatisfiesChangeFilters(
-                        context,
-                        systemTickSnapshot: tickSnapshot,
-                        fastAccessors: fastChangeAccessors,
-                        entityID: id
-                    ) else {
-                        continue
+                    if let fastChangeAccessors {
+                        for slot in baseSlots where Self.passes(
+                            slot: slot,
+                            requiredComponents: requiredBuffer,
+                            excludedComponents: excludedBuffer
+                        ) {
+                            let id = Entity.ID(
+                                slot: SlotIndex(rawValue: slot.rawValue),
+                                generation: isQueryingForEntityID ? indices[slot] : 0
+                            )
+                            guard entitySatisfiesChangeFilters(
+                                context,
+                                systemTickSnapshot: tickSnapshot,
+                                fastAccessors: fastChangeAccessors,
+                                entityID: id
+                            ) else {
+                                continue
+                            }
+
+                            handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                        }
+                    } else {
+                        for slot in baseSlots where Self.passes(
+                            slot: slot,
+                            requiredComponents: requiredBuffer,
+                            excludedComponents: excludedBuffer
+                        ) {
+                            let id = Entity.ID(
+                                slot: SlotIndex(rawValue: slot.rawValue),
+                                generation: isQueryingForEntityID ? indices[slot] : 0
+                            )
+                            handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
+                        }
                     }
-
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
-                }
-            } else {
-                for slot in baseSlots where Self.passes(
-                    slot: slot,
-                    otherComponents: otherComponents,
-                    excludedComponents: excludedComponents
-                ) {
-                    let id = Entity.ID(
-                        slot: SlotIndex(rawValue: slot.rawValue),
-                        generation: isQueryingForEntityID ? indices[slot] : 0
-                    )
-                    handler(repeat (each T).makeResolved(access: each accessors, entityID: id))
                 }
             }
         }

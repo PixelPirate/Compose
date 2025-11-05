@@ -39,11 +39,6 @@ public final class Coordinator {
     internal let signatureQueryCacheLock = OSAllocatedUnfairLock() // TODO: Instead of these locks: Explore atomic pointer swap.
 
     @usableFromInline
-    var sparseQueryCache: [QueryHash: SparseQueryPlan] = [:]
-    @usableFromInline
-    internal let sparseQueryCacheLock = OSAllocatedUnfairLock()
-
-    @usableFromInline
     var slotsQueryCache: [QueryHash: SlotsQueryPlan] = [:]
     @usableFromInline
     internal let slotsQueryCacheLock = OSAllocatedUnfairLock()
