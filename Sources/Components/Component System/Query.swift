@@ -601,10 +601,10 @@ extension Query {
     @inlinable @inline(__always)
     static func passes(
         slot: SlotIndex,
-        otherComponents: [SlotsSpan<ContiguousArray.Index, SlotIndex>],
-        excludedComponents: [SlotsSpan<ContiguousArray.Index, SlotIndex>]
+        requiredComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>,
+        excludedComponents: UnsafeBufferPointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>
     ) -> Bool {
-        for component in otherComponents where component[slot] == .notFound {
+        for component in requiredComponents where component[slot] == .notFound {
             // Entity does not have all required components, skip.
             return false
         }
