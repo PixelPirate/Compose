@@ -616,6 +616,25 @@ extension Query {
         return true
     }
 
+    @inlinable @inline(__always) @_transparent
+    static func passesMembership(
+        _ slot: SlotIndex,
+        otherBuffer: UnsafeBufferPointer<SlotsSpan<Int, SlotIndex>>,
+        otherCount: Int,
+        excludedBuffer: UnsafeBufferPointer<SlotsSpan<Int, SlotIndex>>,
+        excludedCount: Int
+    ) -> Bool {
+        for index in Range(uncheckedBounds: (0, otherCount)) where otherBuffer[index][slot] == .notFound {
+            return false
+        }
+
+        for index in Range(uncheckedBounds: (0, excludedCount)) where excludedBuffer[index][slot] != .notFound {
+            return false
+        }
+
+        return true
+    }
+
     @inlinable @inline(__always)
     func satisfiesChangeFilters(_ context: QueryContext, entityID: Entity.ID) -> Bool {
         guard !changeFilterMasks.isEmpty else { return true }
@@ -710,43 +729,41 @@ extension Query {
 
             otherComponents.withUnsafeBufferPointer { otherBuffer in
                 excludedComponents.withUnsafeBufferPointer { excludedBuffer in
-                    @inline(__always)
-                    func passesMembership(_ slot: SlotIndex) -> Bool {
-                        var index = 0
-                        while index < otherCount {
-                            if otherBuffer[index][slot] == .notFound {
-                                return false
-                            }
-                            index &+= 1
-                        }
-
-                        var excludedIndex = 0
-                        while excludedIndex < excludedCount {
-                            if excludedBuffer[excludedIndex][slot] != .notFound {
-                                return false
-                            }
-                            excludedIndex &+= 1
-                        }
-
-                        return true
-                    }
-
                     switch strategy {
                     case .none:
-                        var baseIndex = 0
-                        while baseIndex < baseCount {
-                            let slot = basePointer.advanced(by: baseIndex).pointee
-                            baseIndex &+= 1
+                        @inline(__always) @_transparent
+                        func run(_ id: (SlotIndex) -> Entity.ID) {
+                            var baseIndex = 0
+                            while baseIndex < baseCount {
+                                let slot = basePointer.advanced(by: baseIndex).pointee
+                                baseIndex &+= 1
 
-                            guard passesMembership(slot) else { continue }
+                                guard Self.passesMembership(
+                                    slot,
+                                    otherBuffer: otherBuffer,
+                                    otherCount: otherCount,
+                                    excludedBuffer: excludedBuffer,
+                                    excludedCount: excludedCount
+                                ) else {
+                                    continue
+                                }
 
-                            let generation = indicesPointer.advanced(by: slot.rawValue).pointee
-                            let entityID = Entity.ID(
-                                slot: slot,
-                                generation: isQueryingForEntityID ? generation : 0
-                            )
+                                let entityID = id(slot)
 
-                            handler(repeat (each T).makeResolved(access: each accessors, entityID: entityID))
+                                handler(repeat (each T).makeResolved(access: each accessors, entityID: entityID))
+                            }
+                        }
+                        if isQueryingForEntityID {
+                            run {
+                                Entity.ID(
+                                    slot: $0,
+                                    generation: indicesPointer.advanced(by: $0.rawValue).pointee
+                                )
+                            }
+                        } else {
+                            run {
+                                Entity.ID(slot: $0, generation: 0)
+                            }
                         }
 
                     case .fast(let fastChangeAccessors):
@@ -789,7 +806,15 @@ extension Query {
                                 let slot = basePointer.advanced(by: baseIndex).pointee
                                 baseIndex &+= 1
 
-                                guard passesMembership(slot) else { continue }
+                                guard Self.passesMembership(
+                                    slot,
+                                    otherBuffer: otherBuffer,
+                                    otherCount: otherCount,
+                                    excludedBuffer: excludedBuffer,
+                                    excludedCount: excludedCount
+                                ) else {
+                                    continue
+                                }
                                 guard passesChangeFilters(slot) else { continue }
 
                                 let generation = indicesPointer.advanced(by: slot.rawValue).pointee
@@ -808,7 +833,15 @@ extension Query {
                             let slot = basePointer.advanced(by: baseIndex).pointee
                             baseIndex &+= 1
 
-                            guard passesMembership(slot) else { continue }
+                            guard Self.passesMembership(
+                                slot,
+                                otherBuffer: otherBuffer,
+                                otherCount: otherCount,
+                                excludedBuffer: excludedBuffer,
+                                excludedCount: excludedCount
+                            ) else {
+                                continue
+                            }
 
                             let generation = indicesPointer.advanced(by: slot.rawValue).pointee
                             let fullID = Entity.ID(slot: slot, generation: generation)
