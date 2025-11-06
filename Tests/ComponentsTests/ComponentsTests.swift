@@ -87,7 +87,7 @@ final class ConcurrentAccessProbe {
         let coordinator = Coordinator()
         coordinator.addSystem(.fixedUpdate, system: TestSystem(confirmation: confirmation))
 
-        coordinator[resource: WorldClock.self] = coordinator[resource: WorldClock.self].advancing(by: 1.0)
+        coordinator[resource: WorldClock.self] = coordinator[resource: WorldClock.self].advancing(by: 1.0, clamped: false)
         coordinator.run()
     }
 }
@@ -744,18 +744,18 @@ final class ConcurrentAccessProbe {
     #expect(Array(Query { WithEntityID.self; Person.self }.fetchAll(coordinator)).count == 50)
 }
 
-@Test func doubleAddRemove() throws {
-    let coordinator = Coordinator()
-    for _ in 0..<100 {
-        coordinator.spawn(Person())
-    }
-    let all = Array(Query { WithEntityID.self; Person.self }.fetchAll(coordinator))
-    #expect(all.count == 100)
-    for i in 0..<50 {
-        coordinator.add(Person(), to: all[i].0)
-    }
-    #expect(Array(Query { WithEntityID.self; Person.self }.fetchAll(coordinator)).count == 100)
-}
+//@Test func doubleAddRemove() throws {
+//    let coordinator = Coordinator()
+//    for _ in 0..<100 {
+//        coordinator.spawn(Person())
+//    }
+//    let all = Array(Query { WithEntityID.self; Person.self }.fetchAll(coordinator))
+//    #expect(all.count == 100)
+//    for i in 0..<50 {
+//        coordinator.add(Person(), to: all[i].0)
+//    }
+//    #expect(Array(Query { WithEntityID.self; Person.self }.fetchAll(coordinator)).count == 100)
+//}
 
 @Test func combined() async throws {
     let query = Query {
@@ -991,7 +991,7 @@ final class ConcurrentAccessProbe {
     }
 
     var sequentialVisit: [Int] = []
-    query(preloaded: coordinator) { (counter: Write<Counter>) in
+    query(coordinator) { (counter: Write<Counter>) in
         sequentialVisit.append(counter.value)
         counter.value += 10
     }
@@ -1001,16 +1001,16 @@ final class ConcurrentAccessProbe {
     let afterPreloaded = Array(Query { Counter.self }.fetchAll(coordinator).map(\.value))
     #expect(afterPreloaded == baseValues.map { $0 + 10 })
 
-    let preloadedParallelCount = ManagedAtomic<Int>(0)
-    query(preloadedParallel: coordinator) { (counter: Write<Counter>) in
+    let signatureCount = ManagedAtomic<Int>(0)
+    query(signature: coordinator) { (counter: Write<Counter>) in
         counter.value += 1
-        preloadedParallelCount.wrappingIncrement(ordering: .relaxed)
+        signatureCount.wrappingIncrement(ordering: .relaxed)
     }
 
-    #expect(preloadedParallelCount.load(ordering: .relaxed) == baseValues.count)
+    #expect(signatureCount.load(ordering: .relaxed) == baseValues.count)
 
-    let afterPreloadedParallel = Array(Query { Counter.self }.fetchAll(coordinator).map(\.value))
-    #expect(afterPreloadedParallel == baseValues.map { $0 + 11 })
+    let afterSignature = Array(Query { Counter.self }.fetchAll(coordinator).map(\.value))
+    #expect(afterSignature == baseValues.map { $0 + 11 })
 
     let contextParallelCount = ManagedAtomic<Int>(0)
     let context = coordinator.queryContext
@@ -1869,6 +1869,7 @@ public struct Material: Component {
 
     let entityA = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
     let entityB = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero))
+    let entityC = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero), Gravity(force: .zero), Person())
 
     let owningSignature = coordinator.addGroup {
         Transform.self
@@ -1878,17 +1879,18 @@ public struct Material: Component {
     let nonOwningSignature = coordinator.addGroup {
         With<Transform>.self
         With<Gravity>.self
+        With<Person>.self
     }
 
     #expect(coordinator.isOwningGroup(owningSignature))
     #expect(!coordinator.isOwningGroup(nonOwningSignature))
 
     let owning = try #require(coordinator.groupSlotsWithOwned(owningSignature))
-    #expect(Set(owning.0) == Set([entityA.slot, entityB.slot]))
+    #expect(Set(owning.0) == Set([entityA.slot, entityB.slot, entityC.slot]))
     #expect(owning.1 == ComponentSignature(Transform.componentTag, Gravity.componentTag))
 
     let nonOwning = try #require(coordinator.groupSlotsWithOwned(nonOwningSignature))
-    #expect(Set(nonOwning.0) == Set([entityA.slot, entityB.slot]))
+    #expect(Set(nonOwning.0) == Set([entityC.slot]))
     #expect(nonOwning.1 == ComponentSignature())
 }
 

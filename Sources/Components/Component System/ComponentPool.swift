@@ -267,6 +267,7 @@ extension ComponentPool {
                     excludedArrays.map(\.entityToComponents)
                 )
             } else {
+                // TODO: It's possible to have a purely optional query. This would land here, but the use case is weird.
                 return (.empty, [], [])
             }
         }

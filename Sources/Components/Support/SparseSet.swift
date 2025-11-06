@@ -1,16 +1,16 @@
 public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, RandomAccessCollection {
     public struct DenseSpan {
         @usableFromInline
-        let span: ContiguousDense<Component>.Span
+        let span: ContiguousDense<Component>.MutableSpan
 
         @usableFromInline @_transparent
-        init(span: ContiguousDense<Component>.Span) {
+        init(span: ContiguousDense<Component>.MutableSpan) {
             self.span = span
         }
 
         @usableFromInline @_transparent
         init() {
-            self.span = ContiguousDense<Component>.Span(view: UnsafeMutableBufferPointer<Component>(start: nil, count: 0), count: 0)
+            self.span = ContiguousDense<Component>.MutableSpan(view: UnsafeMutableBufferPointer<Component>(start: nil, count: 0), count: 0)
         }
 
         @inlinable @_transparent
@@ -108,7 +108,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     @inlinable @_transparent
     public var view: DenseSpan {
         _read {
-            yield DenseSpan(span: storage.view)
+            yield DenseSpan(span: storage.mutableView)
         }
     }
 
@@ -130,7 +130,7 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 
     @inlinable @inline(__always)
     public mutating func append(_ component: Component, to slot: SlotIndex) {
-        precondition(componentIndex(slot) == .notFound)
+        precondition(componentIndex(slot) == .notFound, "Component already exists on entity.")
         storage.append(component)
         keys.append(slot)
         slots[slot] = storage.count - 1

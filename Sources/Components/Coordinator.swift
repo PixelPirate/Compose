@@ -17,6 +17,25 @@ public struct ResourceKey: Hashable, Sendable {
     }
 }
 
+@usableFromInline
+struct ComponentSignaturesSpan {
+    @usableFromInline
+    let pointer: UnsafePointer<ComponentSignature>
+
+    @inlinable @_transparent
+    init(pointer: UnsafePointer<ComponentSignature>) {
+        self.pointer = pointer
+    }
+
+    @inlinable @inline(__always)
+    subscript(_ index: SlotIndex) -> ComponentSignature {
+        @inlinable @_transparent
+        unsafeAddress {
+            pointer.advanced(by: index.rawValue)
+        }
+    }
+}
+
 public final class Coordinator {
     @usableFromInline
     var pool = ComponentPool()
@@ -101,12 +120,29 @@ public final class Coordinator {
     public struct SystemTickSnapshot: Sendable {
         public let lastRun: UInt64
         public let thisRun: UInt64
+
+        @inlinable @inline(__always)
+        init(lastRun: UInt64, thisRun: UInt64) {
+            self.lastRun = lastRun
+            self.thisRun = thisRun
+        }
+
+        @inline(__always)
+        public static let never = SystemTickSnapshot(lastRun: .max, thisRun: .min)
     }
 
     @inlinable @inline(__always)
     public subscript(signatureFor slot: SlotIndex) -> ComponentSignature {
         _read {
             yield entitySignatures[slot.rawValue]
+        }
+    }
+
+    @inlinable @inline(__always)
+    var entitySignaturesView: ComponentSignaturesSpan {
+        @inlinable @inline(__always)
+        _read {
+            yield ComponentSignaturesSpan(pointer: entitySignatures.withUnsafeBufferPointer { $0.baseAddress.unsafelyUnwrapped })
         }
     }
 

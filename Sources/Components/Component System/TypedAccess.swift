@@ -1,7 +1,7 @@
 public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     @usableFromInline internal var pointer: SparseSet<C.QueriedComponent, SlotIndex>.DenseSpan
     @usableFromInline internal var indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
-    @usableFromInline internal var ticks: ContiguousSpan<ComponentTicks>
+    @usableFromInline internal var ticks: MutableContiguousSpan<ComponentTicks>
     @usableFromInline internal let changeTick: UInt64
     @usableFromInline internal let tag: ComponentTag
 
@@ -9,7 +9,7 @@ public struct TypedAccess<C: ComponentResolving>: @unchecked Sendable {
     init(
         pointer: SparseSet<C.QueriedComponent, SlotIndex>.DenseSpan,
         indices: SlotsSpan<ContiguousArray.Index, SlotIndex>,
-        ticks: ContiguousSpan<ComponentTicks>,
+        ticks: MutableContiguousSpan<ComponentTicks>,
         changeTick: UInt64
     ) {
         self.pointer = pointer
@@ -117,7 +117,7 @@ extension TypedAccess {
             indices: SlotsSpan(
                 view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
             ),
-            ticks: ContiguousSpan(buffer: nil, count: 0),
+            ticks: MutableContiguousSpan(buffer: nil, count: 0),
             changeTick: changeTick
         )
     }

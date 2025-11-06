@@ -119,10 +119,10 @@ public struct ComponentArray<C: Component> {
     }
 
     @inlinable @_transparent
-    var tickView: ContiguousSpan<ComponentTicks> {
+    var tickView: MutableContiguousSpan<ComponentTicks> {
         @_transparent
         _read {
-            yield ticks.view
+            yield ticks.mutableView
         }
     }
 }
@@ -140,6 +140,9 @@ public protocol AnyComponentArrayBox: AnyObject {
     var entityToComponents: SlotsSpan<ContiguousArray.Index, SlotIndex> { get }
 
     @inlinable @inline(__always)
+    var ticks: MutableContiguousSpan<ComponentTicks> { get }
+
+    @inlinable @inline(__always)
     var componentsToEntites: ContiguousSpan<SlotIndex> { get }
 
     @inlinable @inline(__always)
@@ -154,7 +157,11 @@ public protocol AnyComponentArrayBox: AnyObject {
     @inlinable @inline(__always)
     func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (SparseSet<C, SlotIndex>.DenseSpan, SlotsSpan<ContiguousArray.Index, SlotIndex>, ContiguousSpan<ComponentTicks>) throws -> Result
+        _ body: (SparseSet<C, SlotIndex>.DenseSpan, SlotsSpan<ContiguousArray.Index, SlotIndex>, MutableContiguousSpan<ComponentTicks>) throws -> Result
+    ) rethrows -> Result
+
+    func withIndices<Result>(
+        _ body: (SlotsSpan<ContiguousArray.Index, SlotIndex>, MutableContiguousSpan<ComponentTicks>) throws -> Result
     ) rethrows -> Result
 
     @inlinable @inline(__always)
@@ -210,6 +217,13 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     }
 
     @inlinable @inline(__always)
+    var ticks: MutableContiguousSpan<ComponentTicks> {
+        _read {
+            yield base.tickView
+        }
+    }
+
+    @inlinable @inline(__always)
     func ensureEntity(_ entityID: Entity.ID) {
         base.ensureEntity(entityID)
     }
@@ -227,12 +241,19 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     @inlinable @inline(__always)
     func withBuffer<C1: Component, Result>(
         _ of: C1.Type,
-        _ body: (SparseSet<C1, SlotIndex>.DenseSpan, SlotsSpan<ContiguousArray.Index, SlotIndex>, ContiguousSpan<ComponentTicks>) throws -> Result
+        _ body: (SparseSet<C1, SlotIndex>.DenseSpan, SlotsSpan<ContiguousArray.Index, SlotIndex>, MutableContiguousSpan<ComponentTicks>) throws -> Result
     ) rethrows -> Result {
         precondition(C1.self == C.self, "Mismatched component type access.")
         let typed = unsafeDowncast(self, to: ComponentArrayBox<C1>.self)
         let indices = typed.entityToComponents
         return try body(typed.base.view, indices, typed.base.tickView)
+    }
+
+    @inlinable @inline(__always)
+    func withIndices<Result>(
+        _ body: (SlotsSpan<ContiguousArray.Index, SlotIndex>, MutableContiguousSpan<ComponentTicks>) throws -> Result
+    ) rethrows -> Result {
+        try body(entityToComponents, ticks)
     }
 
     @inlinable @inline(__always)
@@ -304,9 +325,16 @@ public struct AnyComponentArray {
     @inlinable @inline(__always)
     public func withBuffer<C: Component, Result>(
         _ of: C.Type,
-        _ body: (SparseSet<C, SlotIndex>.DenseSpan, SlotsSpan<ContiguousArray.Index, SlotIndex>, ContiguousSpan<ComponentTicks>) throws -> Result
+        _ body: (SparseSet<C, SlotIndex>.DenseSpan, SlotsSpan<ContiguousArray.Index, SlotIndex>, MutableContiguousSpan<ComponentTicks>) throws -> Result
     ) rethrows -> Result {
         try base.withBuffer(of, body)
+    }
+
+    @inlinable @inline(__always)
+    public func withIndices<Result>(
+        _ body: (SlotsSpan<ContiguousArray.Index, SlotIndex>, MutableContiguousSpan<ComponentTicks>) throws -> Result
+    ) rethrows -> Result {
+        try self.base.withIndices(body)
     }
 
     @usableFromInline @inline(__always)

@@ -1,4 +1,4 @@
-public struct LazyQuerySequence<each T: ComponentResolving>: Sequence {
+public struct LazyQuerySequence<each T: ComponentResolving>: Sequence { // TODO: Should this also conform to IteratorProtocol? Would make it more ergonomic, but can't iterate a second time anymore.
     @usableFromInline
     internal let entityIDs: [Entity.ID]
 

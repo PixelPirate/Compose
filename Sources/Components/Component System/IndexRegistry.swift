@@ -43,12 +43,22 @@ struct IndexRegistry {
 
     @inlinable @inline(__always)
     var liveEntities: [Entity.ID] {
-        (0..<nextID.rawValue)
+        (0..<nextID.rawValue) // TODO: Use `liveIDs`
             .lazy
             .filter { rawSlot in
                 !freeIDs.contains(SlotIndex(rawValue: rawSlot))
             }
             .map { Entity.ID(slot: SlotIndex(rawValue: $0), generation: generation[$0]) }
+    }
+
+    @inlinable @inline(__always)
+    var liveSlots: [SlotIndex] {
+        (0..<nextID.rawValue) // TODO: Use `liveIDs`
+            .lazy
+            .filter { rawSlot in
+                !freeIDs.contains(SlotIndex(rawValue: rawSlot))
+            }
+            .map { SlotIndex(rawValue: $0) }
     }
 
     @inlinable @inline(__always)

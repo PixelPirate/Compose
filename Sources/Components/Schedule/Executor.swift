@@ -18,8 +18,7 @@ public struct SingleThreadedExecutor: Executor {
         let systems = systemCache.cached(systems)
 
         for system in systems {
-            let ticks = coordinator.prepareSystemTickSnapshot(for: system.metadata.id)
-            let context = QueryContext(coordinator: coordinator, systemTicks: ticks)
+            let context = QueryContext(coordinator: coordinator, systemID: system.metadata.id)
             system.run(context: context, commands: &commands)
         }
     }
@@ -61,8 +60,7 @@ public struct MultiThreadedExecutor: Executor {
 
                 for (index, system) in send.value[start..<end].enumerated() {
                     var commands = localCommands[start+index]
-                    let ticks = coordinator.prepareSystemTickSnapshot(for: system.metadata.id)
-                    let context = QueryContext(coordinator: coordinator, systemTicks: ticks)
+                    let context = QueryContext(coordinator: coordinator, systemID: system.metadata.id)
                     system.run(context: context, commands: &commands)
                     localCommands[start+index] = commands
                 }
@@ -95,8 +93,7 @@ public struct UnsafeUncheckedMultiThreadedExecutor: Executor {
 
             for (index, system) in send.value[start..<end].enumerated() {
                 var commands = localCommands[start+index]
-                let ticks = coordinator.prepareSystemTickSnapshot(for: system.metadata.id)
-                let context = QueryContext(coordinator: coordinator, systemTicks: ticks)
+                let context = QueryContext(coordinator: coordinator, systemID: system.metadata.id)
                 system.run(context: context, commands: &commands)
                 localCommands[start+index] = commands
             }

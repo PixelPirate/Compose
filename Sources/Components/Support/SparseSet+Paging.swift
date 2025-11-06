@@ -416,6 +416,115 @@ struct PagedDense<Element> {
 
 public struct ContiguousSpan<Element>: Sequence {
     @usableFromInline
+    let buffer: UnsafePointer<Element>?
+
+    @usableFromInline
+    let count: Int
+
+    @inlinable @inline(__always)
+    init(view base: UnsafeBufferPointer<Element>, count: Int) {
+        buffer = base.baseAddress
+        self.count = count
+    }
+
+    @inlinable @inline(__always)
+    init(view base: UnsafeMutableBufferPointer<Element>, count: Int) {
+        buffer = UnsafeBufferPointer(base).baseAddress
+        self.count = count
+    }
+
+    @inlinable @inline(__always)
+    init(buffer: UnsafePointer<Element>?, count: Int) {
+        self.buffer = buffer
+        self.count = count
+    }
+
+    @inlinable @inline(__always)
+    static var empty: Self {
+        ContiguousSpan(view: UnsafeBufferPointer<Element>(start: nil, count: 0), count: 0)
+    }
+
+    @inlinable @_transparent
+    var isEmpty: Bool {
+        count == 0
+    }
+
+    @inlinable @_transparent
+    public func pointer(at index: Int) -> UnsafePointer<Element> {
+        assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+        assert(index < count, "Index \(index) out of bounds (Count is \(count)).")
+        return buffer.unsafelyUnwrapped.advanced(by: index)
+    }
+
+    @inlinable @inline(__always)
+    public subscript(index: Int) -> Element {
+        @_transparent
+        unsafeAddress {
+            pointer(at: index)
+        }
+    }
+
+    @inlinable @inline(__always)
+    public subscript(range: PartialRangeUpTo<Int>) -> ContiguousSpan<Element> {
+        @_transparent
+        _read {
+            assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+            yield ContiguousSpan(
+                buffer: buffer,
+                count: range.upperBound
+            )
+        }
+    }
+
+    @inlinable @inline(__always)
+    public subscript(range: Range<Int>) -> ContiguousSpan<Element> {
+        @_transparent
+        _read {
+            assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+            yield ContiguousSpan(
+                buffer: buffer?.advanced(by: range.lowerBound),
+                count: range.count
+            )
+        }
+    }
+
+    @inlinable @inline(__always) @_transparent
+    public func makeIterator() -> some IteratorProtocol<Element> {
+        assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+        let pointer = buffer.unsafelyUnwrapped
+        return ContiguousIterator(pointer: pointer, count: count)
+    }
+
+    public struct ContiguousIterator<IterationElement>: IteratorProtocol {
+        @usableFromInline
+        let pointer: UnsafePointer<IterationElement>
+
+        @usableFromInline
+        let count: Int
+
+        @usableFromInline
+        private(set) var index: Int = 0
+
+        @usableFromInline @inline(__always) @_transparent
+        init(pointer: UnsafePointer<IterationElement>, count: Int) {
+            self.pointer = pointer
+            self.count = count
+        }
+
+        @inlinable @inline(__always) @_transparent
+        public mutating func next() -> IterationElement? {
+            guard index < count else {
+                return nil
+            }
+            let this = index
+            index += 1
+            return pointer.advanced(by: this).pointee
+        }
+    }
+}
+
+public struct MutableContiguousSpan<Element>: Sequence {
+    @usableFromInline
     let buffer: UnsafeMutablePointer<Element>?
 
     @usableFromInline
@@ -435,7 +544,7 @@ public struct ContiguousSpan<Element>: Sequence {
 
     @inlinable @inline(__always)
     static var empty: Self {
-        ContiguousSpan(view: UnsafeMutableBufferPointer<Element>(start: nil, count: 0), count: 0)
+        MutableContiguousSpan(view: UnsafeMutableBufferPointer<Element>(start: nil, count: 0), count: 0)
     }
 
     @inlinable @_transparent
@@ -445,7 +554,7 @@ public struct ContiguousSpan<Element>: Sequence {
 
     @inlinable @_transparent
     public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
-        assert(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
+        assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
         assert(index < count, "Index \(index) out of bounds (Count is \(count)).")
         return buffer.unsafelyUnwrapped.advanced(by: index)
     }
@@ -467,7 +576,7 @@ public struct ContiguousSpan<Element>: Sequence {
     public subscript(range: PartialRangeUpTo<Int>) -> ContiguousSpan<Element> {
         @_transparent
         _read {
-            assert(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
+            assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
             yield ContiguousSpan(
                 buffer: buffer,
                 count: range.upperBound
@@ -475,17 +584,21 @@ public struct ContiguousSpan<Element>: Sequence {
         }
     }
 
-//    @inlinable @inline(__always)
-//    public subscript(range: UnboundedRange_) -> ContiguousSpan<Element> {
-//        @_transparent
-//        _read {
-//            yield self
-//        }
-//    }
+    @inlinable @inline(__always)
+    public subscript(range: Range<Int>) -> ContiguousSpan<Element> {
+        @_transparent
+        _read {
+            assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+            yield ContiguousSpan(
+                buffer: buffer?.advanced(by: range.lowerBound),
+                count: range.count
+            )
+        }
+    }
 
     @inlinable @inline(__always) @_transparent
     public func makeIterator() -> some IteratorProtocol<Element> {
-        assert(buffer != nil, "Attempted to access an empty DenseSpan2 buffer.")
+        assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
         let pointer = buffer.unsafelyUnwrapped
         return ContiguousIterator(pointer: pointer, count: count)
     }
@@ -524,6 +637,9 @@ struct ContiguousDense<Element> {
     typealias Span = ContiguousSpan<Element>
 
     @usableFromInline
+    typealias MutableSpan = MutableContiguousSpan<Element>
+
+    @usableFromInline
     var buffer: UnsafeMutableBufferPointer<Element>
 
     @usableFromInline
@@ -538,6 +654,13 @@ struct ContiguousDense<Element> {
     var view: Span {
         _read {
             yield ContiguousSpan(view: buffer, count: count)
+        }
+    }
+
+    @inlinable @_transparent
+    var mutableView: MutableSpan {
+        _read {
+            yield MutableContiguousSpan(view: buffer, count: count)
         }
     }
 

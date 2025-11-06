@@ -13,6 +13,15 @@ public struct ComponentTicks: Sendable {
     }
 
     @inlinable @inline(__always)
+    init(added: UInt64, changed: UInt64) {
+        self.added = added
+        self.changed = changed
+    }
+
+    @usableFromInline
+    static let never = ComponentTicks(added: .min, changed: .min)
+
+    @inlinable @inline(__always)
     mutating func markAdded(at tick: UInt64) {
         added = tick
         changed = tick
@@ -23,12 +32,12 @@ public struct ComponentTicks: Sendable {
         changed = tick
     }
 
-    @inlinable @inline(__always)
+    @inlinable @inline(__always) @_transparent
     func isAdded(since lastRun: UInt64, upTo currentRun: UInt64) -> Bool {
         added > lastRun && added <= currentRun
     }
 
-    @inlinable @inline(__always)
+    @inlinable @inline(__always) @_transparent
     func isChanged(since lastRun: UInt64, upTo currentRun: UInt64) -> Bool {
         changed > lastRun && changed <= currentRun
     }

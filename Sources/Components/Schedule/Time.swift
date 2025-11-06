@@ -53,12 +53,12 @@ struct WorldClock {
         self.maximumDelta = maximumDelta
     }
 
-    func advancing(by wallDelta: TimeInterval) -> WorldClock {
+    func advancing(by wallDelta: TimeInterval, clamped: Bool = true) -> WorldClock {
         guard !isPaused else {
             return self
         }
 
-        let newWorldDelta = min(wallDelta, maximumDelta) * speed // TODO: Test if `min` is correct.
+        let newWorldDelta = (clamped ? min(wallDelta, maximumDelta) : wallDelta) * speed // TODO: Test if `min` is correct.
         return WorldClock(
             delta: newWorldDelta,
             elapsed: elapsed + newWorldDelta,

@@ -2,12 +2,12 @@ public struct QueryContext: QueryContextConvertible, Sendable {
     @usableFromInline
     nonisolated(unsafe) internal var coordinator: Coordinator
     @usableFromInline
-    internal let systemTicks: Coordinator.SystemTickSnapshot?
+    internal let systemTicks: Coordinator.SystemTickSnapshot
 
     @usableFromInline
-    init(coordinator: Coordinator, systemTicks: Coordinator.SystemTickSnapshot? = nil) {
+    init(coordinator: Coordinator, systemID: SystemID? = nil) {
         self.coordinator = coordinator
-        self.systemTicks = systemTicks
+        self.systemTicks = systemID.map(coordinator.prepareSystemTickSnapshot(for:)) ?? Coordinator.SystemTickSnapshot.never
     }
 
     @inlinable @inline(__always)
@@ -80,7 +80,7 @@ public struct QueryContext: QueryContextConvertible, Sendable {
     }
 
     @usableFromInline @_transparent
-    internal var systemTickSnapshot: Coordinator.SystemTickSnapshot? {
+    internal var systemTickSnapshot: Coordinator.SystemTickSnapshot {
         @_transparent
         _read {
             yield systemTicks

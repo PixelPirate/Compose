@@ -141,27 +141,27 @@ extension Tag {
             }
         }
 
-        let duration1 = clock.measure {
-            query(preloaded: coordinator) { a, b, c in
-                b.v += 0.5 * a.v
-                c.v += 0.25 * b.v
-                a.v *= 0.99
-            }
-        }
-        let duration2 = clock.measure {
-            query(preloaded: coordinator) { a, b, c in
-                b.v += 0.5 * a.v
-                c.v += 0.25 * b.v
-                a.v *= 0.99
-            }
-        }
-        let duration3 = clock.measure {
-            query(preloaded: coordinator) { a, b, c in
-                b.v += 0.5 * a.v
-                c.v += 0.25 * b.v
-                a.v *= 0.99
-            }
-        }
+//        let duration1 = clock.measure {
+//            query(preloaded: coordinator) { a, b, c in
+//                b.v += 0.5 * a.v
+//                c.v += 0.25 * b.v
+//                a.v *= 0.99
+//            }
+//        }
+//        let duration2 = clock.measure {
+//            query(preloaded: coordinator) { a, b, c in
+//                b.v += 0.5 * a.v
+//                c.v += 0.25 * b.v
+//                a.v *= 0.99
+//            }
+//        }
+//        let duration3 = clock.measure {
+//            query(preloaded: coordinator) { a, b, c in
+//                b.v += 0.5 * a.v
+//                c.v += 0.25 * b.v
+//                a.v *= 0.99
+//            }
+//        }
 
         let duration3_1 = clock.measure {
             query(coordinator) { a, b, c in
@@ -193,27 +193,27 @@ extension Tag {
             }
         }
 
-        let duration2_1 = clock.measure {
-            query(preloaded: coordinator) { a, b, c in
-                b.v += 0.5 * a.v
-                c.v += 0.25 * b.v
-                a.v *= 0.99
-            }
-        }
-        let duration2_2 = clock.measure {
-            query(preloaded: coordinator) { a, b, c in
-                b.v += 0.5 * a.v
-                c.v += 0.25 * b.v
-                a.v *= 0.99
-            }
-        }
-        let duration2_3 = clock.measure {
-            query(preloaded: coordinator) { a, b, c in
-                b.v += 0.5 * a.v
-                c.v += 0.25 * b.v
-                a.v *= 0.99
-            }
-        }
+//        let duration2_1 = clock.measure {
+//            query(preloaded: coordinator) { a, b, c in
+//                b.v += 0.5 * a.v
+//                c.v += 0.25 * b.v
+//                a.v *= 0.99
+//            }
+//        }
+//        let duration2_2 = clock.measure {
+//            query(preloaded: coordinator) { a, b, c in
+//                b.v += 0.5 * a.v
+//                c.v += 0.25 * b.v
+//                a.v *= 0.99
+//            }
+//        }
+//        let duration2_3 = clock.measure {
+//            query(preloaded: coordinator) { a, b, c in
+//                b.v += 0.5 * a.v
+//                c.v += 0.25 * b.v
+//                a.v *= 0.99
+//            }
+//        }
 
         let duration5_1 = clock.measure {
             query.performGroup(coordinator) { a, b, c in
@@ -290,9 +290,9 @@ extension Tag {
 
         //~0.012, 0.007, 0.007 seconds
         print("Pre-Group Perform:", duration3_1, duration3_2, duration3_3)
-        print("Pre-Group Preloaded:", duration1, duration2, duration3)
+//        print("Pre-Group Preloaded:", duration1, duration2, duration3)
         print("Group-Build:", groupDuration)
-        print("Post-Group Preloaded:", duration2_1, duration2_2, duration2_3)
+//        print("Post-Group Preloaded:", duration2_1, duration2_2, duration2_3)
         print("Post-Group Specialised:", duration5_1, duration5_2, duration5_3)
         print("Post-Group Perform:", duration4_1, duration4_2, duration4_3)
     }
@@ -363,23 +363,23 @@ extension Tag {
             Write<ComponentC>.self
         }
 
-        _ = clock.measure {
-            query(preloaded: coordinator) { a, b, c in
-                b.v += a.v * 0.25
-                c.v += b.v * 0.125
-                a.v *= 0.99
-            }
-        }
+//        _ = clock.measure {
+//            query(preloaded: coordinator) { a, b, c in
+//                b.v += a.v * 0.25
+//                c.v += b.v * 0.125
+//                a.v *= 0.99
+//            }
+//        }
         let preloadedPasses = 200
-        let preloadedTotal = clock.measure {
-            for _ in 0..<preloadedPasses {
-                query(preloaded: coordinator) { a, b, c in
-                    b.v += a.v * 0.25
-                    c.v += b.v * 0.125
-                    a.v *= 0.99
-                }
-            }
-        }
+//        let preloadedTotal = clock.measure {
+//            for _ in 0..<preloadedPasses {
+//                query(preloaded: coordinator) { a, b, c in
+//                    b.v += a.v * 0.25
+//                    c.v += b.v * 0.125
+//                    a.v *= 0.99
+//                }
+//            }
+//        }
 
         // Build group and warm a dense pass
         let build = clock.measure {
@@ -401,16 +401,16 @@ extension Tag {
             }
         }
 
-        let preloadedPerIter = seconds(preloadedTotal) / Double(preloadedPasses)
+//        let preloadedPerIter = seconds(preloadedTotal) / Double(preloadedPasses)
         let densePerIter = seconds(denseTotal) / Double(densePasses)
-        let speedup = preloadedPerIter / densePerIter
+//        let speedup = preloadedPerIter / densePerIter
 
         print("Fragmented Setup:", setup)
         print("Churn:", churn)
-        print("Pre-Group Preloaded x\(preloadedPasses):", preloadedTotal, "(per-iter ~", preloadedPerIter, ")")
+//        print("Pre-Group Preloaded x\(preloadedPasses):", preloadedTotal, "(per-iter ~", preloadedPerIter, ")")
         print("Group-Build:", build)
         print("Post-Group Dense x\(densePasses):", denseTotal, "(per-iter ~", densePerIter, ")")
-        print(String(format: "Dense vs Preloaded per-iter speedup: %.2fx", speedup))
+//        print(String(format: "Dense vs Preloaded per-iter speedup: %.2fx", speedup))
     }
 
     @Test func testPerformanceGroupAmortized() throws {
@@ -459,19 +459,19 @@ extension Tag {
         }
 
         // Baselines before group (cache warm-up and steady-state cost)
-        let preloadedWarm1 = clock.measure {
-            groupQuery(preloaded: coordinator) { t, v in
-                // keep per-entity work minimal to highlight traversal/layout
-                t.position.x += 1
-                v.v.x += 1
-            }
-        }
-        let preloadedWarm2 = clock.measure {
-            groupQuery(preloaded: coordinator) { t, v in
-                t.position.y += 1
-                v.v.y += 1
-            }
-        }
+//        let preloadedWarm1 = clock.measure {
+//            groupQuery(preloaded: coordinator) { t, v in
+//                // keep per-entity work minimal to highlight traversal/layout
+//                t.position.x += 1
+//                v.v.x += 1
+//            }
+//        }
+//        let preloadedWarm2 = clock.measure {
+//            groupQuery(preloaded: coordinator) { t, v in
+//                t.position.y += 1
+//                v.v.y += 1
+//            }
+//        }
 
         // Build the group (owned: Transform, Velocity)
         let build = clock.measure {
@@ -501,14 +501,14 @@ extension Tag {
         }
 
         // Repeat preloaded iterations to compare amortized cost without reordering
-        let preloadedTotal = clock.measure {
-            for _ in 0..<preloadedPasses {
-                groupQuery(preloaded: coordinator) { t, v in
-                    t.position.z += 1
-                    v.v.z += 1
-                }
-            }
-        }
+//        let preloadedTotal = clock.measure {
+//            for _ in 0..<preloadedPasses {
+//                groupQuery(preloaded: coordinator) { t, v in
+//                    t.position.z += 1
+//                    v.v.z += 1
+//                }
+//            }
+//        }
 
         // Helpers to compute seconds and per-iteration metrics
         func seconds(_ d: Duration) -> Double {
@@ -516,15 +516,15 @@ extension Tag {
             return Double(c.seconds) + Double(c.attoseconds) / 1e18
         }
         let densePerIter = seconds(denseTotal) / Double(densePasses)
-        let preloadedPerIter = seconds(preloadedTotal) / Double(preloadedPasses)
-        let speedup = preloadedPerIter / densePerIter
+//        let preloadedPerIter = seconds(preloadedTotal) / Double(preloadedPasses)
+//        let speedup = preloadedPerIter / densePerIter
 
         print("Group-Amortized Setup:", setup)
-        print("Preloaded warm-up:", preloadedWarm1, preloadedWarm2)
+//        print("Preloaded warm-up:", preloadedWarm1, preloadedWarm2)
         print("Group-Build (owned Transform+Velocity, with Gravity):", build)
         print("Group-Dense x\(densePasses):", denseTotal, "(per-iter ~", densePerIter, ")")
-        print("Preloaded x\(preloadedPasses) (no reorder):", preloadedTotal, "(per-iter ~", preloadedPerIter, ")")
-        print(String(format: "Group vs Preloaded per-iter speedup: %.2fx", speedup))
+//        print("Preloaded x\(preloadedPasses) (no reorder):", preloadedTotal, "(per-iter ~", preloadedPerIter, ")")
+//        print(String(format: "Group vs Preloaded per-iter speedup: %.2fx", speedup))
     }
 
     @Test func testPerformanceSimple() throws {
@@ -985,6 +985,8 @@ extension Tag {
         let healthBefore = countWithHealth()
 
         _ = measure("Churn-AddRemove Health") {
+            let idsQuery = Query { WithEntityID.self; Without<Health>.self }
+            let allIDs = Array(idsQuery.fetchAll(coordinator)).map { $0 }
             for (i, id) in allIDs.enumerated() where selected[i] {
                 coordinator.add(Health(hp: 10), to: id)
             }
