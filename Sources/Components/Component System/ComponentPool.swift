@@ -208,6 +208,56 @@ extension ComponentPool {
         return true
     }
 
+    // TODO: Is there something here to help with `baseAndOthers`?
+//    @inlinable @inline(__always)
+//    func makeSlotSpans(_ coordinator: Coordinator) -> ([SlotsSpan<ContiguousArray.Index, SlotIndex>], [SlotsSpan<ContiguousArray.Index, SlotIndex>])? {
+//        var requiredCapacity = backstageComponents.count
+//        for component in repeat (each T).self {
+//            if component is any OptionalQueriedComponent.Type { continue }
+//            if component == WithEntityID.self { continue }
+//            if component.QueriedComponent.self == Never.self { continue }
+//            requiredCapacity &+= 1
+//        }
+//
+//        var required: [SlotsSpan<ContiguousArray.Index, SlotIndex>] = []
+//        required.reserveCapacity(requiredCapacity)
+//
+//        func appendRequired(for tag: ComponentTag) -> Bool {
+//            guard let array = coordinator.pool.components[tag], !array.componentsToEntites.isEmpty else {
+//                return false
+//            }
+//            required.append(array.entityToComponents)
+//            return true
+//        }
+//
+//        for component in repeat (each T).self {
+//            if component is any OptionalQueriedComponent.Type { continue }
+//            if component == WithEntityID.self { continue }
+//            if component.QueriedComponent.self == Never.self { continue }
+//            guard appendRequired(for: component.QueriedComponent.componentTag) else {
+//                return nil
+//            }
+//        }
+//
+//        for tag in backstageComponents {
+//            guard appendRequired(for: tag) else {
+//                return nil
+//            }
+//        }
+//
+//        var excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>] = []
+//        excluded.reserveCapacity(excludedComponents.count)
+//
+//        for tag in excludedComponents {
+//            guard let array = coordinator.pool.components[tag], !array.componentsToEntites.isEmpty else {
+//                continue
+//            }
+//            excluded.append(array.entityToComponents)
+//        }
+//
+//        return (required, excluded)
+//    }
+
     /// Returns the base slots to drive iteration and all other sparse arrays used to filter entities during iteration.
     /// This requires some filtering during iteration but the up front cost of this call is negligible.
     @usableFromInline
