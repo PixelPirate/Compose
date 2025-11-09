@@ -113,7 +113,7 @@ extension TypedAccess {
     @inlinable @inline(__always)
     static func empty(changeTick: UInt64) -> TypedAccess {
         TypedAccess(
-            pointer: SparseSet<C.QueriedComponent, SlotIndex>.DenseSpan(),
+            pointer: SparseSet<C.QueriedComponent, SlotIndex>.DenseSpan.empty,
             indices: SlotsSpan(
                 view: UnsafeMutableBufferPointer<UnsafeMutablePointer<ContiguousArray<Void>.Index>>(start: nil, count: 0)
             ),

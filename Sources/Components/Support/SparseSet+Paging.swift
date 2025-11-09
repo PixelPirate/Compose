@@ -416,26 +416,26 @@ struct PagedDense<Element> {
 
 public struct ContiguousSpan<Element>: Sequence {
     @usableFromInline
-    let buffer: UnsafePointer<Element>?
+    let buffer: UnsafePointer<Element>
 
     @usableFromInline
     let count: Int
 
     @inlinable @inline(__always)
     init(view base: UnsafeBufferPointer<Element>, count: Int) {
-        buffer = base.baseAddress
+        buffer = unsafeBitCast(base.baseAddress, to: UnsafePointer<Element>.self)
         self.count = count
     }
 
     @inlinable @inline(__always)
     init(view base: UnsafeMutableBufferPointer<Element>, count: Int) {
-        buffer = UnsafeBufferPointer(base).baseAddress
+        buffer = unsafeBitCast(base.baseAddress, to: UnsafePointer<Element>.self)
         self.count = count
     }
 
     @inlinable @inline(__always)
     init(buffer: UnsafePointer<Element>?, count: Int) {
-        self.buffer = buffer
+        self.buffer = unsafeBitCast(buffer, to: UnsafePointer<Element>.self)
         self.count = count
     }
 
@@ -451,9 +451,9 @@ public struct ContiguousSpan<Element>: Sequence {
 
     @inlinable @_transparent
     public func pointer(at index: Int) -> UnsafePointer<Element> {
-        assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+        assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
         assert(index < count, "Index \(index) out of bounds (Count is \(count)).")
-        return buffer.unsafelyUnwrapped.advanced(by: index)
+        return buffer.advanced(by: index)
     }
 
     @inlinable @inline(__always)
@@ -468,7 +468,7 @@ public struct ContiguousSpan<Element>: Sequence {
     public subscript(range: PartialRangeUpTo<Int>) -> ContiguousSpan<Element> {
         @_transparent
         _read {
-            assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
             yield ContiguousSpan(
                 buffer: buffer,
                 count: range.upperBound
@@ -480,9 +480,9 @@ public struct ContiguousSpan<Element>: Sequence {
     public subscript(range: Range<Int>) -> ContiguousSpan<Element> {
         @_transparent
         _read {
-            assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
             yield ContiguousSpan(
-                buffer: buffer?.advanced(by: range.lowerBound),
+                buffer: buffer.advanced(by: range.lowerBound),
                 count: range.count
             )
         }
@@ -490,9 +490,8 @@ public struct ContiguousSpan<Element>: Sequence {
 
     @inlinable @inline(__always) @_transparent
     public func makeIterator() -> some IteratorProtocol<Element> {
-        assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
-        let pointer = buffer.unsafelyUnwrapped
-        return ContiguousIterator(pointer: pointer, count: count)
+        assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+        return ContiguousIterator(pointer: buffer, count: count)
     }
 
     public struct ContiguousIterator<IterationElement>: IteratorProtocol {
@@ -525,20 +524,20 @@ public struct ContiguousSpan<Element>: Sequence {
 
 public struct MutableContiguousSpan<Element>: Sequence {
     @usableFromInline
-    let buffer: UnsafeMutablePointer<Element>?
+    let buffer: UnsafeMutablePointer<Element>
 
     @usableFromInline
     let count: Int
 
     @inlinable @inline(__always)
     init(view base: UnsafeMutableBufferPointer<Element>, count: Int) {
-        buffer = base.baseAddress
+        buffer = unsafeBitCast(base.baseAddress, to: UnsafeMutablePointer<Element>.self)
         self.count = count
     }
 
     @inlinable @inline(__always)
     init(buffer: UnsafeMutablePointer<Element>?, count: Int) {
-        self.buffer = buffer
+        self.buffer = unsafeBitCast(buffer, to: UnsafeMutablePointer<Element>.self)
         self.count = count
     }
 
@@ -554,9 +553,9 @@ public struct MutableContiguousSpan<Element>: Sequence {
 
     @inlinable @_transparent
     public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
-        assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+        assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
         assert(index < count, "Index \(index) out of bounds (Count is \(count)).")
-        return buffer.unsafelyUnwrapped.advanced(by: index)
+        return buffer.advanced(by: index)
     }
 
     @inlinable @inline(__always)
@@ -576,7 +575,7 @@ public struct MutableContiguousSpan<Element>: Sequence {
     public subscript(range: PartialRangeUpTo<Int>) -> ContiguousSpan<Element> {
         @_transparent
         _read {
-            assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
             yield ContiguousSpan(
                 buffer: buffer,
                 count: range.upperBound
@@ -588,9 +587,9 @@ public struct MutableContiguousSpan<Element>: Sequence {
     public subscript(range: Range<Int>) -> ContiguousSpan<Element> {
         @_transparent
         _read {
-            assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
             yield ContiguousSpan(
-                buffer: buffer?.advanced(by: range.lowerBound),
+                buffer: buffer.advanced(by: range.lowerBound),
                 count: range.count
             )
         }
@@ -598,9 +597,8 @@ public struct MutableContiguousSpan<Element>: Sequence {
 
     @inlinable @inline(__always) @_transparent
     public func makeIterator() -> some IteratorProtocol<Element> {
-        assert(buffer != nil, "Attempted to access an empty ContiguousSpan buffer.")
-        let pointer = buffer.unsafelyUnwrapped
-        return ContiguousIterator(pointer: pointer, count: count)
+        assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+        return ContiguousIterator(pointer: buffer, count: count)
     }
 
     public struct ContiguousIterator<IterationElement>: IteratorProtocol {

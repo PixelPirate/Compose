@@ -62,6 +62,19 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
 
     @usableFromInline
     let isQueryingForEntityID: Bool
+    
+    /// True if the query not constrained by any component but is querying for entity IDs.
+    /// This could be
+    /// `Query { WithEntityID.self }`
+    /// or
+    /// ```
+    /// Query {
+    ///     WithEntityID.self
+    ///     Optional<…>.self
+    /// }
+    /// ```
+    @usableFromInline
+    let isQueryingOnlyForEntityID: Bool
 
     @usableFromInline
     init(
@@ -92,6 +105,28 @@ public struct Query<each T: Component> where repeat each T: ComponentResolving {
         )
         self.hash = QueryHash(include: signature, exclude: excludedSignature)
         self.isQueryingForEntityID = isQueryingForEntityID
+
+        //       This would be true for:
+        //       ```
+        //       Query { WithEntityID.self }
+        //       Query { WithEntityID.self; Optional<…>; With<…>; Without<…> }
+        //       ```
+        //       E. g.: The parameter pack is only filled with `Never` queried components and/or optionals.
+        //       Filters like With, Without, Added, Changed will still apply to the slots check.
+        self.isQueryingOnlyForEntityID = isQueryingForEntityID && Self.isUnconstrained()
+    }
+
+    static func isUnconstrained() -> Bool {
+        for component in repeat (each T).self {
+            if component is any OptionalQueriedComponent.Type {
+                continue
+            }
+            guard component.QueriedComponent.self != Never.self else {
+                continue
+            }
+            return false
+        }
+        return true
     }
 
     @inlinable @inline(__always)
@@ -276,8 +311,8 @@ extension Query {
     public func fetchOne(_ context: some QueryContextConvertible) -> (repeat (each T).ReadOnlyResolvedType)? {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
-        let ids = isQueryingForEntityID ? context.coordinator.indices.liveSlots : []
-        if baseSlots.isEmpty, isQueryingForEntityID {
+        let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
             }
@@ -361,8 +396,9 @@ extension Query {
     public func fetchAll(_ context: some QueryContextConvertible) -> LazyQuerySequence<repeat each T> {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
-        let ids = isQueryingForEntityID ? context.coordinator.indices.liveSlots : []
-        if baseSlots.isEmpty, isQueryingForEntityID {
+        let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        if baseSlots.isEmpty, isQueryingOnlyForEntityID {
+            // This is for cases like `Query { WithEntityID.self }` or `Query { WithEntityID.self; Optional<…>.self }`
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
             }
@@ -487,8 +523,8 @@ extension Query {
     public func performParallel(_ context: some QueryContextConvertible, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
         let context = context.queryContext
         var slots = getCachedBaseSlots(context.coordinator)
-        let ids = isQueryingForEntityID ? context.coordinator.indices.liveSlots : []
-        if slots.isEmpty, isQueryingForEntityID {
+        let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        if slots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 slots = ContiguousSpan(view: buffer, count: buffer.count)
             }
@@ -586,8 +622,8 @@ extension Query {
     public func performWithSignature(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         var baseSlots = getCachedBaseSlots(context.coordinator)
-        let ids = isQueryingForEntityID ? context.coordinator.indices.liveSlots : []
-        if baseSlots.isEmpty, isQueryingForEntityID {
+        let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
             }
@@ -596,7 +632,7 @@ extension Query {
 
         let baseCount = baseSlots.count
         guard baseCount > 0 else { return }
-        guard let basePointer = baseSlots.buffer else { return }
+        let basePointer = baseSlots.buffer
 
         let tickSnapshot = context.systemTickSnapshot
         let indices = context.coordinator.indices.generationView
@@ -700,8 +736,8 @@ extension Query {
     ) {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
-        let ids = isQueryingForEntityID ? context.coordinator.indices.liveSlots : []
-        if baseSlots.isEmpty, isQueryingForEntityID {
+        let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
             }
@@ -711,7 +747,7 @@ extension Query {
 
         let baseCount = baseSlots.count
         guard baseCount > 0 else { return }
-        guard let basePointer = baseSlots.buffer else { return }
+        let basePointer = baseSlots.buffer
 
         let tickSnapshot = context.systemTickSnapshot
         let indices = context.coordinator.indices.generationView
@@ -1134,8 +1170,8 @@ extension Query {
     public func perform(_ context: some QueryContextConvertible, _ handler: (repeat (each T).ResolvedType) -> Void) {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
-        let ids = isQueryingForEntityID ? context.coordinator.indices.liveSlots : []
-        if baseSlots.isEmpty, isQueryingForEntityID {
+        let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
             }
@@ -1145,7 +1181,7 @@ extension Query {
 
         let baseCount = baseSlots.count
         guard baseCount > 0 else { return }
-        guard let basePointer = baseSlots.buffer else { return }
+        let basePointer = baseSlots.buffer
 
         let tickSnapshot = context.systemTickSnapshot
         let indices = context.coordinator.indices.generationView
@@ -1167,10 +1203,8 @@ extension Query {
                     case .none:
                         @inline(__always) @_transparent
                         func run(_ id: (SlotIndex) -> Entity.ID) {
-                            var baseIndex = 0
-                            while baseIndex < baseCount {
+                            for baseIndex in Range(uncheckedBounds: (0, baseCount)) {
                                 let slot = basePointer.advanced(by: baseIndex).pointee
-                                baseIndex &+= 1
 
                                 guard Self.passesMembership(
                                     slot,
@@ -1458,8 +1492,8 @@ extension Query {
     public func unsafeFetchAllWritable(_ context: some QueryContextConvertible) -> LazyWritableQuerySequence<repeat each T> {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
-        let ids = isQueryingForEntityID ? context.coordinator.indices.liveSlots : []
-        if baseSlots.isEmpty, isQueryingForEntityID {
+        let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
             }
