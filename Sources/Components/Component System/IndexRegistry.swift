@@ -1,22 +1,6 @@
 @usableFromInline
 struct IndexRegistry {
     @usableFromInline
-    struct ArchetypeRow {
-        let id: Int
-        let row: Array.Index
-    }
-
-    @usableFromInline
-    enum ArchetypeLocation {
-        case free
-        case none
-        case table(ArchetypeRow)
-    }
-
-    @usableFromInline
-    private(set) var archetype: [ArchetypeLocation] = [] // Indexed by `SlotIndex`
-
-    @usableFromInline
     private(set) var generation: [UInt32] = [] // Indexed by `SlotIndex`
 
     @usableFromInline
@@ -32,9 +16,6 @@ struct IndexRegistry {
         let missingCount = (newIndex.rawValue + 1) - generation.count
         if missingCount > 0 {
             generation.append(contentsOf: repeatElement(0, count: missingCount))
-        }
-        if archetype.indices.contains(newIndex.rawValue) {
-            archetype[newIndex.rawValue] = .free
         }
         self[generationFor: newIndex] += 1
 
@@ -65,9 +46,6 @@ struct IndexRegistry {
     mutating func free(id: Entity.ID) {
         freeIDs.insert(id.slot)
         self[generationFor: id.slot] += 1
-        if archetype.indices.contains(id.slot.rawValue) {
-            archetype[id.slot.rawValue] = .free
-        }
     }
 
     @inlinable @inline(__always)
@@ -94,16 +72,6 @@ struct IndexRegistry {
         @inlinable @_transparent
         _read {
             yield SlotGenerationSpan(pointer: generation.withUnsafeBufferPointer { $0.baseAddress.unsafelyUnwrapped })
-        }
-    }
-
-    @inlinable @inline(__always)
-    subscript(archetypeFor index: SlotIndex) -> ArchetypeLocation {
-        _read {
-            yield archetype[index.rawValue]
-        }
-        _modify {
-            yield &archetype[index.rawValue]
         }
     }
 }
