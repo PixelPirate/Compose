@@ -33,6 +33,13 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
     }
 
     @inlinable @inline(__always)
+    public func deallocate() {
+        storage.deallocate()
+        keys.deallocate()
+        slots.deallocate()
+    }
+
+    @inlinable @inline(__always)
     public mutating func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
 //        components.reserveCapacity(minimumComponentCapacity)
         keys.ensureCapacity(minimumComponentCapacity)
@@ -260,6 +267,11 @@ public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Colle
             values[Index(index: index)] = element
             index += 1
         }
+    }
+
+    @inlinable @inline(__always)
+    public func deallocate() {
+        values.deallocate()
     }
 
     @inlinable @inline(__always)
