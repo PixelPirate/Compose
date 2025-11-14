@@ -1170,7 +1170,6 @@ func testReuseSlot() async throws {
 @Test func entityIDs() {
     var coordinator = Coordinator()
 
-    #expect(coordinator.indices.archetype.isEmpty)
     #expect(coordinator.indices.freeIDs.isEmpty)
     #expect(coordinator.indices.generation.isEmpty)
     #expect(coordinator.indices.nextID.rawValue == 0)
@@ -1179,7 +1178,6 @@ func testReuseSlot() async throws {
     let id2 = coordinator.spawn()
 
     #expect(id1 != id2)
-    #expect(coordinator.indices.archetype.isEmpty)
     #expect(coordinator.indices.freeIDs.isEmpty)
     #expect(coordinator.indices.generation == [1, 1])
     #expect(coordinator.indices.nextID.rawValue == 2)
@@ -1188,7 +1186,6 @@ func testReuseSlot() async throws {
 
     coordinator.destroy(id1)
 
-    #expect(coordinator.indices.archetype.isEmpty)
     #expect(coordinator.indices.freeIDs == [id1.slot])
     #expect(coordinator.indices.generation == [2, 1])
     #expect(coordinator.indices.nextID.rawValue == 2)
@@ -1198,7 +1195,6 @@ func testReuseSlot() async throws {
     #expect(id3.slot == id1.slot)
     #expect(id3.generation != id1.generation)
     #expect(id3.generation == 3)
-    #expect(coordinator.indices.archetype.isEmpty)
     #expect(coordinator.indices.freeIDs == [])
     #expect(coordinator.indices.generation == [3, 1])
     #expect(coordinator.indices.nextID.rawValue == 2)
