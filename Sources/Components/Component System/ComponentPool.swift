@@ -330,17 +330,20 @@ extension ComponentPool {
             )
         }
 
-        // Sort by ascending number of entities to minimize membership checks.
-        arrays.sort { lhs, rhs in
-            lhs.componentsToEntites.count < rhs.componentsToEntites.count
+        let minIndex = arrays.lazy.enumerated()
+            .min { (lhs, rhs) in
+                lhs.element.componentsToEntites.count < rhs.element.componentsToEntites.count
+            }
+            .map(\.offset)
+            .unsafelyUnwrapped
+        if minIndex != arrays.endIndex - 1 {
+            arrays.swapAt(minIndex, arrays.endIndex - 1)
         }
-
-        // Take the smallest set of IDs as the candidate base.
-        let smallest = arrays[0]
+        let smallest = arrays.removeLast()
 
         return (
             smallest.componentsToEntites,
-            arrays.dropFirst().map(\.entityToComponents),
+            arrays.map(\.entityToComponents),
             excludedArrays.map(\.entityToComponents)
         )
     }
