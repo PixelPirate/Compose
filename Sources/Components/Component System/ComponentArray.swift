@@ -25,6 +25,12 @@ public struct ComponentArray<C: Component> {
     }
 
     @inlinable @inline(__always)
+    public func deallocate() {
+        storage.deallocate()
+        ticks.deallocate()
+    }
+
+    @inlinable @inline(__always)
     mutating func reserveCapacity(minimumComponentCapacity: Int, minimumSlotCapacity: Int) {
         storage.reserveCapacity(minimumComponentCapacity: minimumComponentCapacity, minimumSlotCapacity: minimumSlotCapacity)
         ticks.ensureCapacity(minimumComponentCapacity)
@@ -182,9 +188,13 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
     @usableFromInline
     var base: ComponentArray<C>
 
-    @usableFromInline
+    @inlinable @inline(__always)
     init(_ base: ComponentArray<C> = ComponentArray<C>()) {
         self.base = base
+    }
+
+    deinit {
+        base.deallocate()
     }
 
     @inlinable @inline(__always)
