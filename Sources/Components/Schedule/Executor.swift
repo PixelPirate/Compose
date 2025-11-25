@@ -18,7 +18,7 @@ public struct SingleThreadedExecutor: Executor {
         let systems = systemCache.cached(systems)
 
         for system in systems {
-            let context = QueryContext(coordinator: coordinator, systemID: system.metadata.id)
+            let context = QueryContext(coordinator: coordinator, systemID: system.id)
             system.run(context: context, commands: &commands)
         }
     }
@@ -60,7 +60,7 @@ public struct MultiThreadedExecutor: Executor {
 
                 for (index, system) in send.value[start..<end].enumerated() {
                     var commands = localCommands[start+index]
-                    let context = QueryContext(coordinator: coordinator, systemID: system.metadata.id)
+                    let context = QueryContext(coordinator: coordinator, systemID: system.id)
                     system.run(context: context, commands: &commands)
                     localCommands[start+index] = commands
                 }
@@ -93,7 +93,7 @@ public struct UnsafeUncheckedMultiThreadedExecutor: Executor {
 
             for (index, system) in send.value[start..<end].enumerated() {
                 var commands = localCommands[start+index]
-                let context = QueryContext(coordinator: coordinator, systemID: system.metadata.id)
+                let context = QueryContext(coordinator: coordinator, systemID: system.id)
                 system.run(context: context, commands: &commands)
                 localCommands[start+index] = commands
             }
@@ -114,7 +114,7 @@ final class StageCache {
 
     @usableFromInline @inline(__always)
     func make(_ systems: ArraySlice<any System>) {
-        let hasher = systems.map(\.metadata.id).reduce(into: Hasher()) { partialResult, id in
+        let hasher = systems.map(\.id).reduce(into: Hasher()) { partialResult, id in
             partialResult.combine(id)
         }
         let signature = hasher.finalize()
@@ -126,7 +126,7 @@ final class StageCache {
 
     @usableFromInline @inline(__always)
     func cached(_ systems: ArraySlice<any System>) -> [ScheduledStage] {
-        let hasher = systems.map(\.metadata.id).reduce(into: Hasher()) { partialResult, id in
+        let hasher = systems.map(\.id).reduce(into: Hasher()) { partialResult, id in
             partialResult.combine(id)
         }
         let signature = hasher.finalize()
@@ -152,7 +152,7 @@ final class FlattenedStageCache {
         let line = stages.reduce(into: []) { list, stage in
             list.append(contentsOf: stage.systems)
         }
-        let hasher = line.map(\.metadata.id).reduce(into: Hasher()) { partialResult, id in
+        let hasher = line.map(\.id).reduce(into: Hasher()) { partialResult, id in
             partialResult.combine(id)
         }
         let signature = hasher.finalize()
@@ -163,7 +163,7 @@ final class FlattenedStageCache {
 
     @usableFromInline @inline(__always)
     func cached(_ systems: ArraySlice<any System>) -> [any System] {
-        let hasher = systems.map(\.metadata.id).reduce(into: Hasher()) { partialResult, id in
+        let hasher = systems.map(\.id).reduce(into: Hasher()) { partialResult, id in
             partialResult.combine(id)
         }
         let signature = hasher.finalize()

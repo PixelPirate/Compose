@@ -122,7 +122,7 @@ final class Stagehand {
                 let countBlockedByDeps = unscheduled.filter { !$0.metadata.runAfter.isSubset(of: scheduledIDs) }.count
                 if countBlockedByDeps == unscheduled.count {
                     // All remaining systems are waiting on deps that will never resolve -> cycle.
-                    let remainingIDs = unscheduled.map { $0.metadata.id }
+                    let remainingIDs = unscheduled.map { $0.id }
                     preconditionFailure("Cyclic runAfter dependencies detected among systems: \(remainingIDs)")
                 } else {
                     // There exist systems with deps satisfied, but none fit due to conflicts.
@@ -170,7 +170,7 @@ final class Stagehand {
 
             // Finalize stage and mark its systems as scheduled
             for sys in stage {
-                scheduledIDs.insert(sys.metadata.id)
+                scheduledIDs.insert(sys.id)
             }
             stages.append(ScheduledStage(systems: stage))
         }

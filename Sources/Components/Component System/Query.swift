@@ -18,7 +18,7 @@ public struct ChangeFilter: Hashable, Sendable {
     }
 }
 
-public struct Query<each T: Component> where repeat each T: ComponentResolving {
+public struct Query<each T: Component>: Sendable where repeat each T: ComponentResolving {
     /// All components which entities are required to have but will not be included in the query output.
     @inline(__always)
     public let backstageComponents: Set<ComponentTag> // Or witnessComponents?

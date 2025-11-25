@@ -407,11 +407,6 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
-    public func add(_ system: some System) {
-        systemManager.add(system)
-    }
-
-    @inlinable @inline(__always)
     public func remove(_ systemID: SystemID) {
         systemManager.remove(systemID)
     }
@@ -536,6 +531,11 @@ public final class Coordinator {
     @inlinable @inline(__always)
     public func addSystem(_ label: ScheduleLabel, system: some System) {
         systemManager.addSystem(label, system: system)
+    }
+
+    @inlinable @inline(__always)
+    public func removeSystem(_ label: ScheduleLabel, systemID: SystemID) {
+        systemManager.remove(systemID)
     }
 
     @inlinable @inline(__always)
