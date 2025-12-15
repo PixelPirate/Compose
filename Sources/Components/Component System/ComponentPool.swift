@@ -2,7 +2,7 @@ public struct ComponentPool {
     @usableFromInline
     private(set) var components: [ComponentTag: AnyComponentArray] = [:]
     @usableFromInline
-    private var removed: [ComponentTag: RemovedComponentArray] = [:]
+    private(set) var removed: [ComponentTag: RemovedComponentArray] = [:]
 
     public init(components: [ComponentTag : AnyComponentArray] = [:]) {
         self.components = components
@@ -37,7 +37,7 @@ extension ComponentPool {
     }
 
     @usableFromInline
-    mutating func remove<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) {
+    mutating func remove<C: Component>(_ componentType: C.Type = C.self, for entityID: Entity.ID, changeTick: UInt64) {
         guard let array = components[C.componentTag] else { return }
         array.remove(entityID)
         components[C.componentTag] = array
@@ -45,7 +45,7 @@ extension ComponentPool {
     }
 
     @usableFromInline
-    mutating func remove(_ componentTag: ComponentTag, _ entityID: Entity.ID) {
+    mutating func remove(_ componentTag: ComponentTag, for entityID: Entity.ID, changeTick: UInt64) {
         guard let array = components[componentTag] else { return }
         array.remove(entityID)
         components[componentTag] = array

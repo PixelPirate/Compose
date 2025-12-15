@@ -1,3 +1,4 @@
+@usableFromInline
 struct RemovedComponentArray {
     @usableFromInline
     internal var storage: SparseSet<UInt64, SlotIndex> = SparseSet()
@@ -17,7 +18,7 @@ struct RemovedComponentArray {
         if denseIndex == .notFound {
             storage.append(tick, to: slot)
         } else {
-            storage.storage.mutablePointer(at: denseIndex).pointee = tick
+            storage.storage.mutablePointer(for: denseIndex).pointee = tick
         }
     }
 
@@ -30,7 +31,7 @@ struct RemovedComponentArray {
     mutating func prune(olderThan tick: UInt64) {
         var denseIndex = 0
         while denseIndex < storage.count {
-            let currentTick = storage.storage.mutablePointer(at: denseIndex).pointee
+            let currentTick = storage.storage.mutablePointer(for: denseIndex).pointee
             if currentTick < tick {
                 let slot = storage.keys[denseIndex]
                 storage.remove(slot)
