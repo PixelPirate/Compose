@@ -1,4 +1,4 @@
-/// Causes a query to only return results when `Component` got added in the previous frame. This does not apply for a spawn with the given component.
+/// Causes a query to only return results when `Component` got added in the previous frame. This does also apply for a spawn with the given component.
 public struct Added<C: Component>: Component {
     public static var componentTag: ComponentTag { C.componentTag }
 }
