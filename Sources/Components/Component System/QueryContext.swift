@@ -4,10 +4,10 @@ public struct QueryContext: QueryContextConvertible, Sendable {
     @usableFromInline
     internal let systemTicks: Coordinator.SystemTickSnapshot
 
-    @usableFromInline
-    init(coordinator: Coordinator, systemID: SystemID? = nil) {
+    @inlinable @inline(__always)
+    public init(coordinator: Coordinator, systemID: SystemID? = nil) {
         self.coordinator = coordinator
-        self.systemTicks = systemID.map(coordinator.prepareSystemTickSnapshot(for:)) ?? Coordinator.SystemTickSnapshot.never
+        self.systemTicks = systemID.map(coordinator.prepareSystemTickSnapshot(for:)) ?? Coordinator.SystemTickSnapshot.never // TODO: Is this correct? `prepareSystemTickSnapshot` updates the tick information of the system for each query execution. This update should only be performed once per frame right?
     }
 
     @inlinable @inline(__always)
