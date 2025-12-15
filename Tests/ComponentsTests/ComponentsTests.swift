@@ -75,7 +75,7 @@ final class ConcurrentAccessProbe {
                 TestSystem.metadata(from: [])
             }
 
-            static let id = SystemID(name: "MySystem")
+            let id = SystemID(name: "MySystem")
 
             let confirmation: Confirmation
 
@@ -95,7 +95,7 @@ final class ConcurrentAccessProbe {
 @Test func updateExecutor() async throws {
     let coordinator = Coordinator()
     struct TestSystem: System {
-        static let id = SystemID(name: "TestSystem")
+        let id = SystemID(name: "TestSystem")
         var metadata: SystemMetadata {
             Self.metadata(from: [])
         }
@@ -131,7 +131,7 @@ final class ConcurrentAccessProbe {
     let coordinator = Coordinator()
 
     struct TestSystem1: System {
-        static let id = SystemID(name: "TestSystem1")
+        let id = SystemID(name: "TestSystem1")
         var metadata: SystemMetadata {
             Self.metadata(from: [])
         }
@@ -144,7 +144,7 @@ final class ConcurrentAccessProbe {
     }
 
     struct TestSystem2: System {
-        static let id = SystemID(name: "TestSystem2")
+        let id = SystemID(name: "TestSystem2")
         var metadata: SystemMetadata {
             Self.metadata(from: [])
         }
@@ -157,9 +157,9 @@ final class ConcurrentAccessProbe {
     }
 
     struct TestSystem3: System {
-        static let id = SystemID(name: "TestSystem3")
+        let id = SystemID(name: "TestSystem3")
         var metadata: SystemMetadata {
-            Self.metadata(from: [], runAfter: [TestSystem2.id])
+            Self.metadata(from: [], runAfter: [SystemID(name: "TestSystem2")])
         }
 
         let confirmation: () -> Void
@@ -171,9 +171,9 @@ final class ConcurrentAccessProbe {
 
     let lock: Mutex<[SystemID]> = Mutex([])
 
-    coordinator.addSystem(.update, system: TestSystem1 { lock.withLock { $0.append(TestSystem1.id) } })
-    coordinator.addSystem(.update, system: TestSystem3 { lock.withLock { $0.append(TestSystem3.id) } })
-    coordinator.addSystem(.update, system: TestSystem2 { lock.withLock { $0.append(TestSystem2.id) } })
+    coordinator.addSystem(.update, system: TestSystem1 { lock.withLock { $0.append(SystemID(name: "TestSystem1")) } })
+    coordinator.addSystem(.update, system: TestSystem3 { lock.withLock { $0.append(SystemID(name: "TestSystem2")) } })
+    coordinator.addSystem(.update, system: TestSystem2 { lock.withLock { $0.append(SystemID(name: "TestSystem3")) } })
 
     coordinator.update(.update) { $0.executor = MultiThreadedExecutor() }
 
@@ -181,7 +181,7 @@ final class ConcurrentAccessProbe {
 
     let result1 = lock.withLock { $0 }
 
-    #expect(result1 == [TestSystem1.id, TestSystem2.id, TestSystem3.id])
+    #expect(result1 == [SystemID(name: "TestSystem1"), SystemID(name: "TestSystem2"), SystemID(name: "TestSystem3")])
 
     lock.withLock { $0.removeAll() }
 
@@ -191,12 +191,12 @@ final class ConcurrentAccessProbe {
 
     let result2 = lock.withLock { $0 }
 
-    #expect(result2 == [TestSystem1.id, TestSystem2.id, TestSystem3.id])
+    #expect(result2 == [SystemID(name: "TestSystem1"), SystemID(name: "TestSystem2"), SystemID(name: "TestSystem3")])
 }
 
 @Test func multiThreadedExecutorAvoidsConcurrentComponentMutations() {
     struct ComponentWriterA: System {
-        static let id = SystemID(name: "ComponentWriterA")
+        let id = SystemID(name: "ComponentWriterA")
         nonisolated(unsafe) static let query = Query { Write<Transform>.self }
 
         let probe: ConcurrentAccessProbe
@@ -218,7 +218,7 @@ final class ConcurrentAccessProbe {
     }
 
     struct ComponentWriterB: System {
-        static let id = SystemID(name: "ComponentWriterB")
+        let id = SystemID(name: "ComponentWriterB")
         nonisolated(unsafe) static let query = ComponentWriterA.query
 
         let probe: ConcurrentAccessProbe
@@ -267,13 +267,12 @@ final class ConcurrentAccessProbe {
     }
 
     struct ResourceWriterA: System {
-        static let id = SystemID(name: "ResourceWriterA")
+        let id = SystemID(name: "ResourceWriterA")
 
         let probe: ConcurrentAccessProbe
 
         var metadata: SystemMetadata {
             SystemMetadata(
-                id: Self.id,
                 readSignature: ComponentSignature(),
                 writeSignature: ComponentSignature(),
                 excludedSignature: ComponentSignature(),
@@ -296,13 +295,12 @@ final class ConcurrentAccessProbe {
     }
 
     struct ResourceWriterB: System {
-        static let id = SystemID(name: "ResourceWriterB")
+        let id = SystemID(name: "ResourceWriterB")
 
         let probe: ConcurrentAccessProbe
 
         var metadata: SystemMetadata {
             SystemMetadata(
-                id: Self.id,
                 readSignature: ComponentSignature(),
                 writeSignature: ComponentSignature(),
                 excludedSignature: ComponentSignature(),
@@ -498,7 +496,7 @@ final class ConcurrentAccessProbe {
 
 @Test func mainScheduleRunsAllStages() {
     struct StageRecorder<Tag>: System {
-        nonisolated(unsafe) static var id: SystemID {
+        nonisolated(unsafe) var id: SystemID {
             SystemID(name: "StageRecorder_\(String(describing: Tag.self))")
         }
 
@@ -625,7 +623,7 @@ final class ConcurrentAccessProbe {
 
 @Test func customScheduleExecution() {
     struct CustomSystem: System {
-        static let id = SystemID(name: "CustomSystem")
+        let id = SystemID(name: "CustomSystem")
         var metadata: SystemMetadata { Self.metadata(from: []) }
 
         let counter: ManagedAtomic<Int>
@@ -2082,7 +2080,7 @@ public struct Material: Component {
     }
 
     struct CommandSystem: System {
-        static let id = SystemID(name: "CommandSystem")
+        let id = SystemID(name: "CommandSystem")
         var metadata: SystemMetadata { Self.metadata(from: []) }
 
         let target: Entity.ID
@@ -2234,7 +2232,7 @@ private struct TestEvent: Event, Equatable {
 }
 
 private final class EventEmitterSystem: System {
-    static let id = SystemID(name: "EventEmitterSystem")
+    let id = SystemID(name: "EventEmitterSystem")
     static let counter = ManagedAtomic<Int>(0)
 
     var metadata: SystemMetadata {
@@ -2252,7 +2250,7 @@ private final class EventEmitterSystem: System {
 }
 
 private final class EventReaderSystem: System {
-    static let id = SystemID(name: "EventReaderSystem")
+    let id = SystemID(name: "EventReaderSystem")
 
     private let runAfter: Set<SystemID>
     private(set) var seen: [Int] = []
@@ -2264,7 +2262,6 @@ private final class EventReaderSystem: System {
 
     var metadata: SystemMetadata {
         SystemMetadata(
-            id: Self.id,
             readSignature: ComponentSignature(),
             writeSignature: ComponentSignature(),
             excludedSignature: ComponentSignature(),
@@ -2282,7 +2279,7 @@ private final class EventReaderSystem: System {
 }
 
 private final class EventDrainSystem: System {
-    static let id = SystemID(name: "EventDrainSystem")
+    let id = SystemID(name: "EventDrainSystem")
 
     private let runAfter: Set<SystemID>
     private(set) var drained: [[Int]] = []
@@ -2293,7 +2290,6 @@ private final class EventDrainSystem: System {
 
     var metadata: SystemMetadata {
         SystemMetadata(
-            id: Self.id,
             readSignature: ComponentSignature(),
             writeSignature: ComponentSignature(),
             excludedSignature: ComponentSignature(),
@@ -2312,6 +2308,7 @@ private final class EventDrainSystem: System {
 }
 
 @Test func eventsAreDeliveredOnSubsequentRuns() {
+    let eventEmitterSystem = EventEmitterSystem()
     EventEmitterSystem.reset()
     defer { EventEmitterSystem.reset() }
     let coordinator = Coordinator()
@@ -2319,9 +2316,9 @@ private final class EventDrainSystem: System {
         schedule.executor = SingleThreadedExecutor()
     }
 
-    let reader = EventReaderSystem(runAfter: [EventEmitterSystem.id])
+    let reader = EventReaderSystem(runAfter: [eventEmitterSystem.id])
 
-    coordinator.addSystem(.update, system: EventEmitterSystem())
+    coordinator.addSystem(.update, system: eventEmitterSystem)
     coordinator.addSystem(.update, system: reader)
 
     coordinator.runSchedule(.update) // Prime event buffer
@@ -2334,6 +2331,7 @@ private final class EventDrainSystem: System {
 }
 
 @Test func drainingEventsConsumesPendingValues() {
+    let eventEmitterSystem = EventEmitterSystem()
     EventEmitterSystem.reset()
     defer { EventEmitterSystem.reset() }
     let coordinator = Coordinator()
@@ -2341,10 +2339,10 @@ private final class EventDrainSystem: System {
         schedule.executor = SingleThreadedExecutor()
     }
 
-    let drainer = EventDrainSystem(runAfter: [EventEmitterSystem.id])
-    let reader = EventReaderSystem(runAfter: [EventDrainSystem.id])
+    let drainer = EventDrainSystem(runAfter: [eventEmitterSystem.id])
+    let reader = EventReaderSystem(runAfter: [drainer.id])
 
-    coordinator.addSystem(.update, system: EventEmitterSystem())
+    coordinator.addSystem(.update, system: eventEmitterSystem)
     coordinator.addSystem(.update, system: drainer)
     coordinator.addSystem(.update, system: reader)
 
@@ -2387,8 +2385,8 @@ private final class EventDrainSystem: System {
     }
 
     struct AddedTrackingSystem: System {
-        static let id = SystemID(name: "AddedTrackingSystem")
-        nonisolated(unsafe) static let query = Query {
+        let id = SystemID(name: "AddedTrackingSystem")
+        static let query = Query {
             WithEntityID.self
             Added<TrackedComponent>.self
         }
@@ -2428,7 +2426,7 @@ private final class EventDrainSystem: System {
     }
 
     struct MutateSystem: System {
-        static let id = SystemID(name: "MutateSystem")
+        let id = SystemID(name: "MutateSystem")
         nonisolated(unsafe) static let query = Query { Write<TrackedComponent>.self }
 
         let state: MutationState
@@ -2447,7 +2445,7 @@ private final class EventDrainSystem: System {
     }
 
     struct ChangedTrackingSystem: System {
-        static let id = SystemID(name: "ChangedTrackingSystem")
+        let id = SystemID(name: "ChangedTrackingSystem")
         nonisolated(unsafe) static let query = Query {
             WithEntityID.self
             Changed<TrackedComponent>.self
@@ -2457,7 +2455,7 @@ private final class EventDrainSystem: System {
         let state: MutationState
 
         var metadata: SystemMetadata {
-            Self.metadata(from: [Self.query.schedulingMetadata], runAfter: [MutateSystem.id])
+            Self.metadata(from: [Self.query.schedulingMetadata], runAfter: [SystemID(name: "MutateSystem")])
         }
 
         func run(context: Components.QueryContext, commands: inout Components.Commands) {
