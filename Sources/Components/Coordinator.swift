@@ -375,7 +375,7 @@ public final class Coordinator {
             worldVersion &+= 1
         }
         groups.onWillRemoveComponent(componentTag, entity: entityID, in: self)
-        pool.remove(componentTag, entityID)
+        pool.remove(componentTag, entityID, changeTick: changeTick)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
     }
@@ -387,7 +387,7 @@ public final class Coordinator {
             worldVersion &+= 1
         }
         groups.onWillRemoveComponent(C.componentTag, entity: entityID, in: self)
-        pool.remove(componentType, entityID)
+        pool.remove(componentType, entityID, changeTick: changeTick)
         let newSignature = entitySignatures[entityID.slot.rawValue].removing(C.componentTag)
         entitySignatures[entityID.slot.rawValue] = newSignature
     }

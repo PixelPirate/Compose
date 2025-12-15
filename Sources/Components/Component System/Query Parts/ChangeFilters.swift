@@ -7,3 +7,9 @@ public struct Added<C: Component>: Component {
 public struct Changed<C: Component>: Component {
     public static var componentTag: ComponentTag { C.componentTag }
 }
+
+/// Causes a query to only return results when `Component` was removed in the previous frame.
+/// Destroying an entity does not trigger this filter.
+public struct Removed<C: Component>: Component {
+    public static var componentTag: ComponentTag { C.componentTag }
+}

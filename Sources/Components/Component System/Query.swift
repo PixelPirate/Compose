@@ -4,6 +4,7 @@ public struct ChangeFilter: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
         case added
         case changed
+        case removed
     }
 
     @usableFromInline
@@ -357,6 +358,7 @@ extension Query {
                                 let thisRun = tickSnapshot.thisRun
                                 let addedMask = ChangeFilterMask.added.rawValue
                                 let changedMask = ChangeFilterMask.changed.rawValue
+                                let removedMask = ChangeFilterMask.removed.rawValue
                                 for slot in baseSlots where Self.passes(
                                     slot: slot,
                                     requiredComponents: otherPointer,
@@ -367,6 +369,7 @@ extension Query {
                                     changeFiltersCount: changeCount,
                                     addedMask: addedMask,
                                     changedMask: changedMask,
+                                    removedMask: removedMask,
                                     lastRun: lastRun,
                                     thisRun: thisRun
                                 ) {
@@ -445,6 +448,7 @@ extension Query {
                             let thisRun = tickSnapshot.thisRun
                             let addedMask = ChangeFilterMask.added.rawValue
                             let changedMask = ChangeFilterMask.changed.rawValue
+                            let removedMask = ChangeFilterMask.removed.rawValue
                             for slot in baseSlots where Self.passes(
                                 slot: slot,
                                 requiredComponents: otherPointer,
@@ -455,6 +459,7 @@ extension Query {
                                 changeFiltersCount: changeCount,
                                 addedMask: addedMask,
                                 changedMask: changedMask,
+                                removedMask: removedMask,
                                 lastRun: lastRun,
                                 thisRun: thisRun
                             ) {
@@ -574,6 +579,7 @@ extension Query {
                 let thisRun = tickSnapshot.thisRun
                 let addedMask = ChangeFilterMask.added.rawValue
                 let changedMask = ChangeFilterMask.changed.rawValue
+                let removedMask = ChangeFilterMask.removed.rawValue
                 changeFilters.withUnsafeBufferPointer { changeFiltersBuffer in
                     let changeFiltersPointer = changeFiltersBuffer.baseAddress.unsafelyUnwrapped
                     let changeFiltersCount = changeFiltersBuffer.count
@@ -596,6 +602,7 @@ extension Query {
                                     bufferCount: changeFiltersCount,
                                     addedMask: addedMask,
                                     changedMask: changedMask,
+                                    removedMask: removedMask,
                                     lastRun: lastRun,
                                     thisRun: thisRun
                                 )
@@ -687,6 +694,7 @@ extension Query {
                 let thisRun = tickSnapshot.thisRun
                 let addedMask = ChangeFilterMask.added.rawValue
                 let changedMask = ChangeFilterMask.changed.rawValue
+                let removedMask = ChangeFilterMask.removed.rawValue
 
                 fastChangeAccessors.withUnsafeBufferPointer { changeBuffer in
                     let changeCount = changeBuffer.count
@@ -708,6 +716,7 @@ extension Query {
                                 bufferCount: changeCount,
                                 addedMask: addedMask,
                                 changedMask: changedMask,
+                                removedMask: removedMask,
                                 lastRun: lastRun,
                                 thisRun: thisRun
                             )
@@ -810,6 +819,7 @@ extension Query {
                         let thisRun = tickSnapshot.thisRun
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
+                        let removedMask = ChangeFilterMask.removed.rawValue
 
                         fastChangeAccessors.withUnsafeBufferPointer { changeBuffer in
                             let changeCount = changeBuffer.count
@@ -834,6 +844,7 @@ extension Query {
                                         bufferCount: changeCount,
                                         addedMask: addedMask,
                                         changedMask: changedMask,
+                                        removedMask: removedMask,
                                         lastRun: lastRun,
                                         thisRun: thisRun
                                     )
@@ -881,6 +892,9 @@ struct ChangeFilterMask: OptionSet, Sendable {
 
     @usableFromInline
     static let changed = ChangeFilterMask(rawValue: 1 << 1)
+
+    @usableFromInline
+    static let removed = ChangeFilterMask(rawValue: 1 << 2)
 }
 
 @usableFromInline
@@ -932,6 +946,8 @@ extension Query {
                 mask.insert(.added)
             case .changed:
                 mask.insert(.changed)
+            case .removed:
+                mask.insert(.removed)
             }
             masks[filter.tag] = mask
         }
@@ -951,6 +967,7 @@ extension Query {
 
         for access in repeat each accessors {
             guard let mask = changeFilterMasks[access.tag] else { continue }
+            guard !mask.contains(.removed) else { continue }
             prepared.append(ChangeFilterAccessor(mask: mask, indices: access.indices, ticks: access.ticks))
             remaining.remove(access.tag)
         }
@@ -959,8 +976,14 @@ extension Query {
             // Slow path, need to fill up without accessors.
             for tag in remaining.tags {
                 guard let mask = changeFilterMasks[tag] else { continue }
-                pool.pointee.components[tag]?.withIndices { indices, ticks in
-                    prepared.append(ChangeFilterAccessor(mask: mask, indices: indices, ticks: ticks))
+                if mask.contains(.removed) {
+                    if let (indices, ticks) = pool.pointee.removedIndices(for: tag) {
+                        prepared.append(ChangeFilterAccessor(mask: mask, indices: indices, ticks: ticks))
+                    }
+                } else {
+                    pool.pointee.components[tag]?.withIndices { indices, ticks in
+                        prepared.append(ChangeFilterAccessor(mask: mask, indices: indices, ticks: ticks))
+                    }
                 }
             }
 
@@ -1013,6 +1036,7 @@ extension Query {
         changeFiltersCount: Int,
         addedMask: UInt8,
         changedMask: UInt8,
+        removedMask: UInt8,
         lastRun: UInt64,
         thisRun: UInt64
     ) -> Bool {
@@ -1039,6 +1063,9 @@ extension Query {
                 return false
             }
             if mask & changedMask != 0 && !ticks.isChanged(since: lastRun, upTo: thisRun) {
+                return false
+            }
+            if mask & removedMask != 0 && !ticks.isRemoved(since: lastRun, upTo: thisRun) {
                 return false
             }
 
@@ -1073,6 +1100,7 @@ extension Query {
         bufferCount: Int,
         addedMask: UInt8,
         changedMask: UInt8,
+        removedMask: UInt8,
         lastRun: UInt64,
         thisRun: UInt64
     ) -> Bool {
@@ -1091,6 +1119,9 @@ extension Query {
                 return false
             }
             if mask & changedMask != 0 && !ticks.isChanged(since: lastRun, upTo: thisRun) {
+                return false
+            }
+            if mask & removedMask != 0 && !ticks.isRemoved(since: lastRun, upTo: thisRun) {
                 return false
             }
 
@@ -1239,6 +1270,7 @@ extension Query {
                         let thisRun = tickSnapshot.thisRun
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
+                        let removedMask = ChangeFilterMask.removed.rawValue
 
                         fastChangeAccessors.withUnsafeBufferPointer { changeBuffer in
                             let changeCount = changeBuffer.count
@@ -1263,6 +1295,7 @@ extension Query {
                                         bufferCount: changeCount,
                                         addedMask: addedMask,
                                         changedMask: changedMask,
+                                        removedMask: removedMask,
                                         lastRun: lastRun,
                                         thisRun: thisRun
                                     )
@@ -1366,7 +1399,8 @@ extension Query {
                         let thisRun = tickSnapshot.thisRun
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
-                        
+                        let removedMask = ChangeFilterMask.removed.rawValue
+
                         // Enumerate dense indices directly: 0..<size aligned across all owned storages
                         for (denseIndex, slot) in slotsSlice.enumerated() where Self.passesChangeFilters(
                             slot,
@@ -1374,6 +1408,7 @@ extension Query {
                             bufferCount: changeCount,
                             addedMask: addedMask,
                             changedMask: changedMask,
+                            removedMask: removedMask,
                             lastRun: lastRun,
                             thisRun: thisRun
                         ) {
@@ -1432,7 +1467,8 @@ extension Query {
                         let thisRun = tickSnapshot.thisRun
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
-                        
+                        let removedMask = ChangeFilterMask.removed.rawValue
+
                         // Enumerate dense indices directly: 0..<size aligned across all owned storages
                         for (denseIndex, slot) in slotsSlice.enumerated() where Self.passesChangeFilters(
                             slot,
@@ -1440,6 +1476,7 @@ extension Query {
                             bufferCount: changeCount,
                             addedMask: addedMask,
                             changedMask: changedMask,
+                            removedMask: removedMask,
                             lastRun: lastRun,
                             thisRun: thisRun
                         ) {
@@ -1540,6 +1577,7 @@ extension Query {
                             let thisRun = tickSnapshot.thisRun
                             let addedMask = ChangeFilterMask.added.rawValue
                             let changedMask = ChangeFilterMask.changed.rawValue
+                            let removedMask = ChangeFilterMask.removed.rawValue
                             for slot in baseSlots where Self.passes(
                                 slot: slot,
                                 requiredComponents: otherPointer,
@@ -1550,6 +1588,7 @@ extension Query {
                                 changeFiltersCount: changeCount,
                                 addedMask: addedMask,
                                 changedMask: changedMask,
+                                removedMask: removedMask,
                                 lastRun: lastRun,
                                 thisRun: thisRun
                             ) {
