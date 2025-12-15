@@ -23,7 +23,7 @@ extension Query {
     }
 }
 
-public struct QueryHash: Hashable {
+public struct QueryHash: Hashable, Sendable {
     let value: Int
 
     public init<each T: Component>(_ query: Query<repeat each T>) {

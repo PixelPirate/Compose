@@ -10,7 +10,7 @@ struct FixedMainSystem: System {
         Self.metadata(from: [])
     }
 
-    static let id = SystemID(name: "FixedMain")
+    let id = SystemID(name: "FixedMain")
 
     func run(context: QueryContext, commands: inout Commands) {
         let order = context.coordinator.resource(FixedMainScheduleOrder.self).labels
@@ -25,7 +25,7 @@ struct RunFixedMainLoopSystem: System {
         Self.metadata(from: [])
     }
 
-    static let id = SystemID(name: "RunFixedMainLoop")
+    let id = SystemID(name: "RunFixedMainLoop")
 
     func run(context: QueryContext, commands: inout Commands) {
         let delta = context.coordinator[resource: WorldClock.self].delta

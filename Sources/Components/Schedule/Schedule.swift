@@ -47,4 +47,9 @@ public struct Schedule {
     public mutating func addSystem(_ system: some System) {
         systems.append(system)
     }
+
+    @inlinable
+    public mutating func removeSystem(_ systemID: SystemID) {
+        systems.removeAll(where: { $0.id == systemID })
+    }
 }

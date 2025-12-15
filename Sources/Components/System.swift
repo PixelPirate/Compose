@@ -1,5 +1,7 @@
 public protocol System {
-    static var id: SystemID { get }
+    /// A unique ID which identifies this system. Must not change for a given instance.
+    var id: SystemID { get }
+
     /// Metadata of this system.
     /// - Attention: Systems are not allowed to change their metadata once they are scheduled.
     var metadata: SystemMetadata { get }
@@ -35,7 +37,6 @@ extension System {
         }
 
         return SystemMetadata(
-            id: Self.id,
             readSignature: read,
             writeSignature: write,
             excludedSignature: exclude,
@@ -47,7 +48,6 @@ extension System {
 }
 
 public struct SystemMetadata {
-    public let id: SystemID
     public let readSignature: ComponentSignature
     public let writeSignature: ComponentSignature
     public let excludedSignature: ComponentSignature

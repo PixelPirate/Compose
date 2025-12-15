@@ -7,16 +7,10 @@ struct SystemManager {
     internal var metadata: [SystemID: SystemMetadata] = [:]
 
     @usableFromInline
-    private(set) var schedules: [ScheduleLabel: Schedule] = [:]
+    internal var schedule: [SystemID: ScheduleLabel] = [:]
 
-    @inlinable @inline(__always)
-    mutating func add<S: System>(_ system: S) {
-        guard !systems.keys.contains(S.id) else {
-            fatalError("System already registered.")
-        }
-        systems[S.id] = system
-        metadata[S.id] = system.metadata
-    }
+    @usableFromInline
+    private(set) var schedules: [ScheduleLabel: Schedule] = [:]
 
     @inlinable @inline(__always)
     mutating func setSignature(_ metadata: SystemMetadata, systemID: SystemID) {
@@ -30,6 +24,9 @@ struct SystemManager {
     mutating func remove(_ systemID: SystemID) {
         systems.removeValue(forKey: systemID)
         metadata.removeValue(forKey: systemID)
+        if let schedule = schedule.removeValue(forKey: systemID) {
+            schedules[schedule]?.removeSystem(systemID)
+        }
     }
 
     @inlinable @inline(__always)
@@ -39,9 +36,15 @@ struct SystemManager {
 
     @inlinable @inline(__always)
     public mutating func addSystem(_ label: ScheduleLabel, system: some System) {
+        guard !systems.keys.contains(system.id) else {
+            fatalError("System already registered.")
+        }
+        systems[system.id] = system
+        metadata[system.id] = system.metadata
+
         schedules[label, default: Schedule(label: label)].addSystem(system)
     }
-    
+
     @inlinable @inline(__always)
     public mutating func update(_ label: ScheduleLabel, update: (inout Schedule) -> Void) {
         update(&schedules[label, default: Schedule(label: label)])
