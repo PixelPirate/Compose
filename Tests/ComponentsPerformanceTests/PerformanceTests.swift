@@ -1,6 +1,8 @@
-import Testing
+import Synchronization
 import Components
 import Foundation
+import Atomics
+import Testing
 
 extension Tag {
   @Tag static var performance: Self
@@ -711,7 +713,8 @@ extension Tag {
         print("Single threaded:", singleDuration1, singleDuration2, singleDuration3)
         print("Multi threaded:", multiDuration1, multiDuration2, multiDuration3)
     }
-    
+
+    // StarFinanz: 1.651709917 seconds
     @Test func testPerformanceManyComponents() {
         struct MockComponent: Component {
             nonisolated(unsafe) static var componentTag: ComponentTag = ComponentTag(rawValue: 0)
@@ -869,6 +872,115 @@ extension Tag {
         print("Iter:", iterDuration, "Perform:", performDuration)
     }
 
+    // StarFinanz: Setup: 0.225862625 seconds Added: 0.032192209 seconds Changed: 0.032264667 seconds
+    @Test func testAddedAndChangedFiltersPerformance() {
+        struct PerformanceComponent: Component {
+            static let componentTag = ComponentTag.makeTag()
+            var value: Int
+        }
+
+        final class PerformanceState {
+            let mutateNext = ManagedAtomic(false)
+            let addedCounts = Mutex<[Int]>([])
+            let changedCounts = Mutex<[Int]>([])
+        }
+
+        struct MutateSystem: System {
+            let id = SystemID(name: "PerformanceMutateSystem")
+            static let query = Query { Write<PerformanceComponent>.self }
+
+            let state: PerformanceState
+
+            var metadata: SystemMetadata {
+                Self.metadata(from: [Self.query.schedulingMetadata])
+            }
+
+            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+                if state.mutateNext.exchange(false, ordering: .acquiring) {
+                    Self.query(context) { component in
+                        component.value &+= 1
+                    }
+                }
+            }
+        }
+
+        struct AddedTrackingSystem: System {
+            let id = SystemID(name: "PerformanceAddedTrackingSystem")
+            static let query = Query {
+                WithEntityID.self
+                Added<PerformanceComponent>.self
+            }
+
+            let state: PerformanceState
+
+            var metadata: SystemMetadata {
+                Self.metadata(from: [Self.query.schedulingMetadata])
+            }
+
+            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+                var count = 0
+                Self.query(context) { (_: Entity.ID) in
+                    count += 1
+                }
+                state.addedCounts.withLock { $0.append(count) }
+            }
+        }
+
+        struct ChangedTrackingSystem: System {
+            let id = SystemID(name: "PerformanceChangedTrackingSystem")
+            static let query = Query {
+                WithEntityID.self
+                Changed<PerformanceComponent>.self
+                PerformanceComponent.self
+            }
+
+            let state: PerformanceState
+
+            var metadata: SystemMetadata {
+                Self.metadata(from: [Self.query.schedulingMetadata], runAfter: [SystemID(name: "PerformanceMutateSystem")])
+            }
+
+            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+                var count = 0
+                Self.query(context) { (_: Entity.ID, _: PerformanceComponent) in
+                    count += 1
+                }
+                state.changedCounts.withLock { $0.append(count) }
+            }
+        }
+
+        let coordinator = Coordinator()
+        let state = PerformanceState()
+        coordinator.addSystem(.update, system: MutateSystem(state: state))
+        coordinator.addSystem(.update, system: AddedTrackingSystem(state: state))
+        coordinator.addSystem(.update, system: ChangedTrackingSystem(state: state))
+
+        let clock = ContinuousClock()
+        let entityCount = 2_000_000
+
+        let setup = clock.measure {
+            for _ in 0..<entityCount {
+                coordinator.spawn(PerformanceComponent(value: 0))
+            }
+        }
+
+        let addedDuration = clock.measure {
+            coordinator.runSchedule(.update)
+        }
+
+        state.mutateNext.store(true, ordering: .relaxed)
+        let changedDuration = clock.measure {
+            coordinator.runSchedule(.update)
+        }
+
+        let addedCounts = state.addedCounts.withLock { $0 }
+        let changedCounts = state.changedCounts.withLock { $0 }
+
+        print("Setup:", setup, "Added:", addedDuration, "Changed:", changedDuration)
+
+        #expect(addedCounts.first == entityCount)
+        #expect(changedCounts.last == entityCount)
+    }
 
     @Test func ecsBenchmark() {
         let clock = ContinuousClock()
@@ -1221,112 +1333,4 @@ public struct Person: Component {
     for index in 0..<storage2.count {
         #expect(storage2[index].value == index * -1)
     }
-}
-
-@Test func testAddedAndChangedFilterPerformance() throws {
-    let N = 200_000
-    let clock = ContinuousClock()
-    let coordinator = Coordinator()
-    let testSchedule = ScheduleLabel()
-
-    // Shared state to store timings/results between systems and test
-    final class MeasurementBox {
-        var addedQueryDuration: Duration = .zero
-        var changedQueryDuration: Duration = .zero
-        var addedCount: Int = 0
-        var changedCount: Int = 0
-    }
-    let measurements = MeasurementBox()
-
-    // 1. Spawn entities with Transform (these will NOT be seen by Added in first system run)
-    let setupDuration = clock.measure {
-        for _ in 0..<N {
-            coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
-        }
-    }
-
-    // 2. Advance frame: run an empty system to establish baseline for change tracking
-    struct EmptySystem: System {
-        let id = SystemID(name: "Empty")
-        var metadata: SystemMetadata { Self.metadata(from: []) }
-        func run(context: QueryContext, commands: inout Commands) {}
-    }
-    let emptySystem = EmptySystem()
-    coordinator.addSystem(testSchedule, system: emptySystem)
-
-    struct AddedSystem: System {
-        let id = SystemID(name: "AddedSystem")
-        let measurements: MeasurementBox
-        var metadata: SystemMetadata { Self.metadata(from: []) }
-        func run(context: QueryContext, commands: inout Commands) {
-            let query = Query { Added<Transform>.self }
-            var count = 0
-            let duration = ContinuousClock().measure {
-                query(context) { () in count += 1 }
-            }
-            measurements.addedCount = count
-            measurements.addedQueryDuration = duration
-        }
-    }
-    let addedSystem = AddedSystem(measurements: measurements)
-    coordinator.addSystem(testSchedule, system: addedSystem)
-
-    coordinator.runSchedule(testSchedule)
-    coordinator.removeSystem(testSchedule, systemID: emptySystem.id)
-
-    // 3. Add Transform to new entities for "Added" filter
-    let addedEntities: [Entity.ID] = (0..<N).map { _ in coordinator.spawn() }
-    let addDuration = clock.measure {
-        for id in addedEntities {
-            coordinator.add(Transform(position: .zero, rotation: .zero, scale: .zero), to: id)
-        }
-    }
-
-    // 4. System: measure Added<Transform> (should match count == N)
-
-    coordinator.runSchedule(testSchedule)
-    coordinator.removeSystem(testSchedule, systemID: addedSystem.id)
-
-    // 5. Mutate (change) half of the first batch's components
-    let toMutate = Array(0..<(N/2)).map { idx in SlotIndex(rawValue: idx) }
-    let mutateDuration = clock.measure {
-        let query = Query { WithEntityID.self; Write<Transform>.self }
-        query(coordinator) { (entityID, transform: Write<Transform>) in
-            for slot in toMutate {
-                if slot == entityID.slot {
-                    transform.position.x += 1
-                }
-            }
-        }
-    }
-
-    // 6. System: measure Changed<Transform> (should match count >= N/2)
-    struct ChangedSystem: System {
-        let id = SystemID(name: "ChangedSystem")
-        let measurements: MeasurementBox
-        var metadata: SystemMetadata { Self.metadata(from: []) }
-        func run(context: QueryContext, commands: inout Commands) {
-            let query = Query { Changed<Transform>.self }
-            var count = 0
-            let duration = ContinuousClock().measure {
-                query(context) { () in count += 1 }
-            }
-            measurements.changedCount = count
-            measurements.changedQueryDuration = duration
-        }
-    }
-    let changedSystem = ChangedSystem(measurements: measurements)
-    coordinator.addSystem(testSchedule, system: changedSystem)
-    coordinator.runSchedule(testSchedule)
-    coordinator.removeSystem(testSchedule, systemID: changedSystem.id)
-
-    print("Setup:", setupDuration)
-    print("Add duration:", addDuration)
-    print("Added<Transform> query duration:", measurements.addedQueryDuration)
-    print("Added<Transform> count:", measurements.addedCount)
-    print("Mutate duration:", mutateDuration)
-    print("Changed<Transform> query duration:", measurements.changedQueryDuration)
-    print("Changed<Transform> count:", measurements.changedCount)
-    #expect(measurements.addedCount == N)
-    #expect(measurements.changedCount >= N / 2)
 }
