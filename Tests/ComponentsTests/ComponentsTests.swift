@@ -2485,3 +2485,67 @@ private final class EventDrainSystem: System {
     let counts = state.changedCounts.withLock { $0 }
     #expect(counts == [1, 0, 1])
 }
+
+@Test func removedFilterFiresOnlyOnFollowingFrame() {
+    final class RemovalState {
+        let shouldRemove = ManagedAtomic(true)
+        let counts = Mutex<[Int]>([])
+    }
+
+    struct RemoveTrackedComponentSystem: System {
+        static let id = SystemID(name: "RemoveTrackedComponentSystem")
+
+        let entity: Entity.ID
+        let state: RemovalState
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            if state.shouldRemove.exchange(false, ordering: .acquiring) {
+                commands.remove(component: TrackedComponent.self, from: entity)
+            }
+        }
+    }
+
+    struct RemovedTrackingSystem: System {
+        static let id = SystemID(name: "RemovedTrackingSystem")
+        nonisolated(unsafe) static let query = Query {
+            WithEntityID.self
+            Transform.self
+            Removed<TrackedComponent>.self
+        }
+
+        let state: RemovalState
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata], runAfter: [RemoveTrackedComponentSystem.id])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            var count = 0
+            Self.query(context) { (_: Entity.ID, _: Transform) in
+                count += 1
+            }
+            state.counts.withLock { $0.append(count) }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let state = RemovalState()
+    let entity = coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero),
+        TrackedComponent(value: 0)
+    )
+
+    coordinator.addSystem(.update, system: RemoveTrackedComponentSystem(entity: entity, state: state))
+    coordinator.addSystem(.update, system: RemovedTrackingSystem(state: state))
+
+    coordinator.runSchedule(.update)
+    coordinator.runSchedule(.update)
+    coordinator.runSchedule(.update)
+
+    let counts = state.counts.withLock { $0 }
+    #expect(counts == [0, 1, 0])
+}

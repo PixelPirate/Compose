@@ -171,6 +171,7 @@ public final class Coordinator {
     @usableFromInline @inline(__always)
     func advanceChangeTick() {
         changeTick &+= 1
+        pool.pruneRemovals(olderThan: changeTick)
     }
 
     @inlinable @inline(__always)
@@ -219,6 +220,7 @@ public final class Coordinator {
 
     @usableFromInline
     internal func setSpawnedSignature(_ entityID: Entity.ID, signature: ComponentSignature) {
+        pool.clearRemovals(for: entityID.slot)
         if entitySignatures.endIndex == entityID.slot.rawValue {
             entitySignatures.append(signature)
         } else {
@@ -398,9 +400,13 @@ public final class Coordinator {
         defer {
             worldVersion &+= 1
         }
+        let signature = self[signatureFor: entityID.slot]
         indices.free(id: entityID)
-        for componentTag in self[signatureFor: entityID.slot].tags {
+        for componentTag in signature.tags {
             groups.onWillRemoveComponent(componentTag, entity: entityID, in: self)
+        }
+        for componentTag in signature.tags {
+            pool.recordRemoval(componentTag, for: entityID, changeTick: changeTick)
         }
         pool.remove(entityID)
         entitySignatures[entityID.slot.rawValue] = ComponentSignature()

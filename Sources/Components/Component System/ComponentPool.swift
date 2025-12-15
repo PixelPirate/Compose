@@ -1,6 +1,8 @@
 public struct ComponentPool {
     @usableFromInline
     private(set) var components: [ComponentTag: AnyComponentArray] = [:]
+    @usableFromInline
+    private var removed: [ComponentTag: RemovedComponentArray] = [:]
 
     public init(components: [ComponentTag : AnyComponentArray] = [:]) {
         self.components = components
@@ -39,6 +41,7 @@ extension ComponentPool {
         guard let array = components[C.componentTag] else { return }
         array.remove(entityID)
         components[C.componentTag] = array
+        recordRemoval(C.componentTag, for: entityID, changeTick: changeTick)
     }
 
     @usableFromInline
@@ -46,6 +49,7 @@ extension ComponentPool {
         guard let array = components[componentTag] else { return }
         array.remove(entityID)
         components[componentTag] = array
+        recordRemoval(componentTag, for: entityID, changeTick: changeTick)
     }
 
     @usableFromInline
@@ -59,7 +63,47 @@ extension ComponentPool {
     func componentTicks(for tag: ComponentTag, entityID: Entity.ID) -> ComponentTicks? {
         components[tag]?.ticks(for: entityID)
     }
-    
+
+    @usableFromInline
+    mutating func recordRemoval(_ tag: ComponentTag, for entityID: Entity.ID, changeTick: UInt64) {
+        let removalTick = changeTick &+ 1
+        var storage = removed[tag] ?? RemovedComponentArray()
+        storage.recordRemoval(of: entityID.slot, at: removalTick)
+        removed[tag] = storage
+    }
+
+    @usableFromInline
+    mutating func clearRemovals(for slot: SlotIndex) {
+        for tag in Array(removed.keys) {
+            guard var storage = removed[tag] else { continue }
+            storage.remove(slot)
+            if storage.isEmpty {
+                removed.removeValue(forKey: tag)
+            } else {
+                removed[tag] = storage
+            }
+        }
+    }
+
+    @usableFromInline
+    mutating func pruneRemovals(olderThan tick: UInt64) {
+        for tag in Array(removed.keys) {
+            guard var storage = removed[tag] else { continue }
+            storage.prune(olderThan: tick)
+            if storage.isEmpty {
+                removed.removeValue(forKey: tag)
+            } else {
+                removed[tag] = storage
+            }
+        }
+    }
+
+    @usableFromInline
+    func removalAccessor(for tag: ComponentTag) -> (indices: SlotsSpan<ContiguousArray.Index, SlotIndex>, ticks: MutableContiguousSpan<UInt64>)? {
+        guard let storage = removed[tag], !storage.isEmpty else { return nil }
+        return (storage.indices, storage.ticks)
+    }
+
     /// Precomputes all valid slot indices. Has some upfront cost, but worth it for iterating large amounts of entities.
 //    @usableFromInline
 //    func slots<each C: Component>(
