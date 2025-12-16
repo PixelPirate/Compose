@@ -20,6 +20,7 @@ public struct SingleThreadedExecutor: Executor {
         for system in systems {
             let context = QueryContext(coordinator: coordinator, systemID: system.id)
             system.run(context: context, commands: &commands)
+            coordinator.advanceChangeTick()
         }
     }
 }
@@ -69,6 +70,8 @@ public struct MultiThreadedExecutor: Executor {
             for local in localCommands {
                 commands.append(contentsOf: local)
             }
+
+            coordinator.advanceChangeTick()
         }
     }
 }
@@ -102,6 +105,8 @@ public struct UnsafeUncheckedMultiThreadedExecutor: Executor {
         for local in localCommands {
             commands.append(contentsOf: local)
         }
+
+        coordinator.advanceChangeTick()
     }
 }
 

@@ -40,7 +40,6 @@ public struct Schedule {
         coordinator.eventManager.prepare()
         executor.run(systems: systems[...], coordinator: coordinator, commands: &commands)
         commands.integrate(into: coordinator)
-        coordinator.advanceChangeTick() // TODO: Is it correct that each schedule calls this? Should this be updated once per frame?
     }
 
     @inlinable
