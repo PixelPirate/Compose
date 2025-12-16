@@ -872,7 +872,7 @@ extension Tag {
         print("Iter:", iterDuration, "Perform:", performDuration)
     }
 
-    // StarFinanz: Setup: 0.225862625 seconds Added: 0.032192209 seconds Changed: 0.032264667 seconds
+    // StarFinanz: Setup: 0.22139275 seconds Added: 0.032757916 seconds Changed: 0.035296625 seconds Removed: 0.030102333 seconds
     @Test func testAddedAndChangedFiltersPerformance() {
         struct PerformanceComponent: Component {
             static let componentTag = ComponentTag.makeTag()
@@ -881,24 +881,32 @@ extension Tag {
 
         final class PerformanceState {
             let mutateNext = ManagedAtomic(false)
+            let removeNext = ManagedAtomic(false)
             let addedCounts = Mutex<[Int]>([])
             let changedCounts = Mutex<[Int]>([])
+            let removedCounts = Mutex<[Int]>([])
         }
 
         struct MutateSystem: System {
             let id = SystemID(name: "PerformanceMutateSystem")
             static let query = Query { Write<PerformanceComponent>.self }
+            static let select = Query { WithEntityID.self; With<PerformanceComponent>.self }
 
             let state: PerformanceState
 
             var metadata: SystemMetadata {
-                Self.metadata(from: [Self.query.schedulingMetadata])
+                Self.metadata(from: [Self.query.schedulingMetadata, Self.select.schedulingMetadata])
             }
 
             func run(context: Components.QueryContext, commands: inout Components.Commands) {
                 if state.mutateNext.exchange(false, ordering: .acquiring) {
                     Self.query(context) { component in
                         component.value &+= 1
+                    }
+                }
+                if state.removeNext.exchange(false, ordering: .acquiring) {
+                    for id in Self.select(fetchAll: context) {
+                        commands.remove(component: PerformanceComponent.self, from: id)
                     }
                 }
             }
@@ -923,6 +931,28 @@ extension Tag {
                     count += 1
                 }
                 state.addedCounts.withLock { $0.append(count) }
+            }
+        }
+
+        struct RemovedTrackingSystem: System {
+            let id = SystemID(name: "PerformanceRemovedTrackingSystem")
+            static let query = Query {
+                WithEntityID.self
+                Removed<PerformanceComponent>.self
+            }
+
+            let state: PerformanceState
+
+            var metadata: SystemMetadata {
+                Self.metadata(from: [Self.query.schedulingMetadata], runAfter: [SystemID(name: "PerformanceMutateSystem")])
+            }
+
+            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+                var count = 0
+                Self.query(context) { (_: Entity.ID) in
+                    count += 1
+                }
+                state.removedCounts.withLock { $0.append(count) }
             }
         }
 
@@ -954,6 +984,7 @@ extension Tag {
         coordinator.addSystem(.update, system: MutateSystem(state: state))
         coordinator.addSystem(.update, system: AddedTrackingSystem(state: state))
         coordinator.addSystem(.update, system: ChangedTrackingSystem(state: state))
+        coordinator.addSystem(.update, system: RemovedTrackingSystem(state: state))
 
         let clock = ContinuousClock()
         let entityCount = 2_000_000
@@ -973,13 +1004,22 @@ extension Tag {
             coordinator.runSchedule(.update)
         }
 
+        state.removeNext.store(true, ordering: .relaxed)
+        // Removals are deferred to the end of a schedule, so we need to pre-run once.
+        coordinator.runSchedule(.update)
+        let removeDuration = clock.measure {
+            coordinator.runSchedule(.update)
+        }
+
         let addedCounts = state.addedCounts.withLock { $0 }
         let changedCounts = state.changedCounts.withLock { $0 }
+        let removedCounts = state.removedCounts.withLock { $0 }
 
-        print("Setup:", setup, "Added:", addedDuration, "Changed:", changedDuration)
+        print("Setup:", setup, "Added:", addedDuration, "Changed:", changedDuration, "Removed:", removeDuration)
 
-        #expect(addedCounts.first == entityCount)
-        #expect(changedCounts.last == entityCount)
+        #expect(addedCounts[0] == entityCount)
+        #expect(changedCounts[1] == entityCount)
+        #expect(removedCounts.last == entityCount)
     }
 
     @Test func ecsBenchmark() {
