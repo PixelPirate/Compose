@@ -19,6 +19,22 @@ public struct ChangeFilter: Hashable, Sendable {
     }
 }
 
+/// Contains the results of a query alongside metadata about the available entities.
+public struct QueryFetchResult<Result> {
+    /// The resolved query output.
+    public let results: Result
+
+    /// Indicates whether any entities matched the query's membership rules (ignoring change filters).
+    /// When this is `false`, the world currently contains no entities with the requested components.
+    public let hasMatches: Bool
+
+    @inlinable @inline(__always)
+    public init(results: Result, hasMatches: Bool) {
+        self.results = results
+        self.hasMatches = hasMatches
+    }
+}
+
 public struct Query<each T: Component>: Sendable where repeat each T: ComponentResolving {
     /// All components which entities are required to have but will not be included in the query output.
     @inline(__always)
@@ -137,6 +153,29 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
             excludedComponents: excludedComponents,
             changeFilters: changeFilters,
             isQueryingForEntityID: isQueryingForEntityID || U.self is WithEntityID.Type
+        )
+    }
+
+    @inlinable @inline(__always)
+    public func tracking() -> Self {
+        var filters = changeFilters
+
+        for component in repeat (each T).QueriedComponent.self {
+            let tag = component.componentTag
+
+            guard tag.rawValue > 0 else { continue }
+            guard backstageComponents.contains(tag) == false else { continue }
+            guard excludedComponents.contains(tag) == false else { continue }
+
+            filters.insert(ChangeFilter(tag: tag, kind: .added))
+            filters.insert(ChangeFilter(tag: tag, kind: .changed))
+        }
+
+        return Query(
+            backstageComponents: backstageComponents,
+            excludedComponents: excludedComponents,
+            changeFilters: filters,
+            isQueryingForEntityID: isQueryingForEntityID
         )
     }
 
