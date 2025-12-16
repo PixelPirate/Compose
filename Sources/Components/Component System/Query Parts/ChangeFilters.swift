@@ -7,3 +7,6 @@ public struct Added<C: Component>: Component {
 public struct Changed<C: Component>: Component {
     public static var componentTag: ComponentTag { C.componentTag }
 }
+
+/// Alias mirroring the user-facing "updated" terminology for change-filtered queries.
+public typealias Updated<C: Component> = Changed<C>

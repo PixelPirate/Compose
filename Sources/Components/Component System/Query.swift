@@ -18,6 +18,22 @@ public struct ChangeFilter: Hashable, Sendable {
     }
 }
 
+/// Contains the results of a query alongside metadata about the available entities.
+public struct QueryFetchResult<Result>: Sendable {
+    /// The resolved query output.
+    public let results: Result
+
+    /// Indicates whether any entities matched the query's membership rules (ignoring change filters).
+    /// When this is `false`, the world currently contains no entities with the requested components.
+    public let hasMatches: Bool
+
+    @inlinable @inline(__always)
+    public init(results: Result, hasMatches: Bool) {
+        self.results = results
+        self.hasMatches = hasMatches
+    }
+}
+
 public struct Query<each T: Component>: Sendable where repeat each T: ComponentResolving {
     /// All components which entities are required to have but will not be included in the query output.
     @inline(__always)
@@ -114,6 +130,25 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
         //       E. g.: The parameter pack is only filled with `Never` queried components and/or optionals.
         //       Filters like With, Without, Added, Changed will still apply to the slots check.
         self.isQueryingOnlyForEntityID = isQueryingForEntityID && Self.isUnconstrained()
+    }
+
+    /// Returns a copy of this query that tracks additions and mutations for all queried components.
+    ///
+    /// - Note: Components that only appear as filters (via `With`/`Without`) and virtual components such as `WithEntityID`
+    ///   are ignored.
+    @inlinable @inline(__always)
+    public func tracking() -> Self {
+        let newFilters = changeFilters.union(Self.trackingFilters(
+            backstageComponents: backstageComponents,
+            excludedComponents: excludedComponents
+        ))
+
+        return Query(
+            backstageComponents: backstageComponents,
+            excludedComponents: excludedComponents,
+            changeFilters: newFilters,
+            isQueryingForEntityID: isQueryingForEntityID
+        )
     }
 
     static func isUnconstrained() -> Bool {
@@ -285,6 +320,32 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
 
         return signature
     }
+
+    @usableFromInline @inline(__always)
+    static func trackingFilters(
+        backstageComponents: Set<ComponentTag>,
+        excludedComponents: Set<ComponentTag>
+    ) -> Set<ChangeFilter> {
+        var filters: Set<ChangeFilter> = []
+
+        for tagType in repeat (each T).self {
+            let queried = tagType.QueriedComponent.self
+            let tag = queried.componentTag
+
+            guard
+                tag.rawValue > 0,
+                !backstageComponents.contains(tag),
+                !excludedComponents.contains(tag)
+            else {
+                continue
+            }
+
+            filters.insert(ChangeFilter(tag: tag, kind: .added))
+            filters.insert(ChangeFilter(tag: tag, kind: .changed))
+        }
+
+        return filters
+    }
 }
 
 /// Contains all queried components for one entity in a combination query.
@@ -309,6 +370,16 @@ public struct CombinationPack<each T> {
 extension Query {
     @inlinable @inline(__always)
     public func fetchOne(_ context: some QueryContextConvertible) -> (repeat (each T).ReadOnlyResolvedType)? {
+        fetchOneWithStatus(context).results
+    }
+
+    @inlinable @inline(__always)
+    public func fetchOne(_ coordinator: Coordinator) -> (repeat (each T).ReadOnlyResolvedType)? {
+        fetchOneWithStatus(coordinator).results
+    }
+
+    @inlinable @inline(__always)
+    public func fetchOneWithStatus(_ context: some QueryContextConvertible) -> QueryFetchResult<(repeat (each T).ReadOnlyResolvedType)?> {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
         let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
@@ -317,10 +388,11 @@ extension Query {
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
             }
         }
-        guard !baseSlots.isEmpty else { return nil }
-        let tickSnapshot = context.systemTickSnapshot
 
-        return context.coordinator.indices.generation.withUnsafeBufferPointer { generationsBuffer in
+        let tickSnapshot = context.systemTickSnapshot
+        var hasMatches = false
+
+        let result = context.coordinator.indices.generation.withUnsafeBufferPointer { generationsBuffer in
             let generationsPointer = generationsBuffer.baseAddress.unsafelyUnwrapped
             return withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
                 otherComponents.withUnsafeBufferPointer { otherBuffer in
@@ -334,13 +406,19 @@ extension Query {
                         }
                         switch strategy {
                         case .none:
-                            for slot in baseSlots where Self.passesMembership(
-                                slot,
-                                otherBuffer: otherPointer,
-                                otherCount: otherCount,
-                                excludedBuffer: excludedPointer,
-                                excludedCount: excludedCount
-                            ) {
+                            for slot in baseSlots {
+                                guard Self.passesMembership(
+                                    slot,
+                                    otherBuffer: otherPointer,
+                                    otherCount: otherCount,
+                                    excludedBuffer: excludedPointer,
+                                    excludedCount: excludedCount
+                                ) else {
+                                    continue
+                                }
+
+                                hasMatches = true
+
                                 let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
                                 return (
                                     repeat (each T).makeReadOnlyResolved(
@@ -357,7 +435,129 @@ extension Query {
                                 let thisRun = tickSnapshot.thisRun
                                 let addedMask = ChangeFilterMask.added.rawValue
                                 let changedMask = ChangeFilterMask.changed.rawValue
-                                for slot in baseSlots where Self.passes(
+
+                                for slot in baseSlots {
+                                    switch Self.passes(
+                                        slot: slot,
+                                        requiredComponents: otherPointer,
+                                        requiredComponentsCount: otherCount,
+                                        excludedComponents: excludedPointer,
+                                        excludedComponentsCount: excludedCount,
+                                        changeFilters: changePointer,
+                                        changeFiltersCount: changeCount,
+                                        addedMask: addedMask,
+                                        changedMask: changedMask,
+                                        lastRun: lastRun,
+                                        thisRun: thisRun
+                                    ) {
+                                    case .passes:
+                                        hasMatches = true
+                                        let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
+                                        return (
+                                            repeat (each T).makeReadOnlyResolved(
+                                                access: each accessors,
+                                                entityID: entityID
+                                            )
+                                        )
+                                    case .filteredByChanges:
+                                        hasMatches = true
+                                        continue
+                                    case .noMatch:
+                                        continue
+                                    }
+                                }
+
+                                return nil
+                            }
+                        }
+
+                        return nil
+                    }
+                }
+            }
+        }
+
+        return QueryFetchResult(results: result, hasMatches: hasMatches)
+    }
+
+    @inlinable @inline(__always)
+    public func fetchOneWithStatus(_ coordinator: Coordinator) -> QueryFetchResult<(repeat (each T).ReadOnlyResolvedType)?> {
+        fetchOneWithStatus(QueryContext(coordinator: coordinator))
+    }
+}
+
+extension Query {
+    @inlinable @inline(__always)
+    public func fetchAll(_ context: some QueryContextConvertible) -> LazyQuerySequence<repeat each T> {
+        fetchAllWithStatus(context).results
+    }
+
+    @inlinable @inline(__always)
+    public func fetchAll(_ coordinator: Coordinator) -> LazyQuerySequence<repeat each T> {
+        fetchAllWithStatus(coordinator).results
+    }
+
+    @inlinable @inline(__always)
+    public func fetchAllWithStatus(_ context: some QueryContextConvertible) -> QueryFetchResult<LazyQuerySequence<repeat each T>> {
+        let context = context.queryContext
+        var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
+        let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        if baseSlots.isEmpty, isQueryingOnlyForEntityID {
+            // This is for cases like `Query { WithEntityID.self }` or `Query { WithEntityID.self; Optional<…>.self }`
+            ids.withUnsafeBufferPointer { buffer in
+                baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
+            }
+        }
+
+        let tickSnapshot = context.systemTickSnapshot
+        var hasMatches = false
+
+        let accessors = withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
+            (repeat each accessors)
+        }
+
+        let entitiesAndMatch: (hasMatches: Bool, entities: [Entity.ID]) = context.coordinator.indices.generation.withUnsafeBufferPointer { generationsBuffer in
+            let generationsPointer = generationsBuffer.baseAddress.unsafelyUnwrapped
+            return otherComponents.withUnsafeBufferPointer { otherBuffer in
+                excludedComponents.withUnsafeBufferPointer { excludedBuffer in
+                    let otherPointer = otherBuffer.baseAddress.unsafelyUnwrapped
+                    let otherCount = otherBuffer.count
+                    let excludedPointer = excludedBuffer.baseAddress.unsafelyUnwrapped
+                    let excludedCount = excludedBuffer.count
+                    guard let strategy = prepareChangeFilterAccessors((repeat each accessors), pool: &context.coordinator.pool) else {
+                        return (false, [])
+                    }
+                    var entities: [Entity.ID] = []
+                    entities.reserveCapacity(baseSlots.count)
+                    switch strategy {
+                    case .none:
+                        for slot in baseSlots {
+                            guard Self.passesMembership(
+                                slot,
+                                otherBuffer: otherPointer,
+                                otherCount: otherCount,
+                                excludedBuffer: excludedPointer,
+                                excludedCount: excludedCount
+                            ) else {
+                                continue
+                            }
+
+                            hasMatches = true
+                            let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
+                            entities.append(entityID)
+                        }
+                        return (hasMatches, entities)
+
+                    case .fast(let changeFilters):
+                        return changeFilters.withUnsafeBufferPointer { changeBuffer in
+                            let changePointer = changeBuffer.baseAddress.unsafelyUnwrapped
+                            let changeCount = changeBuffer.count
+                            let lastRun = tickSnapshot.lastRun
+                            let thisRun = tickSnapshot.thisRun
+                            let addedMask = ChangeFilterMask.added.rawValue
+                            let changedMask = ChangeFilterMask.changed.rawValue
+                            for slot in baseSlots {
+                                switch Self.passes(
                                     slot: slot,
                                     requiredComponents: otherPointer,
                                     requiredComponentsCount: otherCount,
@@ -370,112 +570,41 @@ extension Query {
                                     lastRun: lastRun,
                                     thisRun: thisRun
                                 ) {
+                                case .passes:
+                                    hasMatches = true
                                     let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
-                                    return (
-                                        repeat (each T).makeReadOnlyResolved(
-                                            access: each accessors,
-                                            entityID: entityID
-                                        )
-                                    )
+                                    entities.append(entityID)
+                                case .filteredByChanges:
+                                    hasMatches = true
+                                    continue
+                                case .noMatch:
+                                    continue
                                 }
-
-                                return nil
                             }
-                        }
 
-                        return nil
+                            return (hasMatches, entities)
+                        }
                     }
                 }
             }
         }
+
+        return QueryFetchResult(
+            results: LazyQuerySequence(
+                entityIDs: entitiesAndMatch.entities,
+                accessors: repeat each accessors
+            ),
+            hasMatches: entitiesAndMatch.hasMatches
+        )
+    }
+
+    @inlinable @inline(__always)
+    public func fetchAllWithStatus(_ coordinator: Coordinator) -> QueryFetchResult<LazyQuerySequence<repeat each T>> {
+        fetchAllWithStatus(QueryContext(coordinator: coordinator))
     }
 }
 
 extension Query {
-    @inlinable @inline(__always)
-    public func fetchAll(_ context: some QueryContextConvertible) -> LazyQuerySequence<repeat each T> {
-        let context = context.queryContext
-        var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
-        let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
-        if baseSlots.isEmpty, isQueryingOnlyForEntityID {
-            // This is for cases like `Query { WithEntityID.self }` or `Query { WithEntityID.self; Optional<…>.self }`
-            ids.withUnsafeBufferPointer { buffer in
-                baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
-            }
-        }
-        guard !baseSlots.isEmpty else { return LazyQuerySequence() }
-        let tickSnapshot = context.systemTickSnapshot
-
-        let accessors = withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
-            (repeat each accessors)
-        }
-
-        let entities: [Entity.ID] = context.coordinator.indices.generation.withUnsafeBufferPointer { generationsBuffer in
-            let generationsPointer = generationsBuffer.baseAddress.unsafelyUnwrapped
-            return otherComponents.withUnsafeBufferPointer { otherBuffer in
-                excludedComponents.withUnsafeBufferPointer { excludedBuffer in
-                    let otherPointer = otherBuffer.baseAddress.unsafelyUnwrapped
-                    let otherCount = otherBuffer.count
-                    let excludedPointer = excludedBuffer.baseAddress.unsafelyUnwrapped
-                    let excludedCount = excludedBuffer.count
-                    guard let strategy = prepareChangeFilterAccessors((repeat each accessors), pool: &context.coordinator.pool) else {
-                        return []
-                    }
-                    var entities: [Entity.ID] = []
-                    entities.reserveCapacity(baseSlots.count)
-                    switch strategy {
-                    case .none:
-                        for slot in baseSlots where Self.passesMembership(
-                            slot,
-                            otherBuffer: otherPointer,
-                            otherCount: otherCount,
-                            excludedBuffer: excludedPointer,
-                            excludedCount: excludedCount
-                        ) {
-                            let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
-                            entities.append(entityID)
-                        }
-                        return entities
-
-                    case .fast(let changeFilters):
-                        return changeFilters.withUnsafeBufferPointer { changeBuffer in
-                            let changePointer = changeBuffer.baseAddress.unsafelyUnwrapped
-                            let changeCount = changeBuffer.count
-                            let lastRun = tickSnapshot.lastRun
-                            let thisRun = tickSnapshot.thisRun
-                            let addedMask = ChangeFilterMask.added.rawValue
-                            let changedMask = ChangeFilterMask.changed.rawValue
-                            for slot in baseSlots where Self.passes(
-                                slot: slot,
-                                requiredComponents: otherPointer,
-                                requiredComponentsCount: otherCount,
-                                excludedComponents: excludedPointer,
-                                excludedComponentsCount: excludedCount,
-                                changeFilters: changePointer,
-                                changeFiltersCount: changeCount,
-                                addedMask: addedMask,
-                                changedMask: changedMask,
-                                lastRun: lastRun,
-                                thisRun: thisRun
-                            ) {
-                                let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
-                                entities.append(entityID)
-                            }
-
-                            return entities
-                        }
-                    }
-                }
-            }
-        }
-
-        return LazyQuerySequence(
-            entityIDs: entities,
-            accessors: repeat each accessors
-        )
-    }
-}
-
 extension Query {
 //    @inlinable @inline(__always)
 //    public func performPreloadedParallel(_ context: some QueryContextConvertible, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
@@ -697,24 +826,24 @@ extension Query {
                         let slot = basePointer.advanced(by: baseIndex).pointee
                         baseIndex &+= 1
 
-                        guard
-                            signatures[slot].rawHashValue.isSuperset(
-                                of: querySignature.rawHashValue,
-                                isDisjoint: excludedSignature.rawHashValue
-                            ),
-                            Self.passesChangeFilters(
-                                slot,
-                                buffer: changePointer,
-                                bufferCount: changeCount,
-                                addedMask: addedMask,
-                                changedMask: changedMask,
-                                lastRun: lastRun,
-                                thisRun: thisRun
-                            )
-                        else {
+                        guard signatures[slot].rawHashValue.isSuperset(
+                            of: querySignature.rawHashValue,
+                            isDisjoint: excludedSignature.rawHashValue
+                        ) else {
                             continue
                         }
 
+                        guard Self.passesChangeFilters(
+                            slot,
+                            buffer: changePointer,
+                            bufferCount: changeCount,
+                            addedMask: addedMask,
+                            changedMask: changedMask,
+                            lastRun: lastRun,
+                            thisRun: thisRun
+                        ) else {
+                            continue
+                        }
                         let entityID = Entity.ID(
                             slot: slot,
                             generation: isQueryingForEntityID ? indicesPointer.advanced(by: slot.rawValue).pointee : 0
@@ -1003,6 +1132,10 @@ extension Query {
 //    }
 
     @inlinable @inline(__always) @_transparent
+    @usableFromInline
+    enum PassResult: UInt8 { case noMatch, filteredByChanges, passes }
+
+    @inlinable @inline(__always) @_transparent
     static func passes(
         slot: SlotIndex,
         requiredComponents: UnsafePointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>,
@@ -1015,13 +1148,21 @@ extension Query {
         changedMask: UInt8,
         lastRun: UInt64,
         thisRun: UInt64
-    ) -> Bool {
-        for index in Range(uncheckedBounds: (0, requiredComponentsCount)) where requiredComponents[index][slot] == .notFound {
-            return false
+    ) -> PassResult {
+        var membershipIndex = 0
+        while membershipIndex < requiredComponentsCount {
+            if requiredComponents[membershipIndex][slot] == .notFound {
+                return .noMatch
+            }
+            membershipIndex &+= 1
         }
 
-        for index in Range(uncheckedBounds: (0, excludedComponentsCount)) where excludedComponents[index][slot] != .notFound {
-            return false
+        membershipIndex = 0
+        while membershipIndex < excludedComponentsCount {
+            if excludedComponents[membershipIndex][slot] != .notFound {
+                return .noMatch
+            }
+            membershipIndex &+= 1
         }
 
         var changeIndex = 0
@@ -1029,22 +1170,22 @@ extension Query {
             let accessor = changeFilters[changeIndex]
             let denseIndex = accessor.indices[slot]
             if denseIndex == .notFound {
-                return false
+                return .noMatch
             }
 
             let ticks = accessor.ticks.mutablePointer(at: denseIndex).pointee
             let mask = accessor.mask.rawValue
 
             if mask & addedMask != 0 && !ticks.isAdded(since: lastRun, upTo: thisRun) {
-                return false
+                return .filteredByChanges
             }
             if mask & changedMask != 0 && !ticks.isChanged(since: lastRun, upTo: thisRun) {
-                return false
+                return .filteredByChanges
             }
 
             changeIndex &+= 1
         }
-        return true
+        return .passes
     }
 
     @inlinable @inline(__always) @_transparent
@@ -1249,27 +1390,17 @@ extension Query {
                                 let slot = basePointer.advanced(by: baseIndex).pointee
                                 baseIndex &+= 1
 
-                                guard
-                                    Self.passesMembership(
-                                        slot,
-                                        otherBuffer: otherPointer,
-                                        otherCount: otherCount,
-                                        excludedBuffer: excludedPointer,
-                                        excludedCount: excludedCount
-                                    ),
-                                    Self.passesChangeFilters(
-                                        slot,
-                                        buffer: changePointer,
-                                        bufferCount: changeCount,
-                                        addedMask: addedMask,
-                                        changedMask: changedMask,
-                                        lastRun: lastRun,
-                                        thisRun: thisRun
-                                    )
-                                else {
+                                guard Self.passesChangeFilters(
+                                    slot,
+                                    buffer: changePointer,
+                                    bufferCount: changeCount,
+                                    addedMask: addedMask,
+                                    changedMask: changedMask,
+                                    lastRun: lastRun,
+                                    thisRun: thisRun
+                                ) else {
                                     continue
                                 }
-
                                 let entityID = Entity.ID(
                                     slot: slot,
                                     generation: isQueryingForEntityID ? indicesPointer.advanced(by: slot.rawValue).pointee : 0
@@ -1328,6 +1459,9 @@ extension Query {
         let slotsSlice: ContiguousSpan<SlotIndex>
         let exactGroupMatch: Bool
         let owned: ComponentSignature
+        let componentArrays = getCachedArrays(context.coordinator)
+        let otherComponents = componentArrays.1
+        let excludedComponents = componentArrays.2
         if let best {
             slotsSlice = best.slots
             exactGroupMatch = best.exact
@@ -1358,6 +1492,7 @@ extension Query {
                         handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: entityID))
                     }
                     
+
                 case .fast(let changeFilters):
                     changeFilters.withUnsafeBufferPointer { changeBuffer in
                         let changePointer = changeBuffer.baseAddress.unsafelyUnwrapped
@@ -1366,25 +1501,37 @@ extension Query {
                         let thisRun = tickSnapshot.thisRun
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
-                        
-                        // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                        for (denseIndex, slot) in slotsSlice.enumerated() where Self.passesChangeFilters(
-                            slot,
-                            buffer: changePointer,
-                            bufferCount: changeCount,
-                            addedMask: addedMask,
-                            changedMask: changedMask,
-                            lastRun: lastRun,
-                            thisRun: thisRun
-                        ) {
-                            let entityID = Entity.ID(
-                                slot: SlotIndex(rawValue: slot.rawValue),
-                                generation: isQueryingForEntityID ? indices[slot] : 0
-                            )
-                            handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: entityID))
+
+                        otherComponents.withUnsafeBufferPointer { otherBuffer in
+                            let otherPointer = otherBuffer.baseAddress.unsafelyUnwrapped
+                            let otherCount = otherBuffer.count
+                            excludedComponents.withUnsafeBufferPointer { excludedBuffer in
+                                let excludedPointer = excludedBuffer.baseAddress.unsafelyUnwrapped
+                                let excludedCount = excludedBuffer.count
+
+                                // Enumerate dense indices directly: 0..<size aligned across all owned storages
+                                for (denseIndex, slot) in slotsSlice.enumerated() {
+                                    guard Self.passesChangeFilters(
+                                        SlotIndex(rawValue: slot.rawValue),
+                                        buffer: changePointer,
+                                        bufferCount: changeCount,
+                                        addedMask: addedMask,
+                                        changedMask: changedMask,
+                                        lastRun: lastRun,
+                                        thisRun: thisRun
+                                    ) else {
+                                        continue
+                                    }
+                                    let entityID = Entity.ID(
+                                        slot: SlotIndex(rawValue: slot.rawValue),
+                                        generation: isQueryingForEntityID ? indices[slot] : 0
+                                    )
+                                    handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: entityID))
+                                }
+                            }
                         }
                     }
-                }
+            }
             }
         } else {
             let indices = context.coordinator.indices.generationView
@@ -1433,33 +1580,43 @@ extension Query {
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
                         
-                        // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                        for (denseIndex, slot) in slotsSlice.enumerated() where Self.passesChangeFilters(
-                            slot,
-                            buffer: changePointer,
-                            bufferCount: changeCount,
-                            addedMask: addedMask,
-                            changedMask: changedMask,
-                            lastRun: lastRun,
-                            thisRun: thisRun
-                        ) {
-                            let signature = signatures[slot]
-                            
-                            guard
-                                signature.rawHashValue.isSuperset(
-                                    of: querySignature.rawHashValue,
-                                    isDisjoint: excludedSignature.rawHashValue
-                                )
-                            else {
-                                continue
+                        otherComponents.withUnsafeBufferPointer { otherBuffer in
+                            let otherPointer = otherBuffer.baseAddress.unsafelyUnwrapped
+                            let otherCount = otherBuffer.count
+                            excludedComponents.withUnsafeBufferPointer { excludedBuffer in
+                                let excludedPointer = excludedBuffer.baseAddress.unsafelyUnwrapped
+                                let excludedCount = excludedBuffer.count
+
+                                // Enumerate dense indices directly: 0..<size aligned across all owned storages
+                                for (denseIndex, slot) in slotsSlice.enumerated() {
+                                    let signature = signatures[slot]
+
+                                    guard signature.rawHashValue.isSuperset(
+                                        of: querySignature.rawHashValue,
+                                        isDisjoint: excludedSignature.rawHashValue
+                                    ) else {
+                                        continue
+                                    }
+
+                                    guard Self.passesChangeFilters(
+                                        SlotIndex(rawValue: slot.rawValue),
+                                        buffer: changePointer,
+                                        bufferCount: changeCount,
+                                        addedMask: addedMask,
+                                        changedMask: changedMask,
+                                        lastRun: lastRun,
+                                        thisRun: thisRun
+                                    ) else {
+                                        continue
+                                    }
+                                    let entityID = Entity.ID(
+                                        slot: SlotIndex(rawValue: slot.rawValue),
+                                        generation: isQueryingForEntityID ? indices[slot] : 0
+                                    )
+
+                                    handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: entityID, owned: owned))
+                                }
                             }
-                            
-                            let entityID = Entity.ID(
-                                slot: SlotIndex(rawValue: slot.rawValue),
-                                generation: isQueryingForEntityID ? indices[slot] : 0
-                            )
-                            
-                            handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: entityID, owned: owned))
                         }
                     }
                 }
@@ -1540,21 +1697,26 @@ extension Query {
                             let thisRun = tickSnapshot.thisRun
                             let addedMask = ChangeFilterMask.added.rawValue
                             let changedMask = ChangeFilterMask.changed.rawValue
-                            for slot in baseSlots where Self.passes(
-                                slot: slot,
-                                requiredComponents: otherPointer,
-                                requiredComponentsCount: otherCount,
-                                excludedComponents: excludedPointer,
-                                excludedComponentsCount: excludedCount,
-                                changeFilters: changePointer,
-                                changeFiltersCount: changeCount,
-                                addedMask: addedMask,
-                                changedMask: changedMask,
-                                lastRun: lastRun,
-                                thisRun: thisRun
-                            ) {
-                                let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
-                                entities.append(entityID)
+                            for slot in baseSlots {
+                                switch Self.passes(
+                                    slot: slot,
+                                    requiredComponents: otherPointer,
+                                    requiredComponentsCount: otherCount,
+                                    excludedComponents: excludedPointer,
+                                    excludedComponentsCount: excludedCount,
+                                    changeFilters: changePointer,
+                                    changeFiltersCount: changeCount,
+                                    addedMask: addedMask,
+                                    changedMask: changedMask,
+                                    lastRun: lastRun,
+                                    thisRun: thisRun
+                                ) {
+                                case .passes:
+                                    let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
+                                    entities.append(entityID)
+                                case .filteredByChanges, .noMatch:
+                                    continue
+                                }
                             }
 
                             return entities
