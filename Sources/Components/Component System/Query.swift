@@ -371,6 +371,7 @@ extension Query {
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
             }
         }
+        guard !baseSlots.isEmpty else { return QueryFetchResult(results: nil, hasMatches: false) }
 
         let tickSnapshot = context.systemTickSnapshot
         var hasMatches = false
@@ -389,17 +390,13 @@ extension Query {
                         }
                         switch strategy {
                         case .none:
-                            for slot in baseSlots {
-                                guard Self.passesMembership(
-                                    slot,
-                                    otherBuffer: otherPointer,
-                                    otherCount: otherCount,
-                                    excludedBuffer: excludedPointer,
-                                    excludedCount: excludedCount
-                                ) else {
-                                    continue
-                                }
-
+                            for slot in baseSlots where Self.passesMembership(
+                                slot,
+                                otherBuffer: otherPointer,
+                                otherCount: otherCount,
+                                excludedBuffer: excludedPointer,
+                                excludedCount: excludedCount
+                            ) {
                                 hasMatches = true
 
                                 let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
@@ -493,6 +490,7 @@ extension Query {
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
             }
         }
+        guard !baseSlots.isEmpty else { return QueryFetchResult(results: LazyQuerySequence(), hasMatches: false) }
 
         let tickSnapshot = context.systemTickSnapshot
         var hasMatches = false
@@ -516,17 +514,13 @@ extension Query {
                     entities.reserveCapacity(baseSlots.count)
                     switch strategy {
                     case .none:
-                        for slot in baseSlots {
-                            guard Self.passesMembership(
-                                slot,
-                                otherBuffer: otherPointer,
-                                otherCount: otherCount,
-                                excludedBuffer: excludedPointer,
-                                excludedCount: excludedCount
-                            ) else {
-                                continue
-                            }
-
+                        for slot in baseSlots where Self.passesMembership(
+                            slot,
+                            otherBuffer: otherPointer,
+                            otherCount: otherCount,
+                            excludedBuffer: excludedPointer,
+                            excludedCount: excludedCount
+                        ) {
                             hasMatches = true
                             let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
                             entities.append(entityID)
@@ -1419,6 +1413,7 @@ extension Query {
                                 else {
                                     continue
                                 }
+
                                 let entityID = Entity.ID(
                                     slot: slot,
                                     generation: isQueryingForEntityID ? indicesPointer.advanced(by: slot.rawValue).pointee : 0
