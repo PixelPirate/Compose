@@ -71,6 +71,17 @@ public enum QueryBuilder {
         )
     }
 
+    public static func buildExpression<C: Component>(_ c: Removed<C>.Type) -> BuiltQuery< > {
+        BuiltQuery(
+            composite: Query< >(
+                backstageComponents: [],
+                excludedComponents: [C.componentTag],
+                changeFilters: [ChangeFilter(tag: C.componentTag, kind: .removed)],
+                isQueryingForEntityID: false
+            )
+        )
+    }
+
     public static func buildExpression(_ c: WithEntityID.Type) -> BuiltQuery<WithEntityID> {
         BuiltQuery(
             composite: Query<WithEntityID>(

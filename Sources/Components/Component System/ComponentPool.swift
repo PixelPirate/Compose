@@ -1,6 +1,8 @@
 public struct ComponentPool {
     @usableFromInline
     private(set) var components: [ComponentTag: AnyComponentArray] = [:]
+    @usableFromInline
+    private(set) var removedComponents: [ComponentTag: RemovedComponentArray] = [:]
 
     public init(components: [ComponentTag : AnyComponentArray] = [:]) {
         self.components = components
@@ -32,20 +34,23 @@ extension ComponentPool {
         }()
         array.append(component, id: entityID, changeTick: changeTick)
         components[C.componentTag] = array
+        clearRemoved(tag: C.componentTag, entityID: entityID)
     }
 
     @usableFromInline
-    mutating func remove<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID) {
+    mutating func remove<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID, changeTick: UInt64) {
         guard let array = components[C.componentTag] else { return }
         array.remove(entityID)
         components[C.componentTag] = array
+        recordRemoval(of: C.componentTag, entityID: entityID, tick: changeTick)
     }
 
     @usableFromInline
-    mutating func remove(_ componentTag: ComponentTag, _ entityID: Entity.ID) {
+    mutating func remove(_ componentTag: ComponentTag, _ entityID: Entity.ID, changeTick: UInt64) {
         guard let array = components[componentTag] else { return }
         array.remove(entityID)
         components[componentTag] = array
+        recordRemoval(of: componentTag, entityID: entityID, tick: changeTick)
     }
 
     @usableFromInline
@@ -53,6 +58,32 @@ extension ComponentPool {
         for component in components.values {
             component.remove(entityID)
         }
+        for tag in removedComponents.keys {
+            guard var removedArray = removedComponents[tag] else { continue }
+            removedArray.remove(entityID)
+            removedComponents[tag] = removedArray
+        }
+    }
+
+    @usableFromInline
+    mutating func clearRemoved(tag: ComponentTag, entityID: Entity.ID) {
+        guard var removedArray = removedComponents[tag] else { return }
+        removedArray.remove(entityID)
+        removedComponents[tag] = removedArray
+    }
+
+    @usableFromInline
+    mutating func recordRemoval(of tag: ComponentTag, entityID: Entity.ID, tick: UInt64) {
+        var removedArray = removedComponents[tag] ?? RemovedComponentArray()
+        removedArray.ensureEntity(entityID)
+        removedArray.recordRemoval(of: entityID, at: tick)
+        removedComponents[tag] = removedArray
+    }
+
+    @usableFromInline
+    func removedIndices(for tag: ComponentTag) -> (SlotsSpan<ContiguousArray.Index, SlotIndex>, MutableContiguousSpan<ComponentTicks>)? {
+        guard let removed = removedComponents[tag] else { return nil }
+        return removed.withIndices { indices, ticks in (indices, ticks) }
     }
 
     @usableFromInline

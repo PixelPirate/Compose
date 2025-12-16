@@ -4,6 +4,7 @@ public struct ChangeFilter: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
         case added
         case changed
+        case removed
     }
 
     @usableFromInline
@@ -19,7 +20,7 @@ public struct ChangeFilter: Hashable, Sendable {
 }
 
 /// Contains the results of a query alongside metadata about the available entities.
-public struct QueryFetchResult<Result>: Sendable {
+public struct QueryFetchResult<Result> {
     /// The resolved query output.
     public let results: Result
 
@@ -132,25 +133,6 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
         self.isQueryingOnlyForEntityID = isQueryingForEntityID && Self.isUnconstrained()
     }
 
-    /// Returns a copy of this query that tracks additions and mutations for all queried components.
-    ///
-    /// - Note: Components that only appear as filters (via `With`/`Without`) and virtual components such as `WithEntityID`
-    ///   are ignored.
-    @inlinable @inline(__always)
-    public func tracking() -> Self {
-        let newFilters = changeFilters.union(Self.trackingFilters(
-            backstageComponents: backstageComponents,
-            excludedComponents: excludedComponents
-        ))
-
-        return Query(
-            backstageComponents: backstageComponents,
-            excludedComponents: excludedComponents,
-            changeFilters: newFilters,
-            isQueryingForEntityID: isQueryingForEntityID
-        )
-    }
-
     static func isUnconstrained() -> Bool {
         for component in repeat (each T).self {
             if component is any OptionalQueriedComponent.Type {
@@ -171,6 +153,33 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
             excludedComponents: excludedComponents,
             changeFilters: changeFilters,
             isQueryingForEntityID: isQueryingForEntityID || U.self is WithEntityID.Type
+        )
+    }
+
+    /// Returns a copy of this query that tracks additions and mutations for all queried components.
+    ///
+    /// - Note: Components that only appear as filters (via `With`/`Without`) and virtual components such as `WithEntityID`
+    ///   are ignored.
+    @inlinable @inline(__always)
+    public func tracking() -> Self {
+        var filters = changeFilters
+
+        for component in repeat (each T).QueriedComponent.self {
+            let tag = component.componentTag
+
+            guard tag.rawValue > 0 else { continue }
+            guard backstageComponents.contains(tag) == false else { continue }
+            guard excludedComponents.contains(tag) == false else { continue }
+
+            filters.insert(ChangeFilter(tag: tag, kind: .added))
+            filters.insert(ChangeFilter(tag: tag, kind: .changed))
+        }
+
+        return Query(
+            backstageComponents: backstageComponents,
+            excludedComponents: excludedComponents,
+            changeFilters: filters,
+            isQueryingForEntityID: isQueryingForEntityID
         )
     }
 
@@ -320,32 +329,6 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
 
         return signature
     }
-
-    @usableFromInline @inline(__always)
-    static func trackingFilters(
-        backstageComponents: Set<ComponentTag>,
-        excludedComponents: Set<ComponentTag>
-    ) -> Set<ChangeFilter> {
-        var filters: Set<ChangeFilter> = []
-
-        for tagType in repeat (each T).self {
-            let queried = tagType.QueriedComponent.self
-            let tag = queried.componentTag
-
-            guard
-                tag.rawValue > 0,
-                !backstageComponents.contains(tag),
-                !excludedComponents.contains(tag)
-            else {
-                continue
-            }
-
-            filters.insert(ChangeFilter(tag: tag, kind: .added))
-            filters.insert(ChangeFilter(tag: tag, kind: .changed))
-        }
-
-        return filters
-    }
 }
 
 /// Contains all queried components for one entity in a combination query.
@@ -392,7 +375,7 @@ extension Query {
         let tickSnapshot = context.systemTickSnapshot
         var hasMatches = false
 
-        let result = context.coordinator.indices.generation.withUnsafeBufferPointer { generationsBuffer in
+        let result: (repeat (each T).ReadOnlyResolvedType)? = context.coordinator.indices.generation.withUnsafeBufferPointer { generationsBuffer in
             let generationsPointer = generationsBuffer.baseAddress.unsafelyUnwrapped
             return withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
                 otherComponents.withUnsafeBufferPointer { otherBuffer in
@@ -435,6 +418,7 @@ extension Query {
                                 let thisRun = tickSnapshot.thisRun
                                 let addedMask = ChangeFilterMask.added.rawValue
                                 let changedMask = ChangeFilterMask.changed.rawValue
+                                let removedMask = ChangeFilterMask.removed.rawValue
 
                                 for slot in baseSlots {
                                     switch Self.passes(
@@ -447,6 +431,7 @@ extension Query {
                                         changeFiltersCount: changeCount,
                                         addedMask: addedMask,
                                         changedMask: changedMask,
+                                        removedMask: removedMask,
                                         lastRun: lastRun,
                                         thisRun: thisRun
                                     ) {
@@ -556,6 +541,7 @@ extension Query {
                             let thisRun = tickSnapshot.thisRun
                             let addedMask = ChangeFilterMask.added.rawValue
                             let changedMask = ChangeFilterMask.changed.rawValue
+                            let removedMask = ChangeFilterMask.removed.rawValue
                             for slot in baseSlots {
                                 switch Self.passes(
                                     slot: slot,
@@ -567,6 +553,7 @@ extension Query {
                                     changeFiltersCount: changeCount,
                                     addedMask: addedMask,
                                     changedMask: changedMask,
+                                    removedMask: removedMask,
                                     lastRun: lastRun,
                                     thisRun: thisRun
                                 ) {
@@ -604,7 +591,6 @@ extension Query {
     }
 }
 
-extension Query {
 extension Query {
 //    @inlinable @inline(__always)
 //    public func performPreloadedParallel(_ context: some QueryContextConvertible, _ handler: @Sendable (repeat (each T).ResolvedType) -> Void) where repeat each T: Sendable {
@@ -703,6 +689,7 @@ extension Query {
                 let thisRun = tickSnapshot.thisRun
                 let addedMask = ChangeFilterMask.added.rawValue
                 let changedMask = ChangeFilterMask.changed.rawValue
+                let removedMask = ChangeFilterMask.removed.rawValue
                 changeFilters.withUnsafeBufferPointer { changeFiltersBuffer in
                     let changeFiltersPointer = changeFiltersBuffer.baseAddress.unsafelyUnwrapped
                     let changeFiltersCount = changeFiltersBuffer.count
@@ -725,6 +712,7 @@ extension Query {
                                     bufferCount: changeFiltersCount,
                                     addedMask: addedMask,
                                     changedMask: changedMask,
+                                    removedMask: removedMask,
                                     lastRun: lastRun,
                                     thisRun: thisRun
                                 )
@@ -816,6 +804,7 @@ extension Query {
                 let thisRun = tickSnapshot.thisRun
                 let addedMask = ChangeFilterMask.added.rawValue
                 let changedMask = ChangeFilterMask.changed.rawValue
+                let removedMask = ChangeFilterMask.removed.rawValue
 
                 fastChangeAccessors.withUnsafeBufferPointer { changeBuffer in
                     let changeCount = changeBuffer.count
@@ -826,24 +815,25 @@ extension Query {
                         let slot = basePointer.advanced(by: baseIndex).pointee
                         baseIndex &+= 1
 
-                        guard signatures[slot].rawHashValue.isSuperset(
-                            of: querySignature.rawHashValue,
-                            isDisjoint: excludedSignature.rawHashValue
-                        ) else {
+                        guard
+                            signatures[slot].rawHashValue.isSuperset(
+                                of: querySignature.rawHashValue,
+                                isDisjoint: excludedSignature.rawHashValue
+                            ),
+                            Self.passesChangeFilters(
+                                slot,
+                                buffer: changePointer,
+                                bufferCount: changeCount,
+                                addedMask: addedMask,
+                                changedMask: changedMask,
+                                removedMask: removedMask,
+                                lastRun: lastRun,
+                                thisRun: thisRun
+                            )
+                        else {
                             continue
                         }
 
-                        guard Self.passesChangeFilters(
-                            slot,
-                            buffer: changePointer,
-                            bufferCount: changeCount,
-                            addedMask: addedMask,
-                            changedMask: changedMask,
-                            lastRun: lastRun,
-                            thisRun: thisRun
-                        ) else {
-                            continue
-                        }
                         let entityID = Entity.ID(
                             slot: slot,
                             generation: isQueryingForEntityID ? indicesPointer.advanced(by: slot.rawValue).pointee : 0
@@ -939,6 +929,7 @@ extension Query {
                         let thisRun = tickSnapshot.thisRun
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
+                        let removedMask = ChangeFilterMask.removed.rawValue
 
                         fastChangeAccessors.withUnsafeBufferPointer { changeBuffer in
                             let changeCount = changeBuffer.count
@@ -963,6 +954,7 @@ extension Query {
                                         bufferCount: changeCount,
                                         addedMask: addedMask,
                                         changedMask: changedMask,
+                                        removedMask: removedMask,
                                         lastRun: lastRun,
                                         thisRun: thisRun
                                     )
@@ -1010,6 +1002,9 @@ struct ChangeFilterMask: OptionSet, Sendable {
 
     @usableFromInline
     static let changed = ChangeFilterMask(rawValue: 1 << 1)
+
+    @usableFromInline
+    static let removed = ChangeFilterMask(rawValue: 1 << 2)
 }
 
 @usableFromInline
@@ -1033,6 +1028,13 @@ struct ChangeFilterAccessor {
 enum ChangeFilterStrategy {
     case none
     case fast(ContiguousArray<ChangeFilterAccessor>)
+}
+
+@usableFromInline
+enum PassResult: UInt8 {
+    case noMatch
+    case filteredByChanges
+    case passes
 }
 
 extension Query {
@@ -1061,6 +1063,8 @@ extension Query {
                 mask.insert(.added)
             case .changed:
                 mask.insert(.changed)
+            case .removed:
+                mask.insert(.removed)
             }
             masks[filter.tag] = mask
         }
@@ -1080,6 +1084,7 @@ extension Query {
 
         for access in repeat each accessors {
             guard let mask = changeFilterMasks[access.tag] else { continue }
+            guard !mask.contains(.removed) else { continue }
             prepared.append(ChangeFilterAccessor(mask: mask, indices: access.indices, ticks: access.ticks))
             remaining.remove(access.tag)
         }
@@ -1088,8 +1093,14 @@ extension Query {
             // Slow path, need to fill up without accessors.
             for tag in remaining.tags {
                 guard let mask = changeFilterMasks[tag] else { continue }
-                pool.pointee.components[tag]?.withIndices { indices, ticks in
-                    prepared.append(ChangeFilterAccessor(mask: mask, indices: indices, ticks: ticks))
+                if mask.contains(.removed) {
+                    if let (indices, ticks) = pool.pointee.removedIndices(for: tag) {
+                        prepared.append(ChangeFilterAccessor(mask: mask, indices: indices, ticks: ticks))
+                    }
+                } else {
+                    pool.pointee.components[tag]?.withIndices { indices, ticks in
+                        prepared.append(ChangeFilterAccessor(mask: mask, indices: indices, ticks: ticks))
+                    }
                 }
             }
 
@@ -1132,10 +1143,6 @@ extension Query {
 //    }
 
     @inlinable @inline(__always) @_transparent
-    @usableFromInline
-    enum PassResult: UInt8 { case noMatch, filteredByChanges, passes }
-
-    @inlinable @inline(__always) @_transparent
     static func passes(
         slot: SlotIndex,
         requiredComponents: UnsafePointer<SlotsSpan<ContiguousArray.Index, SlotIndex>>,
@@ -1146,23 +1153,16 @@ extension Query {
         changeFiltersCount: Int,
         addedMask: UInt8,
         changedMask: UInt8,
+        removedMask: UInt8,
         lastRun: UInt64,
         thisRun: UInt64
     ) -> PassResult {
-        var membershipIndex = 0
-        while membershipIndex < requiredComponentsCount {
-            if requiredComponents[membershipIndex][slot] == .notFound {
-                return .noMatch
-            }
-            membershipIndex &+= 1
+        for index in Range(uncheckedBounds: (0, requiredComponentsCount)) where requiredComponents[index][slot] == .notFound {
+            return .noMatch
         }
 
-        membershipIndex = 0
-        while membershipIndex < excludedComponentsCount {
-            if excludedComponents[membershipIndex][slot] != .notFound {
-                return .noMatch
-            }
-            membershipIndex &+= 1
+        for index in Range(uncheckedBounds: (0, excludedComponentsCount)) where excludedComponents[index][slot] != .notFound {
+            return .noMatch
         }
 
         var changeIndex = 0
@@ -1180,6 +1180,9 @@ extension Query {
                 return .filteredByChanges
             }
             if mask & changedMask != 0 && !ticks.isChanged(since: lastRun, upTo: thisRun) {
+                return .filteredByChanges
+            }
+            if mask & removedMask != 0 && !ticks.isRemoved(since: lastRun, upTo: thisRun) {
                 return .filteredByChanges
             }
 
@@ -1214,6 +1217,7 @@ extension Query {
         bufferCount: Int,
         addedMask: UInt8,
         changedMask: UInt8,
+        removedMask: UInt8,
         lastRun: UInt64,
         thisRun: UInt64
     ) -> Bool {
@@ -1232,6 +1236,9 @@ extension Query {
                 return false
             }
             if mask & changedMask != 0 && !ticks.isChanged(since: lastRun, upTo: thisRun) {
+                return false
+            }
+            if mask & removedMask != 0 && !ticks.isRemoved(since: lastRun, upTo: thisRun) {
                 return false
             }
 
@@ -1380,6 +1387,7 @@ extension Query {
                         let thisRun = tickSnapshot.thisRun
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
+                        let removedMask = ChangeFilterMask.removed.rawValue
 
                         fastChangeAccessors.withUnsafeBufferPointer { changeBuffer in
                             let changeCount = changeBuffer.count
@@ -1390,15 +1398,25 @@ extension Query {
                                 let slot = basePointer.advanced(by: baseIndex).pointee
                                 baseIndex &+= 1
 
-                                guard Self.passesChangeFilters(
-                                    slot,
-                                    buffer: changePointer,
-                                    bufferCount: changeCount,
-                                    addedMask: addedMask,
-                                    changedMask: changedMask,
-                                    lastRun: lastRun,
-                                    thisRun: thisRun
-                                ) else {
+                                guard
+                                    Self.passesMembership(
+                                        slot,
+                                        otherBuffer: otherPointer,
+                                        otherCount: otherCount,
+                                        excludedBuffer: excludedPointer,
+                                        excludedCount: excludedCount
+                                    ),
+                                    Self.passesChangeFilters(
+                                        slot,
+                                        buffer: changePointer,
+                                        bufferCount: changeCount,
+                                        addedMask: addedMask,
+                                        changedMask: changedMask,
+                                        removedMask: removedMask,
+                                        lastRun: lastRun,
+                                        thisRun: thisRun
+                                    )
+                                else {
                                     continue
                                 }
                                 let entityID = Entity.ID(
@@ -1459,9 +1477,7 @@ extension Query {
         let slotsSlice: ContiguousSpan<SlotIndex>
         let exactGroupMatch: Bool
         let owned: ComponentSignature
-        let componentArrays = getCachedArrays(context.coordinator)
-        let otherComponents = componentArrays.1
-        let excludedComponents = componentArrays.2
+
         if let best {
             slotsSlice = best.slots
             exactGroupMatch = best.exact
@@ -1491,7 +1507,6 @@ extension Query {
                         )
                         handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: entityID))
                     }
-                    
 
                 case .fast(let changeFilters):
                     changeFilters.withUnsafeBufferPointer { changeBuffer in
@@ -1501,37 +1516,27 @@ extension Query {
                         let thisRun = tickSnapshot.thisRun
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
+                        let removedMask = ChangeFilterMask.removed.rawValue
 
-                        otherComponents.withUnsafeBufferPointer { otherBuffer in
-                            let otherPointer = otherBuffer.baseAddress.unsafelyUnwrapped
-                            let otherCount = otherBuffer.count
-                            excludedComponents.withUnsafeBufferPointer { excludedBuffer in
-                                let excludedPointer = excludedBuffer.baseAddress.unsafelyUnwrapped
-                                let excludedCount = excludedBuffer.count
-
-                                // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                                for (denseIndex, slot) in slotsSlice.enumerated() {
-                                    guard Self.passesChangeFilters(
-                                        SlotIndex(rawValue: slot.rawValue),
-                                        buffer: changePointer,
-                                        bufferCount: changeCount,
-                                        addedMask: addedMask,
-                                        changedMask: changedMask,
-                                        lastRun: lastRun,
-                                        thisRun: thisRun
-                                    ) else {
-                                        continue
-                                    }
-                                    let entityID = Entity.ID(
-                                        slot: SlotIndex(rawValue: slot.rawValue),
-                                        generation: isQueryingForEntityID ? indices[slot] : 0
-                                    )
-                                    handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: entityID))
-                                }
-                            }
+                        // Enumerate dense indices directly: 0..<size aligned across all owned storages
+                        for (denseIndex, slot) in slotsSlice.enumerated() where Self.passesChangeFilters(
+                            slot,
+                            buffer: changePointer,
+                            bufferCount: changeCount,
+                            addedMask: addedMask,
+                            changedMask: changedMask,
+                            removedMask: removedMask,
+                            lastRun: lastRun,
+                            thisRun: thisRun
+                        ) {
+                            let entityID = Entity.ID(
+                                slot: SlotIndex(rawValue: slot.rawValue),
+                                generation: isQueryingForEntityID ? indices[slot] : 0
+                            )
+                            handler(repeat (each T).makeResolvedDense(access: each accessors, denseIndex: denseIndex, entityID: entityID))
                         }
                     }
-            }
+                }
             }
         } else {
             let indices = context.coordinator.indices.generationView
@@ -1579,44 +1584,36 @@ extension Query {
                         let thisRun = tickSnapshot.thisRun
                         let addedMask = ChangeFilterMask.added.rawValue
                         let changedMask = ChangeFilterMask.changed.rawValue
-                        
-                        otherComponents.withUnsafeBufferPointer { otherBuffer in
-                            let otherPointer = otherBuffer.baseAddress.unsafelyUnwrapped
-                            let otherCount = otherBuffer.count
-                            excludedComponents.withUnsafeBufferPointer { excludedBuffer in
-                                let excludedPointer = excludedBuffer.baseAddress.unsafelyUnwrapped
-                                let excludedCount = excludedBuffer.count
+                        let removedMask = ChangeFilterMask.removed.rawValue
 
-                                // Enumerate dense indices directly: 0..<size aligned across all owned storages
-                                for (denseIndex, slot) in slotsSlice.enumerated() {
-                                    let signature = signatures[slot]
-
-                                    guard signature.rawHashValue.isSuperset(
-                                        of: querySignature.rawHashValue,
-                                        isDisjoint: excludedSignature.rawHashValue
-                                    ) else {
-                                        continue
-                                    }
-
-                                    guard Self.passesChangeFilters(
-                                        SlotIndex(rawValue: slot.rawValue),
-                                        buffer: changePointer,
-                                        bufferCount: changeCount,
-                                        addedMask: addedMask,
-                                        changedMask: changedMask,
-                                        lastRun: lastRun,
-                                        thisRun: thisRun
-                                    ) else {
-                                        continue
-                                    }
-                                    let entityID = Entity.ID(
-                                        slot: SlotIndex(rawValue: slot.rawValue),
-                                        generation: isQueryingForEntityID ? indices[slot] : 0
-                                    )
-
-                                    handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: entityID, owned: owned))
-                                }
+                        // Enumerate dense indices directly: 0..<size aligned across all owned storages
+                        for (denseIndex, slot) in slotsSlice.enumerated() where Self.passesChangeFilters(
+                            slot,
+                            buffer: changePointer,
+                            bufferCount: changeCount,
+                            addedMask: addedMask,
+                            changedMask: changedMask,
+                            removedMask: removedMask,
+                            lastRun: lastRun,
+                            thisRun: thisRun
+                        ) {
+                            let signature = signatures[slot]
+                            
+                            guard
+                                signature.rawHashValue.isSuperset(
+                                    of: querySignature.rawHashValue,
+                                    isDisjoint: excludedSignature.rawHashValue
+                                )
+                            else {
+                                continue
                             }
+                            
+                            let entityID = Entity.ID(
+                                slot: SlotIndex(rawValue: slot.rawValue),
+                                generation: isQueryingForEntityID ? indices[slot] : 0
+                            )
+                            
+                            handler(repeat resolve((each T).self, access: each accessors, denseIndex: denseIndex, entityID: entityID, owned: owned))
                         }
                     }
                 }
@@ -1697,8 +1694,9 @@ extension Query {
                             let thisRun = tickSnapshot.thisRun
                             let addedMask = ChangeFilterMask.added.rawValue
                             let changedMask = ChangeFilterMask.changed.rawValue
+                            let removedMask = ChangeFilterMask.removed.rawValue
                             for slot in baseSlots {
-                                switch Self.passes(
+                                guard Self.passes(
                                     slot: slot,
                                     requiredComponents: otherPointer,
                                     requiredComponentsCount: otherCount,
@@ -1708,15 +1706,14 @@ extension Query {
                                     changeFiltersCount: changeCount,
                                     addedMask: addedMask,
                                     changedMask: changedMask,
+                                    removedMask: removedMask,
                                     lastRun: lastRun,
                                     thisRun: thisRun
-                                ) {
-                                case .passes:
-                                    let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
-                                    entities.append(entityID)
-                                case .filteredByChanges, .noMatch:
+                                ) == .passes else {
                                     continue
                                 }
+                                let entityID = Entity.ID(slot: slot, generation: isQueryingForEntityID ? generationsPointer[slot.rawValue] : 0)
+                                entities.append(entityID)
                             }
 
                             return entities

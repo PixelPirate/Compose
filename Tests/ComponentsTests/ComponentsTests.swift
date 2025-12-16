@@ -2483,3 +2483,65 @@ private final class EventDrainSystem: System {
     let counts = state.changedCounts.withLock { $0 }
     #expect(counts == [1, 0, 1])
 }
+
+@Test func removedFilterDetectsRemovals() {
+    struct KeepComponent: Component { var value: Int = 0 }
+    struct PersonComponent: Component { var value: Int = 0 }
+
+    final class RemovalState {
+        let entity: Entity.ID
+        let didRemove = ManagedAtomic(false)
+        let counts = Mutex<[Int]>([])
+
+        init(entity: Entity.ID) {
+            self.entity = entity
+        }
+    }
+
+    struct RemoveOnceSystem: System {
+        let id = SystemID(name: "RemoveOnceSystem")
+        let state: RemovalState
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            guard !state.didRemove.exchange(true, ordering: .acquiring) else { return }
+            commands.remove(component: PersonComponent.self, from: state.entity)
+        }
+    }
+
+    struct RemovedTrackingSystem: System {
+        let id = SystemID(name: "RemovedTrackingSystem")
+        static let query = Query {
+            WithEntityID.self
+            With<KeepComponent>.self
+            Removed<PersonComponent>.self
+        }
+
+        let state: RemovalState
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            var count = 0
+            Self.query(context) { (_: Entity.ID) in
+                count &+= 1
+            }
+            state.counts.withLock { $0.append(count) }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let entity = coordinator.spawn(KeepComponent(), PersonComponent())
+    let state = RemovalState(entity: entity)
+
+    coordinator.addSystem(.update, system: RemoveOnceSystem(state: state))
+    coordinator.addSystem(.update, system: RemovedTrackingSystem(state: state))
+
+    coordinator.runSchedule(.update)
+    coordinator.runSchedule(.update)
+    coordinator.runSchedule(.update)
+
+    let counts = state.counts.withLock { $0 }
+    #expect(counts == [0, 1, 0])
+}

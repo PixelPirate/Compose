@@ -1,12 +1,17 @@
-/// Causes a query to only return results when `Component` got added in the previous frame. This does also apply for a spawn with the given component.
+/// Causes a query to only return results when `Component` got added since the querying system last ran.
+/// This does also apply for a spawn with the given component.
 public struct Added<C: Component>: Component {
     public static var componentTag: ComponentTag { C.componentTag }
 }
 
-/// Causes a query to only return results when `Component` was changed in the previous frame.
+/// Causes a query to only return results when `Component` was changed since the querying system last ran.
 public struct Changed<C: Component>: Component {
     public static var componentTag: ComponentTag { C.componentTag }
 }
 
-/// Alias mirroring the user-facing "updated" terminology for change-filtered queries.
-public typealias Updated<C: Component> = Changed<C>
+/// Causes a query to only return results when `Component` was removed since the querying system last ran.
+/// Destroying an entity does not trigger this filter.
+/// - Note: Removals are deferred operations which only apply at the end of a schedule.
+public struct Removed<C: Component>: Component {
+    public static var componentTag: ComponentTag { C.componentTag }
+}
