@@ -146,7 +146,7 @@ final class ConcurrentAccessProbe {
     struct TestSystem2: System {
         let id = SystemID(name: "TestSystem2")
         var metadata: SystemMetadata {
-            Self.metadata(from: [])
+            Self.metadata(from: [], runAfter: [SystemID(name: "TestSystem1")])
         }
 
         let confirmation: () -> Void
@@ -171,9 +171,9 @@ final class ConcurrentAccessProbe {
 
     let lock: Mutex<[SystemID]> = Mutex([])
 
+    coordinator.addSystem(.update, system: TestSystem2 { lock.withLock { $0.append(SystemID(name: "TestSystem2")) } })
+    coordinator.addSystem(.update, system: TestSystem3 { lock.withLock { $0.append(SystemID(name: "TestSystem3")) } })
     coordinator.addSystem(.update, system: TestSystem1 { lock.withLock { $0.append(SystemID(name: "TestSystem1")) } })
-    coordinator.addSystem(.update, system: TestSystem3 { lock.withLock { $0.append(SystemID(name: "TestSystem2")) } })
-    coordinator.addSystem(.update, system: TestSystem2 { lock.withLock { $0.append(SystemID(name: "TestSystem3")) } })
 
     coordinator.update(.update) { $0.executor = MultiThreadedExecutor() }
 
@@ -2485,8 +2485,14 @@ private final class EventDrainSystem: System {
 }
 
 @Test func removedFilterDetectsRemovals() {
-    struct KeepComponent: Component { var value: Int = 0 }
-    struct PersonComponent: Component { var value: Int = 0 }
+    struct KeepComponent: Component {
+        static let componentTag = Components.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+    struct PersonComponent: Component {
+        static let componentTag = Components.ComponentTag.makeTag()
+        var value: Int = 0
+    }
 
     final class RemovalState {
         let entity: Entity.ID
@@ -2500,6 +2506,11 @@ private final class EventDrainSystem: System {
 
     struct RemoveOnceSystem: System {
         let id = SystemID(name: "RemoveOnceSystem")
+
+        var metadata: Components.SystemMetadata {
+            Self.metadata(from: [])
+        }
+
         let state: RemovalState
 
         func run(context: Components.QueryContext, commands: inout Components.Commands) {
