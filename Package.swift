@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "Compose",
-    platforms: [.iOS(.v14), .macOS(.v14), .tvOS(.v14)],
+    platforms: [.iOS(.v26), .macOS(.v26), .tvOS(.v26)],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(

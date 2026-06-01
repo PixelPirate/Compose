@@ -1,5 +1,5 @@
 import Testing
-@testable import Components
+@testable import Compose
 
 @Suite struct SparseSetPagingTests {
     struct TestComponent: Component, Equatable {

@@ -1,4 +1,4 @@
-@testable import Components
+@testable import Compose
 import Testing
 
 @Suite struct WorldClockTests {

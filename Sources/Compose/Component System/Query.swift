@@ -1228,12 +1228,15 @@ extension Query {
             let mask = accessor.mask.rawValue
 
             if mask & addedMask != 0 && !ticks.isAdded(since: lastRun, upTo: thisRun) {
+                // We filter for added components, but this component wasn't added.
                 return false
             }
             if mask & changedMask != 0 && !ticks.isChanged(since: lastRun, upTo: thisRun) {
+                // We filter for changes, but no change occurred.
                 return false
             }
             if mask & removedMask != 0 && !ticks.isRemoved(since: lastRun, upTo: thisRun) {
+                // We filter for removals, but this component wasn't removed.
                 return false
             }
 

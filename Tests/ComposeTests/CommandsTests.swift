@@ -1,5 +1,5 @@
 import Testing
-@testable import Components
+@testable import Compose
 
 @Test func commandsIntegrateAppliesOperations() throws {
     let coordinator = Coordinator()

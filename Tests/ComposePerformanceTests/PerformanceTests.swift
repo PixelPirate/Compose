@@ -1,5 +1,5 @@
 import Synchronization
-import Components
+import Compose
 import Foundation
 import Atomics
 import Testing
@@ -898,7 +898,7 @@ extension Tag {
                 Self.metadata(from: [Self.query.schedulingMetadata, Self.select.schedulingMetadata])
             }
 
-            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
                 if state.mutateNext.exchange(false, ordering: .acquiring) {
                     Self.query(context) { component in
                         component.value &+= 1
@@ -925,7 +925,7 @@ extension Tag {
                 Self.metadata(from: [Self.query.schedulingMetadata])
             }
 
-            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
                 var count = 0
                 Self.query(context) { (_: Entity.ID) in
                     count += 1
@@ -947,7 +947,7 @@ extension Tag {
                 Self.metadata(from: [Self.query.schedulingMetadata], runAfter: [SystemID(name: "PerformanceMutateSystem")])
             }
 
-            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
                 var count = 0
                 Self.query(context) { (_: Entity.ID) in
                     count += 1
@@ -970,7 +970,7 @@ extension Tag {
                 Self.metadata(from: [Self.query.schedulingMetadata], runAfter: [SystemID(name: "PerformanceMutateSystem")])
             }
 
-            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
                 var count = 0
                 Self.query(context) { (_: Entity.ID, _: PerformanceComponent) in
                     count += 1

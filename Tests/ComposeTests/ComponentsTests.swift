@@ -1,5 +1,5 @@
 import Testing
-@testable import Components
+@testable import Compose
 import Synchronization
 import Atomics
 import Foundation
@@ -79,7 +79,7 @@ final class ConcurrentAccessProbe {
 
             let confirmation: Confirmation
 
-            func run(context: Components.QueryContext, commands: inout Components.Commands) {
+            func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
                 confirmation()
             }
         }
@@ -102,13 +102,13 @@ final class ConcurrentAccessProbe {
 
         let confirmation: Confirmation
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             confirmation()
         }
     }
     struct TestExecutor: Executor {
         let confirmation: Confirmation
-        func run(systems: ArraySlice<any Components.System>, coordinator: Components.Coordinator, commands: inout Components.Commands) {
+        func run(systems: ArraySlice<any Compose.System>, coordinator: Compose.Coordinator, commands: inout Compose.Commands) {
             confirmation()
             for system in systems {
                 system.run(context: QueryContext(coordinator: coordinator), commands: &commands)
@@ -138,7 +138,7 @@ final class ConcurrentAccessProbe {
 
         let confirmation: () -> Void
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             confirmation()
         }
     }
@@ -151,7 +151,7 @@ final class ConcurrentAccessProbe {
 
         let confirmation: () -> Void
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             confirmation()
         }
     }
@@ -164,7 +164,7 @@ final class ConcurrentAccessProbe {
 
         let confirmation: () -> Void
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             confirmation()
         }
     }
@@ -197,7 +197,7 @@ final class ConcurrentAccessProbe {
 @Test func multiThreadedExecutorAvoidsConcurrentComponentMutations() {
     struct ComponentWriterA: System {
         let id = SystemID(name: "ComponentWriterA")
-        nonisolated(unsafe) static let query = Query { Write<Transform>.self }
+        static let query = Query { Write<Transform>.self }
 
         let probe: ConcurrentAccessProbe
 
@@ -205,7 +205,7 @@ final class ConcurrentAccessProbe {
             Self.metadata(from: [Self.query.schedulingMetadata])
         }
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             probe.enter()
             defer { probe.leave() }
 
@@ -219,7 +219,7 @@ final class ConcurrentAccessProbe {
 
     struct ComponentWriterB: System {
         let id = SystemID(name: "ComponentWriterB")
-        nonisolated(unsafe) static let query = ComponentWriterA.query
+        static let query = ComponentWriterA.query
 
         let probe: ConcurrentAccessProbe
 
@@ -227,7 +227,7 @@ final class ConcurrentAccessProbe {
             Self.metadata(from: [Self.query.schedulingMetadata])
         }
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             probe.enter()
             defer { probe.leave() }
 
@@ -282,7 +282,7 @@ final class ConcurrentAccessProbe {
             )
         }
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             probe.enter()
             defer { probe.leave() }
 
@@ -310,7 +310,7 @@ final class ConcurrentAccessProbe {
             )
         }
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             probe.enter()
             defer { probe.leave() }
 
@@ -496,7 +496,7 @@ final class ConcurrentAccessProbe {
 
 @Test func mainScheduleRunsAllStages() {
     struct StageRecorder<Tag>: System {
-        nonisolated(unsafe) var id: SystemID {
+        nonisolated var id: SystemID {
             SystemID(name: "StageRecorder_\(String(describing: Tag.self))")
         }
 
@@ -504,7 +504,7 @@ final class ConcurrentAccessProbe {
 
         let onRun: () -> Void
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             onRun()
         }
     }
@@ -628,7 +628,7 @@ final class ConcurrentAccessProbe {
 
         let counter: ManagedAtomic<Int>
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             counter.wrappingIncrement(ordering: .relaxed)
         }
     }
@@ -2086,7 +2086,7 @@ public struct Material: Component {
         let target: Entity.ID
         let counters: CommandCounters
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             commands.add(
                 component: Transform(
                     position: .zero,
@@ -2397,7 +2397,7 @@ private final class EventDrainSystem: System {
             Self.metadata(from: [Self.query.schedulingMetadata])
         }
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             var count = 0
             Self.query(context) { (_: Entity.ID) in
                 count += 1
@@ -2427,7 +2427,7 @@ private final class EventDrainSystem: System {
 
     struct MutateSystem: System {
         let id = SystemID(name: "MutateSystem")
-        nonisolated(unsafe) static let query = Query { Write<TrackedComponent>.self }
+        static let query = Query { Write<TrackedComponent>.self }
 
         let state: MutationState
 
@@ -2435,7 +2435,7 @@ private final class EventDrainSystem: System {
             Self.metadata(from: [Self.query.schedulingMetadata])
         }
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             if state.shouldMutateNext.exchange(false, ordering: .acquiring) {
                 Self.query(context) { component in
                     component.value += 1
@@ -2446,7 +2446,7 @@ private final class EventDrainSystem: System {
 
     struct ChangedTrackingSystem: System {
         let id = SystemID(name: "ChangedTrackingSystem")
-        nonisolated(unsafe) static let query = Query {
+        static let query = Query {
             WithEntityID.self
             Changed<TrackedComponent>.self
             TrackedComponent.self
@@ -2458,7 +2458,7 @@ private final class EventDrainSystem: System {
             Self.metadata(from: [Self.query.schedulingMetadata], runAfter: [SystemID(name: "MutateSystem")])
         }
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             var count = 0
             Self.query(context) { (_: Entity.ID, _: TrackedComponent) in
                 count += 1
@@ -2486,11 +2486,11 @@ private final class EventDrainSystem: System {
 
 @Test func removedFilterDetectsRemovals() {
     struct KeepComponent: Component {
-        static let componentTag = Components.ComponentTag.makeTag()
+        static let componentTag = Compose.ComponentTag.makeTag()
         var value: Int = 0
     }
     struct PersonComponent: Component {
-        static let componentTag = Components.ComponentTag.makeTag()
+        static let componentTag = Compose.ComponentTag.makeTag()
         var value: Int = 0
     }
 
@@ -2507,13 +2507,13 @@ private final class EventDrainSystem: System {
     struct RemoveOnceSystem: System {
         let id = SystemID(name: "RemoveOnceSystem")
 
-        var metadata: Components.SystemMetadata {
+        var metadata: Compose.SystemMetadata {
             Self.metadata(from: [])
         }
 
         let state: RemovalState
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             guard !state.didRemove.exchange(true, ordering: .acquiring) else { return }
             commands.remove(component: PersonComponent.self, from: state.entity)
         }
@@ -2533,7 +2533,7 @@ private final class EventDrainSystem: System {
             Self.metadata(from: [Self.query.schedulingMetadata])
         }
 
-        func run(context: Components.QueryContext, commands: inout Components.Commands) {
+        func run(context: Compose.QueryContext, commands: inout Compose.Commands) {
             var count = 0
             Self.query(context) { (_: Entity.ID) in
                 count &+= 1

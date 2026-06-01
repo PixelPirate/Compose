@@ -1,5 +1,5 @@
 import Testing
-@testable import Components
+@testable import Compose
 
 @Test func optionalQueryHandlesEmptyWorld() {
     let coordinator = Coordinator()
