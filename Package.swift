@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
+        .package(url: "https://github.com/pointfreeco/swift-perception.git", from: "2.0.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -26,6 +27,7 @@ let package = Package(
                 //.product(name: "TrailingElementsModule", package: "swift-collections"),
                 .product(name: "DequeModule", package: "swift-collections"),
                 .product(name: "Atomics", package: "swift-atomics"),
+                .product(name: "Perception", package: "swift-perception"),
             ],
 //            swiftSettings: [.define("BITSET_USE_DYNAMIC_ARRAY")]
         ),
