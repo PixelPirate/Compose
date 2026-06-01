@@ -20,7 +20,7 @@ public struct SingleThreadedExecutor: Executor {
         for system in systems {
             let context = QueryContext(coordinator: coordinator, systemID: system.id)
             system.run(context: context, commands: &commands)
-            coordinator.advanceChangeTick()
+            coordinator.advanceChangeTick() // TODO: `advanceChangeTick` is called at very different places in the executors. Is the current implementation correct?
         }
     }
 }
