@@ -22,7 +22,7 @@ extension TimeSystem {
     static func install(into coordinator: Coordinator) {
         coordinator.addResource(WorldClock(instant: .now))
         coordinator.addResource(FixedClock())
-        coordinator.addSystem(.last, system: TimeSystem())
+        coordinator.addSystem(TimeSystem(), schedule: .last)
     }
 }
 

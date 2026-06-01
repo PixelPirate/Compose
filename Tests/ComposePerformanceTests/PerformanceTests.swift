@@ -675,16 +675,16 @@ extension Tag {
             }
         }
         coordinator[resource: Float.self] = 0
-        coordinator.addSystem(.update, system: System1())
-        coordinator.addSystem(.update, system: System2())
-        coordinator.addSystem(.update, system: System3())
-        coordinator.addSystem(.update, system: System4())
-        coordinator.addSystem(.update, system: System5())
-        coordinator.addSystem(.update, system: System6())
-        coordinator.addSystem(.update, system: System7())
-        coordinator.addSystem(.update, system: System8())
-        coordinator.addSystem(.update, system: System9())
-        coordinator.addSystem(.update, system: System10())
+        coordinator.addSystem(System1(), schedule: .update)
+        coordinator.addSystem(System2(), schedule: .update)
+        coordinator.addSystem(System3(), schedule: .update)
+        coordinator.addSystem(System4(), schedule: .update)
+        coordinator.addSystem(System5(), schedule: .update)
+        coordinator.addSystem(System6(), schedule: .update)
+        coordinator.addSystem(System7(), schedule: .update)
+        coordinator.addSystem(System8(), schedule: .update)
+        coordinator.addSystem(System9(), schedule: .update)
+        coordinator.addSystem(System10(), schedule: .update)
         coordinator.update(.update) {
             $0.executor = MultiThreadedExecutor()
         }
@@ -981,10 +981,10 @@ extension Tag {
 
         let coordinator = Coordinator()
         let state = PerformanceState()
-        coordinator.addSystem(.update, system: MutateSystem(state: state))
-        coordinator.addSystem(.update, system: AddedTrackingSystem(state: state))
-        coordinator.addSystem(.update, system: ChangedTrackingSystem(state: state))
-        coordinator.addSystem(.update, system: RemovedTrackingSystem(state: state))
+        coordinator.addSystem(MutateSystem(state: state), schedule: .update)
+        coordinator.addSystem(AddedTrackingSystem(state: state), schedule: .update)
+        coordinator.addSystem(ChangedTrackingSystem(state: state), schedule: .update)
+        coordinator.addSystem(RemovedTrackingSystem(state: state), schedule: .update)
 
         let clock = ContinuousClock()
         let entityCount = 2_000_000

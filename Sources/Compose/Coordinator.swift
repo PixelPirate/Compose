@@ -529,8 +529,8 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
-    public func addSystem(_ label: ScheduleLabel, system: some System) {
-        systemManager.addSystem(label, system: system)
+    public func addSystem(_ system: some System, schedule: ScheduleLabel) {
+        systemManager.addSystem(system, schedule: schedule)
     }
 
     @inlinable @inline(__always)

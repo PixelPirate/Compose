@@ -17,7 +17,8 @@ extension MainSystem {
                     .update,
                     .spawnScene,
                     .postUpdate,
-                    .last
+                    .last,
+                    .perceptionObservation
                 ],
                 startup: [
                     .preStartup,
@@ -39,9 +40,10 @@ extension MainSystem {
         )
 
         coordinator.addSchedule(Schedule(label: .main, executor: SingleThreadedExecutor()))
-        coordinator.addSystem(.main, system: MainSystem())
-        coordinator.addSystem(.fixedMain, system: FixedMainSystem())
-        coordinator.addSystem(.runFixedMainLoop, system: RunFixedMainLoopSystem())
+        coordinator.addSchedule(Schedule(label: .perceptionObservation, executor: SingleThreadedExecutor()))
+        coordinator.addSystem(MainSystem(), schedule: .main)
+        coordinator.addSystem(FixedMainSystem(), schedule: .fixedMain)
+        coordinator.addSystem(RunFixedMainLoopSystem(), schedule: .runFixedMainLoop)
 
         TimeSystem.install(into: coordinator)
     }

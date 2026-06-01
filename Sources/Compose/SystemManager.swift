@@ -35,14 +35,14 @@ struct SystemManager {
     }
 
     @inlinable @inline(__always)
-    public mutating func addSystem(_ label: ScheduleLabel, system: some System) {
+    public mutating func addSystem(_ system: some System, schedule: ScheduleLabel) {
         guard !systems.keys.contains(system.id) else {
             fatalError("System already registered.")
         }
         systems[system.id] = system
         metadata[system.id] = system.metadata
 
-        schedules[label, default: Schedule(label: label)].addSystem(system)
+        schedules[schedule, default: Schedule(label: schedule)].addSystem(system)
     }
 
     @inlinable @inline(__always)

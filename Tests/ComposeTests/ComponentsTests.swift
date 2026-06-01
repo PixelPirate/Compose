@@ -85,7 +85,7 @@ final class ConcurrentAccessProbe {
         }
 
         let coordinator = Coordinator()
-        coordinator.addSystem(.fixedUpdate, system: TestSystem(confirmation: confirmation))
+        coordinator.addSystem(TestSystem(confirmation: confirmation), schedule: .fixedUpdate)
 
         coordinator[resource: WorldClock.self] = coordinator[resource: WorldClock.self].advancing(by: 1.0, clamped: false)
         coordinator.run()
@@ -117,7 +117,7 @@ final class ConcurrentAccessProbe {
     }
     await confirmation(expectedCount: 1) { systemConfirmation in
         await confirmation(expectedCount: 1) { executorConfirmation in
-            coordinator.addSystem(.update, system: TestSystem(confirmation: systemConfirmation))
+            coordinator.addSystem(TestSystem(confirmation: systemConfirmation), schedule: .update)
             #expect(coordinator.systemManager.schedules[.update]?.executor is MultiThreadedExecutor)
             coordinator.update(.update) { schedule in
                 schedule.executor = TestExecutor(confirmation: executorConfirmation)
@@ -171,9 +171,9 @@ final class ConcurrentAccessProbe {
 
     let lock: Mutex<[SystemID]> = Mutex([])
 
-    coordinator.addSystem(.update, system: TestSystem2 { lock.withLock { $0.append(SystemID(name: "TestSystem2")) } })
-    coordinator.addSystem(.update, system: TestSystem3 { lock.withLock { $0.append(SystemID(name: "TestSystem3")) } })
-    coordinator.addSystem(.update, system: TestSystem1 { lock.withLock { $0.append(SystemID(name: "TestSystem1")) } })
+    coordinator.addSystem(TestSystem2 { lock.withLock { $0.append(SystemID(name: "TestSystem2")) } }, schedule: .update)
+    coordinator.addSystem(TestSystem3 { lock.withLock { $0.append(SystemID(name: "TestSystem3")) } }, schedule: .update)
+    coordinator.addSystem(TestSystem1 { lock.withLock { $0.append(SystemID(name: "TestSystem1")) } }, schedule: .update)
 
     coordinator.update(.update) { $0.executor = MultiThreadedExecutor() }
 
@@ -249,8 +249,8 @@ final class ConcurrentAccessProbe {
         )
     }
 
-    coordinator.addSystem(.update, system: ComponentWriterA(probe: probe))
-    coordinator.addSystem(.update, system: ComponentWriterB(probe: probe))
+    coordinator.addSystem(ComponentWriterA(probe: probe), schedule: .update)
+    coordinator.addSystem(ComponentWriterB(probe: probe), schedule: .update)
 
     coordinator.runSchedule(.update)
 
@@ -326,8 +326,8 @@ final class ConcurrentAccessProbe {
     let coordinator = Coordinator()
     coordinator.addResource(SharedCounterResource(value: 0))
 
-    coordinator.addSystem(.update, system: ResourceWriterA(probe: probe))
-    coordinator.addSystem(.update, system: ResourceWriterB(probe: probe))
+    coordinator.addSystem(ResourceWriterA(probe: probe), schedule: .update)
+    coordinator.addSystem(ResourceWriterB(probe: probe), schedule: .update)
 
     coordinator.runSchedule(.update)
 
@@ -532,13 +532,16 @@ final class ConcurrentAccessProbe {
     let order = Mutex<[ScheduleLabel]>([])
 
     func register<Tag>(label: ScheduleLabel, tag _: Tag.Type, counter: CounterBox) {
-        coordinator.addSystem(label, system: StageRecorder<Tag> {
-            let previous = counter.value.load(ordering: .relaxed)
-            if previous == 0 {
-                order.withLock { $0.append(label) }
-            }
-            counter.value.wrappingIncrement(ordering: .relaxed)
-        })
+        coordinator.addSystem(
+            StageRecorder<Tag> {
+                let previous = counter.value.load(ordering: .relaxed)
+                if previous == 0 {
+                    order.withLock { $0.append(label) }
+                }
+                counter.value.wrappingIncrement(ordering: .relaxed)
+            },
+            schedule: label
+        )
     }
 
     let preStartup = CounterBox()
@@ -638,7 +641,7 @@ final class ConcurrentAccessProbe {
     let counter = ManagedAtomic<Int>(0)
 
     coordinator.addSchedule(Schedule(label: customLabel))
-    coordinator.addSystem(customLabel, system: CustomSystem(counter: counter))
+    coordinator.addSystem(CustomSystem(counter: counter), schedule: customLabel)
 
     coordinator.runSchedule(customLabel)
 
@@ -2146,7 +2149,7 @@ public struct Material: Component {
     let counters = CommandCounters()
     let target = coordinator.spawn()
 
-    coordinator.addSystem(.update, system: CommandSystem(target: target, counters: counters))
+    coordinator.addSystem(CommandSystem(target: target, counters: counters), schedule: .update)
     coordinator.update(.update) { $0.executor = SingleThreadedExecutor() }
     coordinator.runSchedule(.update)
 
@@ -2318,8 +2321,8 @@ private final class EventDrainSystem: System {
 
     let reader = EventReaderSystem(runAfter: [eventEmitterSystem.id])
 
-    coordinator.addSystem(.update, system: eventEmitterSystem)
-    coordinator.addSystem(.update, system: reader)
+    coordinator.addSystem(eventEmitterSystem, schedule: .update)
+    coordinator.addSystem(reader, schedule: .update)
 
     coordinator.runSchedule(.update) // Prime event buffer
     coordinator.runSchedule(.update)
@@ -2342,9 +2345,9 @@ private final class EventDrainSystem: System {
     let drainer = EventDrainSystem(runAfter: [eventEmitterSystem.id])
     let reader = EventReaderSystem(runAfter: [drainer.id])
 
-    coordinator.addSystem(.update, system: eventEmitterSystem)
-    coordinator.addSystem(.update, system: drainer)
-    coordinator.addSystem(.update, system: reader)
+    coordinator.addSystem(eventEmitterSystem, schedule: .update)
+    coordinator.addSystem(drainer, schedule: .update)
+    coordinator.addSystem(reader, schedule: .update)
 
     coordinator.runSchedule(.update) // Prime event buffer
     coordinator.runSchedule(.update)
@@ -2408,7 +2411,7 @@ private final class EventDrainSystem: System {
 
     let coordinator = Coordinator()
     let capture = AddedCapture()
-    coordinator.addSystem(.update, system: AddedTrackingSystem(state: capture))
+    coordinator.addSystem(AddedTrackingSystem(state: capture), schedule: .update)
 
     coordinator.runSchedule(.update)
     coordinator.spawn(TrackedComponent(value: 0))
@@ -2469,8 +2472,8 @@ private final class EventDrainSystem: System {
 
     let coordinator = Coordinator()
     let state = MutationState()
-    coordinator.addSystem(.update, system: MutateSystem(state: state))
-    coordinator.addSystem(.update, system: ChangedTrackingSystem(state: state))
+    coordinator.addSystem(MutateSystem(state: state), schedule: .update)
+    coordinator.addSystem(ChangedTrackingSystem(state: state), schedule: .update)
 
     coordinator.spawn(TrackedComponent(value: 0))
 
@@ -2546,8 +2549,8 @@ private final class EventDrainSystem: System {
     let entity = coordinator.spawn(KeepComponent(), PersonComponent())
     let state = RemovalState(entity: entity)
 
-    coordinator.addSystem(.update, system: RemoveOnceSystem(state: state))
-    coordinator.addSystem(.update, system: RemovedTrackingSystem(state: state))
+    coordinator.addSystem(RemoveOnceSystem(state: state), schedule: .update)
+    coordinator.addSystem(RemovedTrackingSystem(state: state), schedule: .update)
 
     coordinator.runSchedule(.update)
     coordinator.runSchedule(.update)
