@@ -15,8 +15,8 @@
     {
       "target" : {
         "containerPath" : "container:",
-        "identifier" : "ComponentsPerformanceTests",
-        "name" : "ComponentsPerformanceTests"
+        "identifier" : "ComposePerformanceTests",
+        "name" : "ComposePerformanceTests"
       }
     }
   ],

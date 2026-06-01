@@ -1170,6 +1170,7 @@ extension Query {
             let ticks = accessor.ticks.mutablePointer(at: denseIndex).pointee
             let mask = accessor.mask.rawValue
 
+            // TODO: All filters are required, do we want `Query { Added<X>.self; Added<Y>.self }` to also succeed when only X changed?
             if mask & addedMask != 0 && !ticks.isAdded(since: lastRun, upTo: thisRun) {
                 return .filteredByChanges
             }

@@ -4,42 +4,42 @@
 import PackageDescription
 
 let package = Package(
-    name: "Components",
-    platforms: [.iOS(.v26), .macOS(.v26), .tvOS(.v26), .watchOS(.v26)],
+    name: "Compose",
+    platforms: [.iOS(.v14), .macOS(.v14), .tvOS(.v14)],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
-            name: "Components",
-            targets: ["Components"],
+            name: "Compose",
+            targets: ["Compose"],
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-collections.git", from: "1.2.1"),
+        .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "Components",
+            name: "Compose",
             dependencies: [
-                .product(name: "TrailingElementsModule", package: "swift-collections"),
+                //.product(name: "TrailingElementsModule", package: "swift-collections"),
                 .product(name: "DequeModule", package: "swift-collections"),
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
 //            swiftSettings: [.define("BITSET_USE_DYNAMIC_ARRAY")]
         ),
         .testTarget(
-            name: "ComponentsTests",
+            name: "ComposeTests",
             dependencies: [
-                "Components",
+                "Compose",
                 .product(name: "DequeModule", package: "swift-collections"),
             ]
         ),
         .testTarget(
-            name: "ComponentsPerformanceTests",
+            name: "ComposePerformanceTests",
             dependencies: [
-                "Components",
+                "Compose",
             ]
         ),
     ],
