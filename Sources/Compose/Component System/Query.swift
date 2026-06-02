@@ -430,7 +430,8 @@ extension Query {
                                         changedMask: changedMask,
                                         removedMask: removedMask,
                                         lastRun: lastRun,
-                                        thisRun: thisRun
+                                        thisRun: thisRun,
+                                        generations: generationsPointer
                                     ) {
                                     case .passes:
                                         hasMatches = true
@@ -549,7 +550,8 @@ extension Query {
                                     changedMask: changedMask,
                                     removedMask: removedMask,
                                     lastRun: lastRun,
-                                    thisRun: thisRun
+                                    thisRun: thisRun,
+                                    generations: generationsPointer
                                 ) {
                                 case .passes:
                                     hasMatches = true
@@ -708,7 +710,8 @@ extension Query {
                                     changedMask: changedMask,
                                     removedMask: removedMask,
                                     lastRun: lastRun,
-                                    thisRun: thisRun
+                                    thisRun: thisRun,
+                                    generations: generations.pointer
                                 )
                             else {
                                 continue
@@ -822,7 +825,8 @@ extension Query {
                                 changedMask: changedMask,
                                 removedMask: removedMask,
                                 lastRun: lastRun,
-                                thisRun: thisRun
+                                thisRun: thisRun,
+                                generations: indicesPointer
                             )
                         else {
                             continue
@@ -950,7 +954,8 @@ extension Query {
                                         changedMask: changedMask,
                                         removedMask: removedMask,
                                         lastRun: lastRun,
-                                        thisRun: thisRun
+                                        thisRun: thisRun,
+                                        generations: indicesPointer
                                     )
                                 else {
                                     continue
@@ -1149,7 +1154,8 @@ extension Query {
         changedMask: UInt8,
         removedMask: UInt8,
         lastRun: UInt64,
-        thisRun: UInt64
+        thisRun: UInt64,
+        generations: UnsafePointer<UInt32>
     ) -> PassResult {
         for index in Range(uncheckedBounds: (0, requiredComponentsCount)) where requiredComponents[index][slot] == .notFound {
             return .noMatch
@@ -1177,8 +1183,10 @@ extension Query {
             if mask & changedMask != 0 && !ticks.isChanged(since: lastRun, upTo: thisRun) {
                 return .filteredByChanges
             }
-            if mask & removedMask != 0 && !ticks.isRemoved(since: lastRun, upTo: thisRun) {
-                return .filteredByChanges
+            if mask & removedMask != 0 {
+                if !ticks.isRemoved(since: lastRun, upTo: thisRun) || ticks.removedGeneration != generations[slot.rawValue] {
+                    return .filteredByChanges
+                }
             }
 
             changeIndex &+= 1
@@ -1214,7 +1222,8 @@ extension Query {
         changedMask: UInt8,
         removedMask: UInt8,
         lastRun: UInt64,
-        thisRun: UInt64
+        thisRun: UInt64,
+        generations: UnsafePointer<UInt32>
     ) -> Bool {
         var changeIndex = 0
         while changeIndex < bufferCount {
@@ -1235,9 +1244,11 @@ extension Query {
                 // We filter for changes, but no change occurred.
                 return false
             }
-            if mask & removedMask != 0 && !ticks.isRemoved(since: lastRun, upTo: thisRun) {
-                // We filter for removals, but this component wasn't removed.
-                return false
+            if mask & removedMask != 0 {
+                if !ticks.isRemoved(since: lastRun, upTo: thisRun) || ticks.removedGeneration != generations[slot.rawValue] {
+                    // We filter for removals, but this component wasn't removed for the current entity generation.
+                    return false
+                }
             }
 
             changeIndex &+= 1
@@ -1412,7 +1423,8 @@ extension Query {
                                         changedMask: changedMask,
                                         removedMask: removedMask,
                                         lastRun: lastRun,
-                                        thisRun: thisRun
+                                        thisRun: thisRun,
+                                        generations: indicesPointer
                                     )
                                 else {
                                     continue
@@ -1526,7 +1538,8 @@ extension Query {
                             changedMask: changedMask,
                             removedMask: removedMask,
                             lastRun: lastRun,
-                            thisRun: thisRun
+                            thisRun: thisRun,
+                            generations: indices.pointer
                         ) {
                             let entityID = Entity.ID(
                                 slot: SlotIndex(rawValue: slot.rawValue),
@@ -1594,7 +1607,8 @@ extension Query {
                             changedMask: changedMask,
                             removedMask: removedMask,
                             lastRun: lastRun,
-                            thisRun: thisRun
+                            thisRun: thisRun,
+                            generations: indices.pointer
                         ) {
                             let signature = signatures[slot]
                             
@@ -1707,7 +1721,8 @@ extension Query {
                                     changedMask: changedMask,
                                     removedMask: removedMask,
                                     lastRun: lastRun,
-                                    thisRun: thisRun
+                                    thisRun: thisRun,
+                                    generations: generationsPointer
                                 ) == .passes else {
                                     continue
                                 }

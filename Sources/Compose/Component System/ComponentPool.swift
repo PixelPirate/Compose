@@ -34,10 +34,9 @@ extension ComponentPool {
         }()
         array.append(component, id: entityID, changeTick: changeTick)
         components[C.componentTag] = array
-        clearRemoved(tag: C.componentTag, entityID: entityID)
     }
 
-    @usableFromInline
+    @usableFromInline @inline(__always)
     mutating func remove<C: Component>(_ componentType: C.Type = C.self, _ entityID: Entity.ID, changeTick: UInt64) {
         guard let array = components[C.componentTag] else { return }
         array.remove(entityID)
@@ -45,7 +44,7 @@ extension ComponentPool {
         recordRemoval(of: C.componentTag, entityID: entityID, tick: changeTick)
     }
 
-    @usableFromInline
+    @usableFromInline @inline(__always)
     mutating func remove(_ componentTag: ComponentTag, _ entityID: Entity.ID, changeTick: UInt64) {
         guard let array = components[componentTag] else { return }
         array.remove(entityID)
@@ -53,26 +52,7 @@ extension ComponentPool {
         recordRemoval(of: componentTag, entityID: entityID, tick: changeTick)
     }
 
-    @usableFromInline
-    mutating func remove(_ entityID: Entity.ID) {
-        for component in components.values {
-            component.remove(entityID)
-        }
-        for tag in removedComponents.keys {
-            guard var removedArray = removedComponents[tag] else { continue }
-            removedArray.remove(entityID)
-            removedComponents[tag] = removedArray
-        }
-    }
-
-    @usableFromInline
-    mutating func clearRemoved(tag: ComponentTag, entityID: Entity.ID) {
-        guard var removedArray = removedComponents[tag] else { return }
-        removedArray.remove(entityID)
-        removedComponents[tag] = removedArray
-    }
-
-    @usableFromInline
+    @usableFromInline @inline(__always)
     mutating func recordRemoval(of tag: ComponentTag, entityID: Entity.ID, tick: UInt64) {
         var removedArray = removedComponents[tag] ?? RemovedComponentArray()
         removedArray.ensureEntity(entityID)
@@ -80,15 +60,29 @@ extension ComponentPool {
         removedComponents[tag] = removedArray
     }
 
+    @usableFromInline @inline(__always)
+    mutating func remove(_ entityID: Entity.ID, tick: UInt64) {
+        for (tag, component) in components {
+            component.remove(entityID)
+            // Currently we do not track removals when an entity is destroyed.
+//            if component.remove(entityID) {
+//                recordRemoval(of: tag, entityID: entityID, tick: tick)
+//            }
+            clearRemoved(tag: tag, entityID: entityID)
+        }
+    }
+
+    @usableFromInline @inline(__always)
+    mutating func clearRemoved(tag: ComponentTag, entityID: Entity.ID) {
+        guard var removedArray = removedComponents[tag] else { return }
+        removedArray.remove(entityID)
+        removedComponents[tag] = removedArray
+    }
+
     @usableFromInline
     func removedIndices(for tag: ComponentTag) -> (SlotsSpan<ContiguousArray.Index, SlotIndex>, MutableContiguousSpan<ComponentTicks>)? {
         guard let removed = removedComponents[tag] else { return nil }
         return removed.withIndices { indices, ticks in (indices, ticks) }
-    }
-
-    @usableFromInline
-    func componentTicks(for tag: ComponentTag, entityID: Entity.ID) -> ComponentTicks? {
-        components[tag]?.ticks(for: entityID)
     }
     
     /// Precomputes all valid slot indices. Has some upfront cost, but worth it for iterating large amounts of entities.

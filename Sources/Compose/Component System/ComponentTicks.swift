@@ -7,12 +7,15 @@ public struct ComponentTicks: Sendable {
     internal var changed: UInt64
     @usableFromInline
     internal var removed: UInt64
+    @usableFromInline
+    internal var removedGeneration: UInt32
 
     @inlinable @inline(__always)
     init(tick: UInt64) {
         self.added = tick
         self.changed = tick
         self.removed = .min
+        self.removedGeneration = .max
     }
 
     @inlinable @inline(__always)
@@ -20,6 +23,7 @@ public struct ComponentTicks: Sendable {
         self.added = added
         self.changed = changed
         self.removed = .min
+        self.removedGeneration = .max
     }
 
     @inlinable @inline(__always)
@@ -27,6 +31,15 @@ public struct ComponentTicks: Sendable {
         self.added = added
         self.changed = changed
         self.removed = removed
+        self.removedGeneration = .max
+    }
+
+    @inlinable @inline(__always)
+    init(removed: UInt64, generation: UInt32) {
+        self.added = .min
+        self.changed = .min
+        self.removed = removed
+        self.removedGeneration = generation
     }
 
     @usableFromInline
@@ -44,8 +57,9 @@ public struct ComponentTicks: Sendable {
     }
 
     @inlinable @inline(__always)
-    mutating func markRemoved(at tick: UInt64) {
+    mutating func markRemoved(at tick: UInt64, generation: UInt32) {
         removed = tick
+        removedGeneration = generation
     }
 
     @inlinable @inline(__always) @_transparent

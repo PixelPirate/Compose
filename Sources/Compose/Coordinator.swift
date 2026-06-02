@@ -399,10 +399,11 @@ public final class Coordinator {
             worldVersion &+= 1
         }
         indices.free(id: entityID)
-        for componentTag in self[signatureFor: entityID.slot].tags {
+        let signature = self[signatureFor: entityID.slot]
+        for componentTag in signature.tags {
             groups.onWillRemoveComponent(componentTag, entity: entityID, in: self)
         }
-        pool.remove(entityID)
+        pool.remove(entityID, tick: changeTick)
         entitySignatures[entityID.slot.rawValue] = ComponentSignature()
     }
 

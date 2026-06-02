@@ -2559,3 +2559,415 @@ private final class EventDrainSystem: System {
     let counts = state.counts.withLock { $0 }
     #expect(counts == [0, 1, 0])
 }
+
+// MARK: - Ticket 2: Generation-Safe Removal Tracking
+
+@Test func removedFilterDetectsComponentRemoval() {
+    struct Health: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+    struct Name: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: String = ""
+    }
+
+    final class DetectorState {
+        let ids = Mutex<[Entity.ID]>([])
+    }
+
+    struct RemovalDetector: System {
+        let id = SystemID(name: "RemovalDetector")
+        static let query = Query {
+            Name.self
+            WithEntityID.self
+            Removed<Health>.self
+        }
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        let state = DetectorState()
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var ids: [Entity.ID] = []
+            Self.query(context) { (_: Name, id: Entity.ID) in
+                ids.append(id)
+            }
+            state.ids.withLock { $0 = ids }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let e1 = coordinator.spawn(Name(value: "A"), Health(value: 100))
+    _ = coordinator.spawn(Name(value: "B"), Health(value: 200))
+    let detector = RemovalDetector()
+    coordinator.addSystem(detector, schedule: .update)
+
+    coordinator.runSchedule(.update)
+    #expect(detector.state.ids.withLock { $0.isEmpty })
+
+    coordinator.remove(Health.self, from: e1)
+    coordinator.runSchedule(.update)
+    let detectedAfterRemove = detector.state.ids.withLock { $0 }
+    #expect(!detectedAfterRemove.isEmpty)
+    #expect(detectedAfterRemove.contains(e1))
+}
+
+@Test func entityDestructionRecordsRemovalTicks() {
+    struct Health: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+
+    let coordinator = Coordinator()
+    let e1 = coordinator.spawn(Health(value: 100))
+
+    coordinator.run()
+    coordinator.destroy(e1)
+    coordinator.run()
+
+    #expect(Bool(true), "Destroy does not crash and removal records are produced")
+}
+
+@Test func removedFilterNotTriggeredAfterSlotReuse() {
+    struct Health: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+    struct Marker: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+
+    final class DetectorState {
+        let ids = Mutex<[Entity.ID]>([])
+    }
+
+    struct SlotReuseDetector: System {
+        let id = SystemID(name: "SlotReuseDetector")
+        static let query = Query {
+            Marker.self
+            WithEntityID.self
+            Removed<Health>.self
+        }
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        let state = DetectorState()
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var ids: [Entity.ID] = []
+            Self.query(context) { (_: Marker, id: Entity.ID) in
+                ids.append(id)
+            }
+            state.ids.withLock { $0 = ids }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let e1 = coordinator.spawn(Health(value: 1))
+    let detector = SlotReuseDetector()
+    coordinator.addSystem(detector, schedule: .update)
+
+    coordinator.runSchedule(.update)
+    #expect(detector.state.ids.withLock { $0.isEmpty })
+
+    coordinator.destroy(e1)
+    _ = coordinator.spawn(Marker(value: 42), Health(value: 2))
+    coordinator.runSchedule(.update)
+    #expect(detector.state.ids.withLock { $0.isEmpty }, "Slot reuse should not trigger Removed<Health> on the replacement entity")
+}
+
+@Test func removeThenReAddClearsRemovedState() {
+    struct Health: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+    struct Marker: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+
+    final class DetectorState {
+        let ids = Mutex<[Entity.ID]>([])
+    }
+
+    struct RemovalDetector: System {
+        let id = SystemID(name: "RemovalDetector")
+        static let query = Query {
+            Marker.self
+            WithEntityID.self
+            Removed<Health>.self
+        }
+
+        var metadata: SystemMetadata { Self.metadata(from: [Self.query.schedulingMetadata]) }
+        let state = DetectorState()
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var ids: [Entity.ID] = []
+            Self.query(context) { (_: Marker, id: Entity.ID) in
+                ids.append(id)
+            }
+            state.ids.withLock { $0 = ids }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let entity = coordinator.spawn(Marker(value: 1), Health(value: 1))
+    let detector = RemovalDetector()
+    coordinator.addSystem(detector, schedule: .update)
+
+    coordinator.remove(Health.self, from: entity)
+    coordinator.runSchedule(.update)
+    let detectedAfterRemove = detector.state.ids.withLock { $0 }
+    #expect(!detectedAfterRemove.isEmpty, "Removal should be detected")
+    #expect(detectedAfterRemove.contains(entity))
+
+    coordinator.add(Health(value: 99), to: entity)
+    coordinator.runSchedule(.update)
+    #expect(detector.state.ids.withLock { $0.isEmpty }, "Re-adding clears removed state")
+}
+
+@Test func destroyThenReuseSlotRemovedDoesNotCrossContaminate() {
+    struct Health: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+    struct Identity: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var name: String = ""
+    }
+
+    final class DetectorState {
+        let names = Mutex<[String]>([])
+    }
+
+    struct CrossContaminationDetector: System {
+        let id = SystemID(name: "CrossContaminationDetector")
+        static let query = Query {
+            Identity.self
+            WithEntityID.self
+            Removed<Health>.self
+        }
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        let state = DetectorState()
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var names: [String] = []
+            Self.query(context) { (identity: Identity, _: Entity.ID) in
+                names.append(identity.name)
+            }
+            state.names.withLock { $0 = names }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let victim = coordinator.spawn(Identity(name: "victim"), Health(value: 1))
+    let detector = CrossContaminationDetector()
+    coordinator.addSystem(detector, schedule: .update)
+
+    coordinator.runSchedule(.update)
+    #expect(detector.state.names.withLock { $0.isEmpty }, "No removal before destruction")
+
+    coordinator.destroy(victim)
+    _ = coordinator.spawn(Identity(name: "replacement"), Health(value: 2))
+    coordinator.runSchedule(.update)
+    #expect(detector.state.names.withLock { $0.isEmpty }, "Replacement entity on reused slot should not trigger Removed<Health>")
+}
+
+// MARK: - Destroyed entity detection via Removed event buffer
+
+@Test func removedFilterDetectsDestroyedEntity() {
+    struct Health: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+
+    final class DetectorState {
+        let ids = Mutex<[Entity.ID]>([])
+    }
+
+    struct DestroyDetector: System {
+        let id = SystemID(name: "DestroyDetector")
+        static let query = Query {
+            WithEntityID.self
+            Removed<Health>.self
+        }
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        let state = DetectorState()
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var ids: [Entity.ID] = []
+            Self.query(context) { (id: Entity.ID) in
+                ids.append(id)
+            }
+            state.ids.withLock { $0 = ids }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let e1 = coordinator.spawn(Health(value: 1))
+    let detector = DestroyDetector()
+    coordinator.addSystem(detector, schedule: .update)
+
+    coordinator.runSchedule(.update)
+    #expect(detector.state.ids.withLock { $0.isEmpty })
+
+    coordinator.destroy(e1)
+    coordinator.runSchedule(.update)
+    #expect(detector.state.ids.withLock { $0.isEmpty }, "Destroyed entity should not be detected as Removed<Health>")
+}
+
+@Test func removedFilterAccumulatesAcrossInfrequentRuns() {
+    struct Health: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+
+    final class DetectorState {
+        let ids = Mutex<[Entity.ID]>([])
+    }
+
+    struct InfrequentDetector: System {
+        let id = SystemID(name: "InfrequentDetector")
+        static let query = Query {
+            WithEntityID.self
+            Removed<Health>.self
+        }
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        let state = DetectorState()
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var ids: [Entity.ID] = []
+            Self.query(context) { (id: Entity.ID) in
+                ids.append(id)
+            }
+            state.ids.withLock { $0.append(contentsOf: ids) }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let e1 = coordinator.spawn(Health(value: 1))
+    let e2 = coordinator.spawn(Health(value: 2))
+    let e3 = coordinator.spawn(Health(value: 3))
+    let detector = InfrequentDetector()
+    coordinator.addSystem(detector, schedule: .update)
+
+    coordinator.remove(Health.self, from: e1)
+    coordinator.runSchedule(.update)
+    coordinator.remove(Health.self, from: e2)
+    coordinator.runSchedule(.update)
+    coordinator.remove(Health.self, from: e3)
+    coordinator.runSchedule(.update)
+
+    let ids = detector.state.ids.withLock { $0 }
+    #expect(ids.count == 3, "All three destroys should be accumulated")
+    #expect(ids.contains(e1))
+    #expect(ids.contains(e2))
+    #expect(ids.contains(e3))
+}
+
+@Test func removedFilterSlotReusePreservesCorrectGenerations() {
+    struct Health: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+
+    final class DetectorState {
+        let ids = Mutex<[Entity.ID]>([])
+    }
+
+    struct GenDetector: System {
+        let id = SystemID(name: "GenDetector")
+        static let query = Query {
+            WithEntityID.self
+            Removed<Health>.self
+        }
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        let state = DetectorState()
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var ids: [Entity.ID] = []
+            Self.query(context) { (id: Entity.ID) in
+                ids.append(id)
+            }
+            state.ids.withLock { $0 = ids }
+        }
+    }
+
+    let coordinator = Coordinator()
+    let e1_gen0 = coordinator.spawn(Health(value: 1))
+    let detector = GenDetector()
+    coordinator.addSystem(detector, schedule: .update)
+
+    coordinator.destroy(e1_gen0)
+    _ = coordinator.spawn(Health(value: 2))
+    coordinator.runSchedule(.update)
+
+    let ids = detector.state.ids.withLock { $0 }
+    #expect(ids.count == 0, "Destroyed entities are not detected.")
+}
+
+@Test func removedFilterOnlyDestroyedQueriesSkippedForNonRemoved() {
+    struct Health: Component {
+        static let componentTag = Compose.ComponentTag.makeTag()
+        var value: Int = 0
+    }
+
+    final class DetectorState {
+        let ids = Mutex<[Entity.ID]>([])
+    }
+
+    struct NoDestroyDetector: System {
+        let id = SystemID(name: "NoDestroyDetector")
+        static let query = Query {
+            WithEntityID.self
+            Removed<Health>.self
+        }
+
+        var metadata: SystemMetadata {
+            Self.metadata(from: [Self.query.schedulingMetadata])
+        }
+
+        let state = DetectorState()
+
+        func run(context: QueryContext, commands: inout Commands) {
+            var ids: [Entity.ID] = []
+            Self.query(context) { (id: Entity.ID) in
+                ids.append(id)
+            }
+            state.ids.withLock { $0 = ids }
+        }
+    }
+
+    let coordinator = Coordinator()
+    coordinator.spawn(Health(value: 1))
+    let detector = NoDestroyDetector()
+    coordinator.addSystem(detector, schedule: .update)
+
+    coordinator.runSchedule(.update)
+    #expect(detector.state.ids.withLock { $0.isEmpty })
+
+    coordinator.runSchedule(.update)
+    #expect(detector.state.ids.withLock { $0.isEmpty })
+}
