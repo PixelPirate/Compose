@@ -36,7 +36,7 @@ struct MyView: View {
 - `Query.tracking()` is not suitable for this feature. It combines `Added` and `Changed` filters in one query, but current change filters are logical AND in `passesChangeFilters`, so `Added<C> + Changed<C> + Removed<C>` would require all changes to have happened in the same cursor window.
 - Change filters depend on `QueryContext.systemTickSnapshot`. This is a good fit for an internal `System`, and a poor fit for out-of-band observation tasks.
 - A coordinator notification plus full refetch design is too wasteful. A frame can contain many changed components; rebuilding a full array per notification would allocate and copy far too much.
-- `Removed` tracking is incomplete for destroyed entities and slot reuse. `ComponentPool.remove(_ entityID:)` does not record per-component removals, and removed state is slot-based rather than generation-aware.
+- `Removed` tracking is incomplete for destroyed entities and slot reuse. `ComponentPool.remove(_ entityID:)` is slot-based rather than generation-aware.
 - `@Perceptible` on a variadic-generic wrapper may be fragile. Prefer a manual `PerceptionRegistrar` implementation unless macro expansion is proven to compile and remain efficient.
 - The build/test baseline should be rechecked before feature work and after schedule/storage refactors so performance regressions are caught early.
 
@@ -151,7 +151,7 @@ Observation storage always needs `Entity.ID` even if the public query does not r
 `Removed<C>` must work for observation systems:
 
 - Removing a component from a live entity records a removal tick keyed by entity generation.
-- Destroying an entity records removals for every component it had before storage is cleared.
+- Destroying an entity does not record removals.
 - Slot reuse cannot make a removed component look like it belonged to the replacement entity.
 - Re-adding a component clears stale removed state for that entity generation.
 - Removed records need pruning so long-running worlds do not leak memory.
@@ -217,14 +217,15 @@ Tests:
 
 Scope:
 
-- Ensure component removals and entity destruction record removal ticks for every removed component.
+- Ensure component removals record removal ticks for every removed component.
+- Ensure entity destruction does not record removal ticks.
 - Make removed records generation-aware or otherwise impossible to misattribute after slot reuse.
 - Clear stale removed records on re-add and prune old records safely.
 
 Tests:
 
 - `Removed<C>` detects `remove(C.self, from:)`.
-- Destroying an entity with `C` records a removal visible to an observation system.
+- Destroying an entity with `C` does not record a removal visible to an observation system.
 - Destroying an entity and reusing its slot does not remove or update the replacement incorrectly.
 - Removing and re-adding `C` in the same tick resolves to final membership correctly.
 
