@@ -1149,37 +1149,52 @@ extension Query {
 
         var remaining = ComponentSignature(changeFilterMasks.keys)
         var prepared: ContiguousArray<ChangeFilterAccessor> = []
-        prepared.reserveCapacity(changeFilterMasks.count)
+        prepared.reserveCapacity(changeFilterMasks.count * 2)
 
         for access in repeat each accessors {
-            guard let mask = changeFilterMasks[access.tag] else { continue }
-            guard !mask.mask.contains(.removed) else { continue }
-            prepared.append(ChangeFilterAccessor(mask: mask.mask, isOr: mask.isOr, indices: access.indices, ticks: access.ticks))
-            remaining.remove(access.tag)
+            guard let componentFilter = changeFilterMasks[access.tag] else { continue }
+            if !componentFilter.mask.contains(.removed) {
+                prepared.append(ChangeFilterAccessor(mask: componentFilter.mask, isOr: componentFilter.isOr, indices: access.indices, ticks: access.ticks))
+                remaining.remove(access.tag)
+            } else if componentFilter.isOr {
+                // OR filter with mixed present & removed bits: emit separate accessors.
+                let presentBits = componentFilter.mask.subtracting(.removed)
+                if !presentBits.isEmpty {
+                    prepared.append(ChangeFilterAccessor(mask: presentBits, isOr: true, indices: access.indices, ticks: access.ticks))
+                }
+                if let (removedIndices, removedTicks) = pool.pointee.removedIndices(for: access.tag) {
+                    prepared.append(ChangeFilterAccessor(mask: .removed, isOr: true, indices: removedIndices, ticks: removedTicks))
+                }
+                remaining.remove(access.tag)
+            }
         }
 
-        guard prepared.count == changeFilterMasks.count else {
-            // Slow path, need to fill up without accessors.
-            for tag in remaining.tags {
-                guard let mask = changeFilterMasks[tag] else { continue }
-                if mask.mask.contains(.removed) {
-                    if let (indices, ticks) = pool.pointee.removedIndices(for: tag) {
-                        prepared.append(ChangeFilterAccessor(mask: mask.mask, isOr: mask.isOr, indices: indices, ticks: ticks))
-                    }
-                } else {
+        // Slow path for tags not found in the type pack.
+        for tag in remaining.tags {
+            guard let componentFilter = changeFilterMasks[tag] else { continue }
+            if !componentFilter.mask.contains(.removed) {
+                pool.pointee.components[tag]?.withIndices { indices, ticks in
+                    prepared.append(ChangeFilterAccessor(mask: componentFilter.mask, isOr: componentFilter.isOr, indices: indices, ticks: ticks))
+                }
+            } else if componentFilter.isOr {
+                let presentBits = componentFilter.mask.subtracting(.removed)
+                if !presentBits.isEmpty {
                     pool.pointee.components[tag]?.withIndices { indices, ticks in
-                        prepared.append(ChangeFilterAccessor(mask: mask.mask, isOr: mask.isOr, indices: indices, ticks: ticks))
+                        prepared.append(ChangeFilterAccessor(mask: presentBits, isOr: true, indices: indices, ticks: ticks))
                     }
                 }
+                if let (removedIndices, removedTicks) = pool.pointee.removedIndices(for: tag) {
+                    prepared.append(ChangeFilterAccessor(mask: .removed, isOr: true, indices: removedIndices, ticks: removedTicks))
+                }
+            } else if componentFilter.mask.contains(.removed) {
+                if let (removedIndices, removedTicks) = pool.pointee.removedIndices(for: tag) {
+                    prepared.append(ChangeFilterAccessor(mask: componentFilter.mask, isOr: false, indices: removedIndices, ticks: removedTicks))
+                }
             }
+        }
 
-            guard prepared.count == changeFilterMasks.count else {
-                // This means that at least one component inside changeFilters is not in the pool.
-                // This also means that this query cannot match a single entity.
-                return nil
-            }
-
-            return .fast(prepared)
+        guard !prepared.isEmpty else {
+            return ChangeFilterStrategy.none
         }
         return .fast(prepared)
     }
@@ -1240,15 +1255,20 @@ extension Query {
         var hasOr = false
         while changeIndex < changeFiltersCount {
             let accessor = changeFilters[changeIndex]
-            if accessor.isOr, successfulOr {
+            let isOr = accessor.isOr
+            if isOr, successfulOr {
                 changeIndex &+= 1
                 continue
             }
-            let isOr = accessor.isOr
             hasOr = hasOr || isOr
             let denseIndex = accessor.indices[slot]
             if denseIndex == .notFound {
-                return .noMatch
+                if !isOr {
+                    return .noMatch
+                }
+                // OR: this accessor has no data for the slot; skip.
+                changeIndex &+= 1
+                continue
             }
 
             let ticks = accessor.ticks.mutablePointer(at: denseIndex).pointee
@@ -1324,15 +1344,20 @@ extension Query {
         var changeIndex = 0
         while changeIndex < bufferCount {
             let accessor = buffer[changeIndex]
-            if accessor.isOr, successfulOr {
+            let isOr = accessor.isOr
+            if isOr, successfulOr {
                 changeIndex &+= 1
                 continue
             }
-            let isOr = accessor.isOr
             hasOr = hasOr || isOr
             let denseIndex = accessor.indices[slot]
             if denseIndex == .notFound {
-                return false
+                if !isOr {
+                    return false
+                }
+                // OR: this accessor has no data for the slot; skip.
+                changeIndex &+= 1
+                continue
             }
 
             let ticks = accessor.ticks.mutablePointer(at: denseIndex).pointee
