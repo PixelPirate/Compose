@@ -24,6 +24,12 @@ extension Query {
 
     /// Returns generation-aware entity IDs for every entity matching this
     /// query's membership.
+    ///
+    /// - Note: This runs a full search of the query and is therefore costly. If you also want to access any data, instead use:
+    ///   ```
+    ///   let result = query.fetchAll(...)
+    ///   let ids = result.entityIDs
+    ///   ```
     @inlinable @inline(__always)
     public func matchingEntityIDs(in coordinator: Coordinator) -> [Entity.ID] {
         let entityAwareQ = appending(WithEntityID.self)

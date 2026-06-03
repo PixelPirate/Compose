@@ -59,7 +59,7 @@ import Foundation
 ///   the observation system checking `coordinator.isAlive(_:)`
 ///   separately.
 @usableFromInline
-struct ObservationDiffingQuery {
+struct ObservationDiffingQuery: Sendable {
     /// The runnable query: returns only entity IDs for changed entities.
     @usableFromInline
     let query: Query<WithEntityID>

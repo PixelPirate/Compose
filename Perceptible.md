@@ -284,6 +284,7 @@ Scope:
 - Add the internal `System` owned by `PerceptibleQuery`.
 - Metadata must accurately represent component reads/change filters so multi-threaded schedules do not race with mutating systems.
 - Run delta queries in a deterministic order, reconcile same-tick conflicts against final membership, mutate storage, and call the callback once if changed.
+- Use diffing strategy detailed in `ObservationDiffingQuery`.
 - Avoid touching `Commands` except as required by the `System` protocol.
 
 Tests:
