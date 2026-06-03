@@ -1,21 +1,30 @@
 import Foundation
 
 public struct ChangeFilter: Hashable, Sendable {
-    public enum Kind: Hashable, Sendable {
+    public enum Condition: Hashable, Sendable {
         case added
         case changed
         case removed
     }
 
-    @usableFromInline
-    let tag: ComponentTag
-    @usableFromInline
-    let kind: Kind
+    public struct ComponentCondition: Hashable, Sendable {
+        @usableFromInline
+        let tag: ComponentTag
+        @usableFromInline
+        let condition: Condition
+    }
+
+    public enum Expression: Hashable, Sendable {
+        case require(ComponentCondition)
+        case or(Set<ComponentCondition>)
+    }
 
     @usableFromInline
-    init(tag: ComponentTag, kind: Kind) {
-        self.tag = tag
-        self.kind = kind
+    let expression: Expression
+
+    @usableFromInline
+    init(_ expression: Expression) {
+        self.expression = expression
     }
 }
 
@@ -35,6 +44,20 @@ public struct QueryFetchResult<Result> {
     }
 }
 
+@usableFromInline
+struct ChangeFilterComponentMask: Sendable {
+    @usableFromInline
+    var mask: ChangeFilterMask
+    @usableFromInline
+    var isOr: Bool
+
+    @usableFromInline
+    init(mask: ChangeFilterMask, isOr: Bool) {
+        self.mask = mask
+        self.isOr = isOr
+    }
+}
+
 public struct Query<each T: Component>: Sendable where repeat each T: ComponentResolving {
     /// All components which entities are required to have but will not be included in the query output.
     @inline(__always)
@@ -49,7 +72,7 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
     public let changeFilters: Set<ChangeFilter>
 
     @usableFromInline
-    let changeFilterMasks: [ComponentTag: ChangeFilterMask]
+    let changeFilterMasks: [ComponentTag: ChangeFilterComponentMask]
 
     /// Includes all components where this query touches their storage. This includes reads, writes and backstage components.
     @inline(__always)
@@ -160,28 +183,28 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
     ///
     /// - Note: Components that only appear as filters (via `With`/`Without`) and virtual components such as `WithEntityID`
     ///   are ignored.
-    @inlinable @inline(__always)
-    public func tracking() -> Self {
-        var filters = changeFilters
-
-        for component in repeat (each T).QueriedComponent.self {
-            let tag = component.componentTag
-
-            guard tag.rawValue > 0 else { continue }
-            guard backstageComponents.contains(tag) == false else { continue }
-            guard excludedComponents.contains(tag) == false else { continue }
-
-            filters.insert(ChangeFilter(tag: tag, kind: .added))
-            filters.insert(ChangeFilter(tag: tag, kind: .changed))
-        }
-
-        return Query(
-            backstageComponents: backstageComponents,
-            excludedComponents: excludedComponents,
-            changeFilters: filters,
-            isQueryingForEntityID: isQueryingForEntityID
-        )
-    }
+//    @inlinable @inline(__always)
+//    public func tracking() -> Self {
+//        var filters = changeFilters
+//
+//        for component in repeat (each T).QueriedComponent.self {
+//            let tag = component.componentTag
+//
+//            guard tag.rawValue > 0 else { continue }
+//            guard backstageComponents.contains(tag) == false else { continue }
+//            guard excludedComponents.contains(tag) == false else { continue }
+//
+//            filters.insert(ChangeFilter(tag: tag, kind: .added))
+//            filters.insert(ChangeFilter(tag: tag, kind: .changed))
+//        }
+//
+//        return Query(
+//            backstageComponents: backstageComponents,
+//            excludedComponents: excludedComponents,
+//            changeFilters: filters,
+//            isQueryingForEntityID: isQueryingForEntityID
+//        )
+//    }
 
     @inlinable @inline(__always)
     public func callAsFunction(_ context: QueryContext, _ handler: (repeat (each T).ResolvedType) -> Void) {
@@ -997,13 +1020,13 @@ struct ChangeFilterMask: OptionSet, Sendable {
     }
 
     @usableFromInline
-    static let added = ChangeFilterMask(rawValue: 1 << 0)
+    static let added = ChangeFilterMask(rawValue: 1 << 1)
 
     @usableFromInline
-    static let changed = ChangeFilterMask(rawValue: 1 << 1)
+    static let changed = ChangeFilterMask(rawValue: 1 << 2)
 
     @usableFromInline
-    static let removed = ChangeFilterMask(rawValue: 1 << 2)
+    static let removed = ChangeFilterMask(rawValue: 1 << 3)
 }
 
 @usableFromInline
@@ -1011,13 +1034,16 @@ struct ChangeFilterAccessor {
     @usableFromInline
     let mask: ChangeFilterMask
     @usableFromInline
+    let isOr: Bool
+    @usableFromInline
     let indices: SlotsSpan<ContiguousArray.Index, SlotIndex>
     @usableFromInline
     let ticks: MutableContiguousSpan<ComponentTicks>
 
     @usableFromInline
-    init(mask: ChangeFilterMask, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>, ticks: MutableContiguousSpan<ComponentTicks>) {
+    init(mask: ChangeFilterMask, isOr: Bool, indices: SlotsSpan<ContiguousArray.Index, SlotIndex>, ticks: MutableContiguousSpan<ComponentTicks>) {
         self.mask = mask
+        self.isOr = isOr
         self.indices = indices
         self.ticks = ticks
     }
@@ -1051,21 +1077,65 @@ extension Query {
     }
 
     @inlinable @inline(__always)
-    static func makeChangeFilterMasks(_ filters: Set<ChangeFilter>) -> [ComponentTag: ChangeFilterMask] {
+    static func makeChangeFilterMasks(_ filters: Set<ChangeFilter>) -> [ComponentTag: ChangeFilterComponentMask] {
+        guard !filters.isEmpty else { return [:] }
+        var masks: [ComponentTag: ChangeFilterComponentMask] = [:]
+        masks.reserveCapacity(filters.count)
+        for filter in filters {
+            switch filter.expression {
+            case .require(let condition):
+                var mask = masks[condition.tag] ?? ChangeFilterComponentMask(mask: [], isOr: false)
+                mask.isOr = false
+                switch condition.condition {
+                case .added:
+                    mask.mask.insert(.added)
+                case .changed:
+                    mask.mask.insert(.changed)
+                case .removed:
+                    mask.mask.insert(.removed)
+                }
+                masks[condition.tag] = mask
+            case .or(let conditions):
+                for condition in conditions {
+                    var mask = masks[condition.tag] ?? ChangeFilterComponentMask(mask: [], isOr: true)
+                    switch condition.condition {
+                    case .added:
+                        mask.mask.insert(.added)
+                    case .changed:
+                        mask.mask.insert(.changed)
+                    case .removed:
+                        mask.mask.insert(.removed)
+                    }
+                    masks[condition.tag] = mask
+                }
+            }
+        }
+        return masks
+    }
+
+    @inlinable @inline(__always)
+    static func makeChangeFilterOrMasks(_ filters: Set<ChangeFilter>) -> [ComponentTag: ChangeFilterMask] {
         guard !filters.isEmpty else { return [:] }
         var masks: [ComponentTag: ChangeFilterMask] = [:]
         masks.reserveCapacity(filters.count)
         for filter in filters {
-            var mask = masks[filter.tag] ?? []
-            switch filter.kind {
-            case .added:
-                mask.insert(.added)
-            case .changed:
-                mask.insert(.changed)
-            case .removed:
-                mask.insert(.removed)
+            switch filter.expression {
+            case .require(let condition):
+                break
+            case .or(let conditions):
+                for condition in conditions {
+                    var mask = masks[condition.tag] ?? []
+                    switch condition.condition {
+                    case .added:
+                        mask.insert(.added)
+                    case .changed:
+                        mask.insert(.changed)
+                    case .removed:
+                        mask.insert(.removed)
+                    }
+                    masks[condition.tag] = mask
+                }
             }
-            masks[filter.tag] = mask
         }
         return masks
     }
@@ -1083,8 +1153,8 @@ extension Query {
 
         for access in repeat each accessors {
             guard let mask = changeFilterMasks[access.tag] else { continue }
-            guard !mask.contains(.removed) else { continue }
-            prepared.append(ChangeFilterAccessor(mask: mask, indices: access.indices, ticks: access.ticks))
+            guard !mask.mask.contains(.removed) else { continue }
+            prepared.append(ChangeFilterAccessor(mask: mask.mask, isOr: mask.isOr, indices: access.indices, ticks: access.ticks))
             remaining.remove(access.tag)
         }
 
@@ -1092,13 +1162,13 @@ extension Query {
             // Slow path, need to fill up without accessors.
             for tag in remaining.tags {
                 guard let mask = changeFilterMasks[tag] else { continue }
-                if mask.contains(.removed) {
+                if mask.mask.contains(.removed) {
                     if let (indices, ticks) = pool.pointee.removedIndices(for: tag) {
-                        prepared.append(ChangeFilterAccessor(mask: mask, indices: indices, ticks: ticks))
+                        prepared.append(ChangeFilterAccessor(mask: mask.mask, isOr: mask.isOr, indices: indices, ticks: ticks))
                     }
                 } else {
                     pool.pointee.components[tag]?.withIndices { indices, ticks in
-                        prepared.append(ChangeFilterAccessor(mask: mask, indices: indices, ticks: ticks))
+                        prepared.append(ChangeFilterAccessor(mask: mask.mask, isOr: mask.isOr, indices: indices, ticks: ticks))
                     }
                 }
             }
@@ -1166,8 +1236,16 @@ extension Query {
         }
 
         var changeIndex = 0
+        var successfulOr = false
+        var hasOr = false
         while changeIndex < changeFiltersCount {
             let accessor = changeFilters[changeIndex]
+            if accessor.isOr, successfulOr {
+                changeIndex &+= 1
+                continue
+            }
+            let isOr = accessor.isOr
+            hasOr = hasOr || isOr
             let denseIndex = accessor.indices[slot]
             if denseIndex == .notFound {
                 return .noMatch
@@ -1176,20 +1254,36 @@ extension Query {
             let ticks = accessor.ticks.mutablePointer(at: denseIndex).pointee
             let mask = accessor.mask.rawValue
 
-            // TODO: All filters are required, do we want `Query { Added<X>.self; Added<Y>.self }` to also succeed when only X changed?
-            if mask & addedMask != 0 && !ticks.isAdded(since: lastRun, upTo: thisRun) {
-                return .filteredByChanges
+            // If a mask is "or", then we can continue if it is not present.
+            // - At least one "or" must be present.
+            // - As soon as one "or" is present, we don't need to check the rest.
+
+            if mask & addedMask != 0 {
+                if ticks.isAdded(since: lastRun, upTo: thisRun) {
+                    successfulOr = successfulOr || isOr
+                } else if !isOr {
+                    return .filteredByChanges
+                }
             }
-            if mask & changedMask != 0 && !ticks.isChanged(since: lastRun, upTo: thisRun) {
-                return .filteredByChanges
+            if mask & changedMask != 0 {
+                if ticks.isChanged(since: lastRun, upTo: thisRun) {
+                    successfulOr = successfulOr || isOr
+                } else if !isOr {
+                    return .filteredByChanges
+                }
             }
             if mask & removedMask != 0 {
-                if !ticks.isRemoved(since: lastRun, upTo: thisRun) || ticks.removedGeneration != generations[slot.rawValue] {
+                if ticks.isRemoved(since: lastRun, upTo: thisRun), ticks.removedGeneration == generations[slot.rawValue] {
+                    successfulOr = successfulOr || isOr
+                } else if !isOr {
                     return .filteredByChanges
                 }
             }
 
             changeIndex &+= 1
+        }
+        if hasOr, !successfulOr {
+            return .filteredByChanges
         }
         return .passes
     }
@@ -1225,9 +1319,17 @@ extension Query {
         thisRun: UInt64,
         generations: UnsafePointer<UInt32>
     ) -> Bool {
+        var successfulOr = false
+        var hasOr = false
         var changeIndex = 0
         while changeIndex < bufferCount {
             let accessor = buffer[changeIndex]
+            if accessor.isOr, successfulOr {
+                changeIndex &+= 1
+                continue
+            }
+            let isOr = accessor.isOr
+            hasOr = hasOr || isOr
             let denseIndex = accessor.indices[slot]
             if denseIndex == .notFound {
                 return false
@@ -1236,22 +1338,39 @@ extension Query {
             let ticks = accessor.ticks.mutablePointer(at: denseIndex).pointee
             let mask = accessor.mask.rawValue
 
-            if mask & addedMask != 0 && !ticks.isAdded(since: lastRun, upTo: thisRun) {
-                // We filter for added components, but this component wasn't added.
-                return false
+            // If a mask is "or", then we can continue if it is not present.
+            // - At least one "or" must be present.
+            // - As soon as one "or" is present, we don't need to check the rest.
+
+            if mask & addedMask != 0 {
+                if ticks.isAdded(since: lastRun, upTo: thisRun) {
+                    successfulOr = successfulOr || isOr
+                } else if !isOr {
+                    // We filter for added components, but this component wasn't added.
+                    return false
+                }
             }
-            if mask & changedMask != 0 && !ticks.isChanged(since: lastRun, upTo: thisRun) {
-                // We filter for changes, but no change occurred.
-                return false
+            if mask & changedMask != 0 {
+                if ticks.isChanged(since: lastRun, upTo: thisRun) {
+                    successfulOr = successfulOr || isOr
+                } else if !isOr {
+                    // We filter for changes, but no change occurred.
+                    return false
+                }
             }
             if mask & removedMask != 0 {
-                if !ticks.isRemoved(since: lastRun, upTo: thisRun) || ticks.removedGeneration != generations[slot.rawValue] {
+                if ticks.isRemoved(since: lastRun, upTo: thisRun), ticks.removedGeneration == generations[slot.rawValue] {
+                    successfulOr = successfulOr || isOr
+                } else if !isOr {
                     // We filter for removals, but this component wasn't removed for the current entity generation.
                     return false
                 }
             }
 
             changeIndex &+= 1
+        }
+        if hasOr, !successfulOr {
+            return false
         }
         return true
     }

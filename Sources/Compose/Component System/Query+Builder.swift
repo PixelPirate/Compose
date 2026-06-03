@@ -54,7 +54,13 @@ public enum QueryBuilder {
             composite: Query< >(
                 backstageComponents: [C.componentTag],
                 excludedComponents: [],
-                changeFilters: [ChangeFilter(tag: C.componentTag, kind: .added)],
+                changeFilters: [
+                    ChangeFilter(
+                        ChangeFilter.Expression.require(
+                            ChangeFilter.ComponentCondition(tag: C.componentTag, condition: .added)
+                        )
+                    )
+                ],
                 isQueryingForEntityID: false
             )
         )
@@ -65,7 +71,13 @@ public enum QueryBuilder {
             composite: Query< >(
                 backstageComponents: [C.componentTag],
                 excludedComponents: [],
-                changeFilters: [ChangeFilter(tag: C.componentTag, kind: .changed)],
+                changeFilters: [
+                    ChangeFilter(
+                        ChangeFilter.Expression.require(
+                            ChangeFilter.ComponentCondition(tag: C.componentTag, condition: .changed)
+                        )
+                    )
+                ],
                 isQueryingForEntityID: false
             )
         )
@@ -76,7 +88,13 @@ public enum QueryBuilder {
             composite: Query< >(
                 backstageComponents: [],
                 excludedComponents: [C.componentTag],
-                changeFilters: [ChangeFilter(tag: C.componentTag, kind: .removed)],
+                changeFilters: [
+                    ChangeFilter(
+                        ChangeFilter.Expression.require(
+                            ChangeFilter.ComponentCondition(tag: C.componentTag, condition: .removed)
+                        )
+                    )
+                ],
                 isQueryingForEntityID: false
             )
         )
@@ -89,6 +107,17 @@ public enum QueryBuilder {
                 excludedComponents: [],
                 changeFilters: [],
                 isQueryingForEntityID: true
+            )
+        )
+    }
+
+    public static func buildExpression<each F>(_ c: Or<repeat each F>) -> BuiltQuery<WithEntityID> {
+        BuiltQuery(
+            composite: Query<WithEntityID>(
+                backstageComponents: c.includedComponents,
+                excludedComponents: c.excludedComponents,
+                changeFilters: [c.filter],
+                isQueryingForEntityID: false
             )
         )
     }
