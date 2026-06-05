@@ -469,3 +469,214 @@ struct StorageTestTag: Component, Equatable {
     #expect(values == Set([0, 1, 3, 4]))
     #expect(!storage.contains(Entity.ID(slot: 2, generation: 1)))
 }
+
+// MARK: - Perception integration tests (Ticket 8)
+
+import Perception
+
+@Perceptible
+private final class TestBridge: @unchecked Sendable {
+    var version: UInt64 = 0
+    func bump() { version &+= 1 }
+}
+
+private final class InvalidationCounter: @unchecked Sendable {
+    var count = 0
+    func bump() { count &+= 1 }
+}
+
+private func makeBridgedSystem(
+    id: String,
+    query: Query<StorageTestComponent>,
+    diffs: ObservationDiffingQuery,
+    storage: QueryObservationStorage<StorageTestComponent>,
+    bridge: TestBridge,
+    registrar: PerceptionRegistrar
+) -> QueryObservationSystem<StorageTestComponent> {
+    let sched = query.schedulingMetadata
+    let meta = SystemMetadata(
+        readSignature: sched.readSignature.appending(query.backstageSignature),
+        writeSignature: sched.writeSignature,
+        excludedSignature: sched.excludedSignature,
+        runAfter: [],
+        resourceAccess: [],
+        eventAccess: []
+    )
+    let sync: @Sendable (QueryContext) -> Bool = { ctx in
+        storage.removeAll(keepingCapacity: true)
+        let seq = query.fetchAll(ctx)
+        let ids = seq.entityIDs
+        guard !ids.isEmpty else { return false }
+        var idx = 0
+        for row in seq {
+            guard idx < ids.count else { break }
+            storage.upsert(ids[idx], element: row)
+            idx &+= 1
+        }
+        return true
+    }
+    let delta: @Sendable (QueryContext) -> Bool = { ctx in
+        let coord = ctx.coordinator
+        let diffIDs = diffs.query.fetchAll(ctx).entityIDs
+        guard !diffIDs.isEmpty else { return false }
+        let diffSet = Set(diffIDs)
+        var still = diffSet
+        var changed = false
+        let seq = query.fetchAll(ctx)
+        let ids = seq.entityIDs
+        var idx = 0
+        for row in seq {
+            guard idx < ids.count else { break }
+            let eid = ids[idx]
+            idx &+= 1
+            if diffSet.contains(eid) {
+                storage.upsert(eid, element: row)
+                still.remove(eid)
+                changed = true
+            }
+        }
+        for eid in still where coord.isAlive(eid) {
+            storage.remove(eid)
+            changed = true
+        }
+        return changed
+    }
+    return QueryObservationSystem(
+        id: SystemID(name: id),
+        metadata: meta,
+        storage: storage,
+        syncBlock: sync,
+        deltaBlock: delta,
+        callback: {
+            registrar.withMutation(of: bridge, keyPath: \.version) { bridge.bump() }
+        }
+    )
+}
+
+@Suite struct PerceptibleQueryIntegrationTests {
+
+    @Test func trackingFiresOnStorageChange() {
+        let coordinator = Coordinator()
+        coordinator.spawn(StorageTestComponent(value: 10))
+
+        let query = Query { StorageTestComponent.self }
+        let diffs = query.buildObservationDiffingQuery()
+        let storage = QueryObservationStorage<StorageTestComponent>()
+        let bridge = TestBridge()
+        let registrar = PerceptionRegistrar()
+        let counter = InvalidationCounter()
+
+        let system = makeBridgedSystem(
+            id: "TS", query: query, diffs: diffs,
+            storage: storage, bridge: bridge, registrar: registrar
+        )
+        coordinator.addSystem(system, schedule: .perceptionObservation)
+        coordinator.runSchedule(.perceptionObservation) // prime
+
+        withPerceptionTracking {
+            _ = bridge.version
+        } onChange: {
+            counter.bump()
+        }
+
+        coordinator.spawn(StorageTestComponent(value: 99))
+        coordinator.runSchedule(.perceptionObservation)
+
+        #expect(counter.count == 1)
+    }
+
+    @Test func noInvalidationForUnrelatedChange() {
+        let coordinator = Coordinator()
+        coordinator.spawn(StorageTestComponent(value: 1), StorageTestTag(label: "a"))
+
+        let query = Query { StorageTestComponent.self }
+        let diffs = query.buildObservationDiffingQuery()
+        let storage = QueryObservationStorage<StorageTestComponent>()
+        let bridge = TestBridge()
+        let registrar = PerceptionRegistrar()
+        let counter = InvalidationCounter()
+
+        let system = makeBridgedSystem(
+            id: "TS", query: query, diffs: diffs,
+            storage: storage, bridge: bridge, registrar: registrar
+        )
+        coordinator.addSystem(system, schedule: .perceptionObservation)
+        coordinator.runSchedule(.perceptionObservation) // prime
+
+        withPerceptionTracking {
+            _ = bridge.version
+        } onChange: {
+            counter.bump()
+        }
+
+        coordinator.runSchedule(.perceptionObservation)
+
+        #expect(counter.count == 0)
+    }
+
+    @Test func trackingFiresWhenResultsBecomeEmpty() {
+        let coordinator = Coordinator()
+        let entity = coordinator.spawn(StorageTestComponent(value: 7))
+
+        let query = Query { StorageTestComponent.self }
+        let diffs = query.buildObservationDiffingQuery()
+        let storage = QueryObservationStorage<StorageTestComponent>()
+        let bridge = TestBridge()
+        let registrar = PerceptionRegistrar()
+        let counter = InvalidationCounter()
+
+        let system = makeBridgedSystem(
+            id: "TS", query: query, diffs: diffs,
+            storage: storage, bridge: bridge, registrar: registrar
+        )
+        coordinator.addSystem(system, schedule: .perceptionObservation)
+        coordinator.runSchedule(.perceptionObservation) // prime
+
+        withPerceptionTracking {
+            _ = bridge.version
+        } onChange: {
+            counter.bump()
+        }
+
+        coordinator.remove(StorageTestComponent.self, from: entity)
+        coordinator.runSchedule(.perceptionObservation)
+
+        #expect(counter.count == 1)
+        #expect(storage.isEmpty)
+    }
+
+    @Test func singleInvalidationForManyMutations() {
+        let coordinator = Coordinator()
+        let entities = (0 ..< 10).map { i in
+            coordinator.spawn(StorageTestComponent(value: i))
+        }
+
+        let query = Query { StorageTestComponent.self }
+        let diffs = query.buildObservationDiffingQuery()
+        let storage = QueryObservationStorage<StorageTestComponent>()
+        let bridge = TestBridge()
+        let registrar = PerceptionRegistrar()
+        let counter = InvalidationCounter()
+
+        let system = makeBridgedSystem(
+            id: "TS", query: query, diffs: diffs,
+            storage: storage, bridge: bridge, registrar: registrar
+        )
+        coordinator.addSystem(system, schedule: .perceptionObservation)
+        coordinator.runSchedule(.perceptionObservation) // prime
+
+        withPerceptionTracking {
+            _ = bridge.version
+        } onChange: {
+            counter.bump()
+        }
+
+        for (i, entity) in entities.enumerated() {
+            coordinator.remove(StorageTestComponent.self, from: entity)
+            coordinator.add(StorageTestComponent(value: i * 100), to: entity)
+        }
+        coordinator.runSchedule(.perceptionObservation)
+
+        #expect(counter.count == 1)
+    }
+}

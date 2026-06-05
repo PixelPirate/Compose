@@ -36,6 +36,7 @@ let package = Package(
             dependencies: [
                 "Compose",
                 .product(name: "DequeModule", package: "swift-collections"),
+                .product(name: "Perception", package: "swift-perception"),
             ]
         ),
         .testTarget(

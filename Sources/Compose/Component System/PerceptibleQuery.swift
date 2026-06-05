@@ -1,15 +1,30 @@
 import Foundation
 import Perception
 
-public final class PerceptibleQuery<each T: Component>: Perceptible, System, @unchecked Sendable
+/// Holds a version counter properly wired for Perception observation.
+/// `PerceptibleQuery` accesses this bridge through its own `registrar` to
+/// avoid the `Perceptible`-vs-`Observable` bridge crash that occurs when
+/// a manually-conformant type uses `PerceptionRegistrar` on platforms that
+/// have native `Observation`.
+@Perceptible
+final class PerceptionBridge: @unchecked Sendable {
+    var version: UInt64 = 0
+
+    func bump() {
+        version &+= 1
+    }
+}
+
+public final class PerceptibleQuery<each T: Component>: System, @unchecked Sendable
 where repeat each T: ComponentResolving {
     public typealias Element = (repeat (each T).ReadOnlyResolvedType)
     public typealias Results = QueryObservationResults<repeat each T>
 
     public let id: SystemID; public let metadata: SystemMetadata
+    let bridge = PerceptionBridge()
     let registrar = PerceptionRegistrar()
     @usableFromInline
-    var runVersion: UInt64 = 0
+    var runVersion: UInt64 { bridge.version }
     let storage: QueryObservationStorage<repeat each T>
     let query: Query<repeat each T>
     let diffingQuery: Query<WithEntityID>
@@ -41,7 +56,7 @@ where repeat each T: ComponentResolving {
     }
 
     public func observe(_ coordinator: Coordinator) -> Results {
-        registrar.access(self, keyPath: \.runVersion)
+        registrar.access(bridge, keyPath: \.version)
         if coordinator !== self.coordinator {
             self.coordinator.map { $0.remove(id) }
             self.coordinator = coordinator
@@ -52,7 +67,7 @@ where repeat each T: ComponentResolving {
     }
 
     public func run(context: QueryContext, commands: inout Commands) {
-        registrar.access(self, keyPath: \.runVersion)
+        registrar.access(bridge, keyPath: \.version)
         runCount &+= 1
         var changed = false
         let coord = context.coordinator
@@ -80,7 +95,7 @@ where repeat each T: ComponentResolving {
         }
 
         if changed {
-            registrar.withMutation(of: self, keyPath: \.runVersion) { runVersion &+= 1 }
+            registrar.withMutation(of: bridge, keyPath: \.version) { bridge.bump() }
         }
     }
 }
