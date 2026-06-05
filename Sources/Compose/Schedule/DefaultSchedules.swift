@@ -19,16 +19,4 @@ public extension ScheduleLabel {
     static let fixedUpdate = ScheduleLabel()
     static let fixedPostUpdate = ScheduleLabel()
     static let fixedLast = ScheduleLabel()
-
-    /// Schedule that runs observation systems after all mutating schedules have completed.
-    ///
-    /// Observation systems see fully integrated commands from prior schedules.
-    /// This schedule runs after `.last` in the default main loop. Custom loops
-    /// must run this schedule after all schedules that can mutate observed
-    /// components and integrate their deferred commands.
-    ///
-    /// Uses a `SingleThreadedExecutor` for deterministic execution so that
-    /// observation systems update their own storage without racing Perception
-    /// publication.
-    static let perceptionObservation = ScheduleLabel()
 }

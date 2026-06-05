@@ -1,8 +1,8 @@
 import Atomics
 
 struct MainScheduleOrder {
-    let labels: [ScheduleLabel]
-    let startup: [ScheduleLabel]
+    var labels: [ScheduleLabel]
+    var startup: [ScheduleLabel]
 }
 
 extension MainSystem {
@@ -18,7 +18,6 @@ extension MainSystem {
                     .spawnScene,
                     .postUpdate,
                     .last,
-                    .perceptionObservation
                 ],
                 startup: [
                     .preStartup,
@@ -40,13 +39,33 @@ extension MainSystem {
         )
 
         coordinator.addSchedule(Schedule(label: .main, executor: SingleThreadedExecutor()))
-        coordinator.addSchedule(Schedule(label: .perceptionObservation, executor: SingleThreadedExecutor()))
         coordinator.addSystem(MainSystem(), schedule: .main)
         coordinator.addSystem(FixedMainSystem(), schedule: .fixedMain)
         coordinator.addSystem(RunFixedMainLoopSystem(), schedule: .runFixedMainLoop)
 
         TimeSystem.install(into: coordinator)
     }
+}
+
+extension ScheduleLabel {
+    /// Schedule that runs observation systems after all mutating schedules have completed.
+    ///
+    /// Observation systems see fully integrated commands from prior schedules.
+    /// This schedule runs after `.last` in the default main loop. Custom loops
+    /// must run this schedule after all schedules that can mutate observed
+    /// components and integrate their deferred commands.
+    ///
+    /// Uses a `SingleThreadedExecutor` for deterministic execution so that
+    /// observation systems update their own storage without racing Perception
+    /// publication.
+    static let perceptionObservation = ScheduleLabel()
+}
+
+public func installPerception(into coordinator: Coordinator) {
+    coordinator.addSchedule(Schedule(label: .perceptionObservation, executor: SingleThreadedExecutor()))
+    var order = coordinator[resource: MainScheduleOrder.self]
+    order.labels.append(.perceptionObservation)
+    coordinator[resource: MainScheduleOrder.self] = order
 }
 
 struct MainSystem: System {

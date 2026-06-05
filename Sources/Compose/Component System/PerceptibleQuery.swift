@@ -157,7 +157,17 @@ where repeat each T: ComponentResolving {
         }
 
         if changed {
-            registrar.withMutation(of: bridge, keyPath: \.version) { bridge.bump() }
+            if Thread.isMainThread {
+                registrar.withMutation(of: bridge, keyPath: \.version) {
+                    bridge.bump()
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.registrar.withMutation(of: self.bridge, keyPath: \.version) {
+                        self.bridge.bump()
+                    }
+                }
+            }
         }
     }
 }
