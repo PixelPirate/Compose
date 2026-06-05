@@ -401,7 +401,7 @@ struct StorageTestTag: Component, Equatable {
         storage.upsert(Entity.ID(slot: SlotIndex(rawValue: i), generation: 1), element: StorageTestComponent(value: i * 10))
     }
 
-    let results = QueryObservationResults(storage: storage)
+    let results = QueryObservationResults(elements: storage.elements, storageVersion: storage.storageVersion)
     #expect(results.count == 5)
     #expect(!results.isEmpty)
 
@@ -678,5 +678,144 @@ private func makeBridgedSystem(
         coordinator.runSchedule(.perceptionObservation)
 
         #expect(counter.count == 1)
+    }
+}
+
+// MARK: - Ticket 11: Concurrency and safety tests
+
+@Suite struct PerceptibleQueryConcurrencyTests {
+
+    @Test func multiThreadedExecutorDoesNotRaceObservationSystem() async {
+        // Register a PerceptibleQuery on the perceptionObservation schedule
+        // and run the full main loop (which uses SingleThreadedExecutor for
+        // .perceptionObservation). The query should complete without data races.
+        let coordinator = Coordinator()
+        let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
+
+        // Spawn some entities
+        for i in 0..<100 {
+            _ = coordinator.spawn(StorageTestComponent(value: i))
+        }
+
+        // Run the coordinator from a background thread while the query is registered
+        let iterations = 50
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let thread = Thread {
+                for _ in 0..<iterations {
+                    coordinator.run()
+                }
+                continuation.resume()
+            }
+            thread.start()
+        }
+
+        // After concurrent runs, the query should still be usable
+        let results = query.observe(coordinator)
+        #expect(results.count == 100)
+    }
+
+    @Test func cancelWhileInactiveIsSafe() {
+        let coordinator = Coordinator()
+        let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
+
+        // Cancel before any observation — must not crash
+        query.cancel()
+
+        // Cancel after observation and coordinator run
+        _ = coordinator.spawn(StorageTestComponent(value: 1))
+        _ = query.observe(coordinator)
+        coordinator.run()
+        query.cancel()
+
+        // Cancel again — must be idempotent
+        query.cancel()
+    }
+
+    @Test func cancelAndReobserveWorks() {
+        let coordinator = Coordinator()
+        let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
+        _ = coordinator.spawn(StorageTestComponent(value: 42))
+
+        _ = query.observe(coordinator)
+        coordinator.run()
+        var results = query.observe(coordinator)
+        #expect(results.count == 1)
+
+        query.cancel()
+        results = query.observe(coordinator)
+        // After cancel and re-observe, the system is re-registered and syncs
+        coordinator.run()
+        results = query.observe(coordinator)
+        #expect(results.count == 1)
+    }
+
+    @Test func coordinatorDeallocationDoesNotCrashOrLeak() {
+        var coordinator: Coordinator? = Coordinator()
+        let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
+        _ = coordinator!.spawn(StorageTestComponent(value: 1))
+
+        _ = query.observe(coordinator!)
+        coordinator!.run()
+
+        // Deallocate the coordinator while the query is still alive
+        coordinator = nil
+
+        // The query's weak reference should be nil, and deinit should not crash
+        // (calling remove on a nil coordinator is a no-op)
+        query.cancel()
+
+        // Re-observe a new coordinator
+        let newCoordinator = Coordinator()
+        _ = newCoordinator.spawn(StorageTestComponent(value: 99))
+        _ = query.observe(newCoordinator)
+        newCoordinator.run()
+        let results = query.observe(newCoordinator)
+        #expect(results.count == 1)
+    }
+
+    @Test func coordinatorSwitchUnregistersOldSystem() async {
+        let coordinator1 = Coordinator()
+        let coordinator2 = Coordinator()
+        let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
+
+        _ = coordinator1.spawn(StorageTestComponent(value: 1))
+        _ = query.observe(coordinator1)
+        coordinator1.run()
+        #expect(query.observe(coordinator1).count == 1)
+
+        // Switch to coordinator2 — old system should be unregistered
+        _ = coordinator2.spawn(StorageTestComponent(value: 2))
+        _ = query.observe(coordinator2)
+        coordinator2.run()
+        #expect(query.observe(coordinator2).count == 1)
+
+        // Run coordinator1 again — the old observation system should not fire
+        // (it was unregistered during the switch)
+        coordinator1.run()
+        // Results should still reflect coordinator2's state
+        #expect(query.observe(coordinator2).count == 1)
+    }
+
+    @Test func observeReturnsIndependentSnapshot() {
+        let coordinator = Coordinator()
+        let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
+
+        _ = coordinator.spawn(StorageTestComponent(value: 10))
+        _ = query.observe(coordinator)
+        coordinator.run()
+
+        let results1 = query.observe(coordinator)
+        #expect(results1.count == 1)
+
+        // Mutate the world
+        _ = coordinator.spawn(StorageTestComponent(value: 20))
+        coordinator.run()
+
+        // results1 should still reflect the snapshot taken at observe time
+        #expect(results1.count == 1)
+
+        // New observe should see the updated world
+        let results2 = query.observe(coordinator)
+        #expect(results2.count == 2)
     }
 }

@@ -1,31 +1,39 @@
-/// A sequence over observation storage that yields resolved query tuples.
-/// Follows the exact `AnyIterator` pattern used by `LazyQuerySequence`.
+/// A sequence over a snapshot of observation storage that yields resolved query
+/// tuples. The snapshot is captured at `observe(_:)` time via copy-on-write so
+/// that iteration is safe even if the backing storage is mutated by a subsequent
+/// observation-system run.
+///
+/// Follows the `AnyIterator` pattern used by `LazyQuerySequence`.
 public struct QueryObservationResults<each T: ComponentResolving>: Sequence {
     public typealias Element = (repeat (each T).ReadOnlyResolvedType)
 
     @usableFromInline
-    let storage: QueryObservationStorage<repeat each T>
+    let elements: ContiguousArray<Element>
+
+    @usableFromInline
+    let _storageVersion: UInt64
 
     @inlinable @inline(__always)
-    init(storage: QueryObservationStorage<repeat each T>) {
-        self.storage = storage
+    init(elements: ContiguousArray<Element>, storageVersion: UInt64) {
+        self.elements = elements
+        self._storageVersion = storageVersion
     }
 
     @inlinable @inline(__always)
-    public var count: Int { storage.count }
+    public var count: Int { elements.count }
 
     @inlinable @inline(__always)
-    public var isEmpty: Bool { storage.isEmpty }
+    public var isEmpty: Bool { elements.isEmpty }
 
     @inlinable @inline(__always)
     public var storageVersion: UInt64 {
-        storage.storageVersion
+        _storageVersion
     }
 
     @inlinable @inline(__always)
     public func makeIterator() -> AnyIterator<Element> {
-        let elements = storage.elements
         var index = 0
+        let elements = self.elements
         return AnyIterator {
             guard index < elements.count else { return nil }
             let value = elements[index]

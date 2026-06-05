@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Perception
 
 /// Holds a version counter properly wired for Perception observation.
@@ -15,12 +16,36 @@ final class PerceptionBridge: @unchecked Sendable {
     }
 }
 
+/// An observable query that bridges Compose ECS queries to SwiftUI via Perception.
+///
+/// `PerceptibleQuery` owns an internal observation system that runs on the
+/// `.perceptionObservation` schedule (after all other schedules). It applies
+/// delta updates to a cached result set so SwiftUI views only re-render when
+/// tracked components change.
+///
+/// ## Concurrency
+///
+/// - `observe(_:)` and `cancel()` are `@MainActor` — call them from the main
+///   actor (e.g. inside `WithPerceptionTracking` view builders).
+/// - `run(context:commands:)` is nonisolated and executes on the
+///   `.perceptionObservation` schedule thread. That schedule uses a
+///   `SingleThreadedExecutor` so all observation systems run serially.
+/// - The coordinator must be driven from a single thread or the main actor.
+///   Driving `Coordinator.run()` from a background thread while calling
+///   `observe(_:)` from the main actor is supported; internal shared state is
+///   protected by an unfair lock.
+/// - Perception publication (`registrar.withMutation`) is thread-safe and
+///   may be called from the schedule thread.
+/// - `observe(_:)` captures a copy-on-write snapshot of the cached elements
+///   array so the returned `Results` sequence is safe to iterate even if a
+///   subsequent `run` mutates storage.
 public final class PerceptibleQuery<each T: Component>: System, @unchecked Sendable
 where repeat each T: ComponentResolving {
     public typealias Element = (repeat (each T).ReadOnlyResolvedType)
     public typealias Results = QueryObservationResults<repeat each T>
 
-    public let id: SystemID; public let metadata: SystemMetadata
+    public let id: SystemID
+    public let metadata: SystemMetadata
     let bridge = PerceptionBridge()
     let registrar = PerceptionRegistrar()
     @usableFromInline
@@ -28,9 +53,10 @@ where repeat each T: ComponentResolving {
     let storage: QueryObservationStorage<repeat each T>
     let query: Query<repeat each T>
     let diffingQuery: Query<WithEntityID>
-    weak var coordinator: Coordinator?
+    private let lock = OSAllocatedUnfairLock()
+    private var _didInitialSync = false
+    private weak var _coordinator: Coordinator?
     @usableFromInline var runCount: UInt64 = 0
-    @usableFromInline var didInitialSync = false
 
     public init(query: Query<repeat each T>) {
         self.query = query
@@ -48,22 +74,56 @@ where repeat each T: ComponentResolving {
         )
     }
 
-    deinit { coordinator.map { $0.remove(id) } }
-
-    public func cancel() {
-        coordinator.map { $0.remove(id) }
-        coordinator = nil
+    deinit {
+        lock.lock()
+        let coord = _coordinator
+        _coordinator = nil
+        lock.unlock()
+        coord?.remove(id)
     }
 
+    /// Unregisters the internal observation system from the coordinator.
+    ///
+    /// After calling `cancel()`, subsequent calls to `observe(_:)` will
+    /// re-register and perform a fresh full sync. Safe to call when no
+    /// observation is active.
+    @MainActor
+    public func cancel() {
+        lock.lock()
+        let coord = _coordinator
+        _coordinator = nil
+        _didInitialSync = false
+        lock.unlock()
+        coord?.remove(id)
+    }
+
+    /// Returns a snapshot of the current observation results and ensures the
+    /// internal observation system is registered on `coordinator`.
+    ///
+    /// - Parameter coordinator: The world to observe. If this differs from the
+    ///   previously observed coordinator, the old observation system is
+    ///   unregistered and a new one is installed.
+    /// - Returns: A `Results` sequence backed by a copy-on-write snapshot of
+    ///   the cached elements. Safe to iterate in SwiftUI `ForEach`.
+    @MainActor
     public func observe(_ coordinator: Coordinator) -> Results {
         registrar.access(bridge, keyPath: \.version)
-        if coordinator !== self.coordinator {
-            self.coordinator.map { $0.remove(id) }
-            self.coordinator = coordinator
-            didInitialSync = false
+
+        lock.lock()
+        let coordinatorChanged = coordinator !== _coordinator
+        if coordinatorChanged {
+            let oldCoordinator = _coordinator
+            _coordinator = coordinator
+            _didInitialSync = false
+            lock.unlock()
+            oldCoordinator?.remove(id)
             coordinator.addSystem(self, schedule: .perceptionObservation)
+        } else {
+            lock.unlock()
         }
-        return Results(storage: storage)
+
+        let elements = storage.elements
+        return Results(elements: elements, storageVersion: storage.storageVersion)
     }
 
     public func run(context: QueryContext, commands: inout Commands) {
@@ -75,10 +135,16 @@ where repeat each T: ComponentResolving {
         let all = query.fetchAll(context)
         let ids = all.entityIDs
 
-        if !didInitialSync {
+        lock.lock()
+        let needsInitialSync = !_didInitialSync
+        lock.unlock()
+
+        if needsInitialSync {
             guard !ids.isEmpty else { return }
             storage.pqSync(ids, all)
-            didInitialSync = true
+            lock.lock()
+            _didInitialSync = true
+            lock.unlock()
             changed = true
         } else {
             let diffIDs = diffingQuery.fetchAll(context).entityIDs

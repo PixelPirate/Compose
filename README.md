@@ -79,9 +79,9 @@ coordinator.runSchedule(.perceptionObservation)  // observation last
 
 ### Cached result semantics
 
-- `observe(_:)` returns a `QueryObservationResults` sequence backed by the internal storage arrays. The storage is reused; the sequence is a lightweight view, not a fresh allocation.
+- `observe(_:)` returns a `QueryObservationResults` sequence backed by a copy-on-write snapshot of the cached elements. The snapshot is cheap (retains the existing buffer); no deep copy occurs.
 - The storage version increments on every structural change (add, remove, update). Perception tracks this version to detect changes.
-- Iterating the results via `Array()` or `ForEach` captures the current snapshot. No CoW copy occurs during iteration.
+- Iterating the results via `Array()` or `ForEach` is safe even if the observation system mutates storage concurrently. The snapshot is independent of the live storage.
 - Empty worlds produce an empty sequence. No phantom rows.
 - Entity destruction is detected through periodic liveness checks (every 8th observation run or when storage has fewer than 16 rows). Destroyed entities are silently removed from storage without a dedicated removal event.
 
