@@ -14,6 +14,8 @@ where repeat each T: ComponentResolving {
     let query: Query<repeat each T>
     let diffingQuery: Query<WithEntityID>
     weak var coordinator: Coordinator?
+    @usableFromInline var runCount: UInt64 = 0
+    @usableFromInline var didInitialSync = false
 
     public init(query: Query<repeat each T>) {
         self.query = query
@@ -31,6 +33,8 @@ where repeat each T: ComponentResolving {
         )
     }
 
+    deinit { coordinator.map { $0.remove(id) } }
+
     public func cancel() {
         coordinator.map { $0.remove(id) }
         coordinator = nil
@@ -41,6 +45,7 @@ where repeat each T: ComponentResolving {
         if coordinator !== self.coordinator {
             self.coordinator.map { $0.remove(id) }
             self.coordinator = coordinator
+            didInitialSync = false
             coordinator.addSystem(self, schedule: .perceptionObservation)
         }
         return Results(storage: storage)
@@ -48,10 +53,37 @@ where repeat each T: ComponentResolving {
 
     public func run(context: QueryContext, commands: inout Commands) {
         registrar.access(self, keyPath: \.runVersion)
+        runCount &+= 1
+        var changed = false
+        let coord = context.coordinator
+
         let all = query.fetchAll(context)
         let ids = all.entityIDs
-        guard !ids.isEmpty else { return }
-        storage.pqSync(ids, all)
-        registrar.withMutation(of: self, keyPath: \.runVersion) { runVersion &+= 1 }
+
+        if !didInitialSync {
+            guard !ids.isEmpty else { return }
+            storage.pqSync(ids, all)
+            didInitialSync = true
+            changed = true
+        } else {
+            let diffIDs = diffingQuery.fetchAll(context).entityIDs
+            if !diffIDs.isEmpty {
+                storage.pqSync(ids, all)
+                changed = true
+            }
+        }
+
+        if runCount & 0b111 == 0 || storage.count < 16 {
+            var i = 0
+            while i < storage.count {
+                let eid = storage.entityID(at: i)
+                if !coord.isAlive(eid) { storage.remove(eid); changed = true }
+                else { i &+= 1 }
+            }
+        }
+
+        if changed {
+            registrar.withMutation(of: self, keyPath: \.runVersion) { runVersion &+= 1 }
+        }
     }
 }
