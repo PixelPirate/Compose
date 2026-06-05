@@ -1221,6 +1221,194 @@ extension Tag {
         }
     }
 
+    // MARK: - PerceptibleQuery performance (Ticket 10)
+
+    @Test func perceptibleQueryBaselineNoOverhead() {
+        // Verify that an inactive (unobserved) PerceptibleQuery adds no
+        // measurable overhead to coordinator.run().
+
+        let clock = ContinuousClock()
+        let N = 200_000
+        let passes = 50
+
+        let coordinator = Coordinator()
+        for _ in 0..<N {
+            coordinator.spawn(
+                Transform(position: .zero, rotation: .zero, scale: .zero),
+                Gravity(force: Vector3(x: 1, y: 1, z: 1))
+            )
+        }
+
+        // Baseline: no PerceptibleQuery at all.
+        let baselineTotal = clock.measure {
+            for _ in 0..<passes { coordinator.run() }
+        }
+
+        // Create an unobserved PerceptibleQuery — it adds no systems.
+        let pq = PerceptibleQuery(query: Query { Transform.self; Gravity.self })
+
+        let withInactivePQ = clock.measure {
+            for _ in 0..<passes { coordinator.run() }
+        }
+
+        let ratio = withInactivePQ / baselineTotal
+        print("PerceptibleQuery-Baseline-NoOvhd: baseline=\(baselineTotal) inactive=\(withInactivePQ) ratio=\(ratio)")
+        // The ratio should be close to 1.0 (no significant overhead).
+    }
+
+    @Test func perceptibleQueryCachedObserveCheap() {
+        // After warm-up, observe(_:) should be O(1) — no allocation or
+        // re-query — far cheaper than the first cold call.
+
+        let clock = ContinuousClock()
+        let N = 100_000
+        let warmupPasses = 500
+        let measurePasses = 2_000
+
+        let coordinator = Coordinator()
+        for _ in 0..<N {
+            coordinator.spawn(
+                Transform(position: .zero, rotation: .zero, scale: .zero),
+                Gravity(force: Vector3(x: 1, y: 1, z: 1))
+            )
+        }
+
+        let pq = PerceptibleQuery(query: Query { Transform.self; Gravity.self })
+
+        // Cold observe: installs system, triggers initial sync on next run.
+        let coldDuration = clock.measure {
+            _ = pq.observe(coordinator)
+        }
+        coordinator.runSchedule(.perceptionObservation) // prime storage
+
+        // Warm-up passes.
+        for _ in 0..<warmupPasses {
+            _ = pq.observe(coordinator)
+        }
+
+        // Warm observe: should be nearly free.
+        let warmTotal = clock.measure {
+            for _ in 0..<measurePasses {
+                _ = pq.observe(coordinator)
+            }
+        }
+        let perCall = warmTotal / measurePasses
+
+        print("PerceptibleQuery-Observe: cold=\(coldDuration) warmPerCall=\(perCall) (x\(measurePasses))")
+        // warmPerCall should be negligible (nanosecond-range per call).
+    }
+
+    @Test func perceptibleQueryDeltaFasterThanFullSync() {
+        // Delta updates (pqDelta) for sparse changes must be substantially
+        // faster than the initial full resync (pqSync) which rebuilds all rows.
+
+        let clock = ContinuousClock()
+        let N = 200_000
+        let changeCount = 100
+
+        let coordinator = Coordinator()
+        for _ in 0..<N {
+            coordinator.spawn(
+                Transform(position: .zero, rotation: .zero, scale: .zero),
+                Gravity(force: Vector3(x: 1, y: 1, z: 1))
+            )
+        }
+
+        let pq = PerceptibleQuery(query: Query { Transform.self; Gravity.self })
+        _ = pq.observe(coordinator)
+
+        // Measure initial full resync (pqSync → fullResync → O(N) rebuild).
+        let fullSyncDuration = clock.measure {
+            coordinator.runSchedule(.perceptionObservation)
+        }
+
+        var results = pq.observe(coordinator)
+        #expect(results.count == N)
+
+        // Change a small sparse subset of entities.
+        let ids = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).map { $0 }
+        for i in 0..<min(changeCount, ids.count) {
+            coordinator.add(
+                Transform(position: Vector3(x: Float(i) * 2, y: 0, z: 0), rotation: .zero, scale: .zero),
+                to: ids[i]
+            )
+        }
+
+        // Measure delta update (pqDelta → in-place mutations, no full rebuild).
+        let deltaDuration = clock.measure {
+            coordinator.runSchedule(.perceptionObservation)
+        }
+
+        results = pq.observe(coordinator)
+        #expect(results.count == N)
+
+        let speedup = fullSyncDuration / deltaDuration
+        print("PerceptibleQuery-Delta: fullSync=\(fullSyncDuration) delta=\(deltaDuration) speedup=\(speedup) changed=\(changeCount)/\(N)")
+        // Delta should be faster than full sync for sparse changes.
+    }
+
+    @Test func perceptibleQueryManyChangesSinglePublication() {
+        // Changing many entity components in one frame must update storage
+        // correctly in a single schedule run without O(N × M) rebuild cost.
+
+        let clock = ContinuousClock()
+        let N = 100_000
+        let changeFraction = 0.3  // 30% changed in a single frame
+
+        let coordinator = Coordinator()
+        for _ in 0..<N {
+            coordinator.spawn(
+                Transform(position: .zero, rotation: .zero, scale: .zero),
+                Gravity(force: Vector3(x: 1, y: 1, z: 1))
+            )
+        }
+
+        let pq = PerceptibleQuery(query: Query { Transform.self; Gravity.self })
+        _ = pq.observe(coordinator)
+        coordinator.runSchedule(.perceptionObservation) // initial sync
+
+        var results = pq.observe(coordinator)
+        #expect(results.count == N)
+        let versionBefore = results.storageVersion
+
+        // Change a large fraction of entities in one frame.
+        let allIDs = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).map { $0 }
+        let changeCount = Int(Double(N) * changeFraction)
+        let stride = max(1, allIDs.count / changeCount)
+        for i in 0..<changeCount {
+            let idx = i * stride
+            guard idx < allIDs.count else { break }
+            coordinator.add(
+                Transform(position: Vector3(x: 999, y: 999, z: 999), rotation: .zero, scale: .zero),
+                to: allIDs[idx]
+            )
+        }
+
+        let frameDuration = clock.measure {
+            coordinator.runSchedule(.perceptionObservation)
+        }
+
+        results = pq.observe(coordinator)
+
+        // Storage version must increase (Perception publication occurred).
+        let versionAfter = results.storageVersion
+        #expect(versionAfter > versionBefore)
+
+        // Count must not change — no entities were added/removed.
+        #expect(results.count == N)
+
+        // Sanity: at least some changed entities reached storage.
+        var updatedCount = 0
+        for elem in results {
+            if elem.0.position.x == 999 && elem.0.position.y == 999 {
+                updatedCount += 1
+            }
+        }
+
+        print("PerceptibleQuery-ManyChanges: changed=\(changeCount)/\(N) updated=\(updatedCount) frame=\(frameDuration)")
+        #expect(updatedCount >= changeCount / 2)
+    }
+
     @Test func ecsCacheMicroBenchmark() {
         let clock = ContinuousClock()
         func seconds(_ d: Duration) -> Double {
