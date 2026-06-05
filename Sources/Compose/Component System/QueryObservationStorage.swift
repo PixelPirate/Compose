@@ -150,14 +150,13 @@ final class QueryObservationStorage<each T: ComponentResolving>: @unchecked Send
     }
 
     @usableFromInline
-    func pqDelta(diffIDs: [Entity.ID], ids: [Entity.ID], all: some Sequence<Element>) -> Bool {
-        let diffSet = Set(diffIDs)
-        guard !diffSet.isEmpty else { return false }
+    func pqDelta(diffIDs: Span<Entity.ID>, ids: [Entity.ID], all: some Sequence<Element>) -> Bool {
+        guard !diffIDs.isEmpty else { return false }
         var changed = false
-        var memberSet = Set<Entity.ID>()
+        var memberSet = Set<SlotIndex>()
         for (eid, elem) in zip(ids, all) {
-            memberSet.insert(eid)
-            guard diffSet.contains(eid) else { continue }
+            memberSet.insert(eid.slot)
+            guard diffIDs.contains(eid) else { continue }
 
             let denseIndex = slotToDense[eid.slot]
             if denseIndex != .notFound {
@@ -178,7 +177,9 @@ final class QueryObservationStorage<each T: ComponentResolving>: @unchecked Send
             storageVersion &+= 1
             changed = true
         }
-        for eid in diffSet where !memberSet.contains(eid) {
+        for index in diffIDs.indices {
+            let eid = diffIDs[index]
+            guard !memberSet.contains(diffIDs[index].slot) else { continue }
             remove(eid)
             changed = true
         }
@@ -205,3 +206,16 @@ final class QueryObservationStorage<each T: ComponentResolving>: @unchecked Send
         storageVersion &+= 1
     }
 }
+
+extension Span {
+    func contains(_ element: Element) -> Bool where Element: Equatable {
+        for index in indices {
+            if self[index] == element {
+                return true
+            }
+        }
+
+        return false
+    }
+}
+

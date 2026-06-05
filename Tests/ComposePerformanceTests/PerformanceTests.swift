@@ -1256,7 +1256,7 @@ extension Tag {
         // The ratio should be close to 1.0 (no significant overhead).
     }
 
-    @Test func perceptibleQueryCachedObserveCheap() {
+    @MainActor @Test func perceptibleQueryCachedObserveCheap() {
         // After warm-up, observe(_:) should be O(1) — no allocation or
         // re-query — far cheaper than the first cold call.
 
@@ -1298,7 +1298,7 @@ extension Tag {
         // warmPerCall should be negligible (nanosecond-range per call).
     }
 
-    @Test func perceptibleQueryDeltaFasterThanFullSync() {
+    @MainActor @Test func perceptibleQueryDeltaFasterThanFullSync() {
         // Delta updates (pqDelta) for sparse changes must be substantially
         // faster than the initial full resync (pqSync) which rebuilds all rows.
 
@@ -1326,8 +1326,9 @@ extension Tag {
         #expect(results.count == N)
 
         // Change a small sparse subset of entities.
-        let ids = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).map { $0 }
+        let ids = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).map { (id, _) in id }
         for i in 0..<min(changeCount, ids.count) {
+            coordinator.remove(Transform.self, from: ids[i])
             coordinator.add(
                 Transform(position: Vector3(x: Float(i) * 2, y: 0, z: 0), rotation: .zero, scale: .zero),
                 to: ids[i]
@@ -1347,7 +1348,7 @@ extension Tag {
         // Delta should be faster than full sync for sparse changes.
     }
 
-    @Test func perceptibleQueryManyChangesSinglePublication() {
+    @MainActor @Test func perceptibleQueryManyChangesSinglePublication() {
         // Changing many entity components in one frame must update storage
         // correctly in a single schedule run without O(N × M) rebuild cost.
 
@@ -1372,12 +1373,13 @@ extension Tag {
         let versionBefore = results.storageVersion
 
         // Change a large fraction of entities in one frame.
-        let allIDs = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).map { $0 }
+        let allIDs = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).map { (id, _) in id }
         let changeCount = Int(Double(N) * changeFraction)
         let stride = max(1, allIDs.count / changeCount)
         for i in 0..<changeCount {
             let idx = i * stride
             guard idx < allIDs.count else { break }
+            coordinator.remove(Transform.self, from: allIDs[idx])
             coordinator.add(
                 Transform(position: Vector3(x: 999, y: 999, z: 999), rotation: .zero, scale: .zero),
                 to: allIDs[idx]

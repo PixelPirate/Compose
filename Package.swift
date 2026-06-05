@@ -17,6 +17,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
         .package(url: "https://github.com/pointfreeco/swift-perception.git", from: "2.0.0"),
+        .package(url: "https://github.com/apple/swift-testing.git", revision: "04446f0bc84c51188bf4fd20fc8dadaec758e812"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -37,12 +38,14 @@ let package = Package(
                 "Compose",
                 .product(name: "DequeModule", package: "swift-collections"),
                 .product(name: "Perception", package: "swift-perception"),
+                .product(name: "Testing", package: "swift-testing"),
             ]
         ),
         .testTarget(
             name: "ComposePerformanceTests",
             dependencies: [
                 "Compose",
+                .product(name: "Testing", package: "swift-testing"),
             ]
         ),
     ],

@@ -59,7 +59,7 @@ where repeat each T: ComponentResolving {
     @usableFromInline var runCount: UInt64 = 0
 
     public init(query: Query<repeat each T>) {
-        self.query = query
+        self.query = query.withGeneration()
         self.diffingQuery = query.buildObservationDiffingQuery().query
         self.storage = QueryObservationStorage<repeat each T>()
         self.id = SystemID(name: "PerceptibleQuery_\(UUID().uuidString)")
@@ -148,7 +148,7 @@ where repeat each T: ComponentResolving {
             changed = true
         } else {
             let diffIDs = diffingQuery.fetchAll(context).entityIDs
-            changed = storage.pqDelta(diffIDs: diffIDs, ids: ids, all: all)
+            changed = storage.pqDelta(diffIDs: diffIDs.span, ids: ids, all: all)
         }
 
         if runCount & 0b111 == 0 || storage.count < 16 {

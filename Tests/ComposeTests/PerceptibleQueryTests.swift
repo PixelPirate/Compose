@@ -1,6 +1,7 @@
 import Testing
 @testable import Compose
 import Atomics
+import Foundation
 
 @Test func perceptionObservationRunsAfterLast() async throws {
     let lastRan = ManagedAtomic<Bool>(false)
@@ -218,7 +219,7 @@ struct StorageTestTag: Component, Equatable {
         StorageTestComponent(value: 400),
     ]
     let changed = storage.pqDelta(
-        diffIDs: [updated, removed, added],
+        diffIDs: [updated, removed, added].span,
         ids: [existing, updated, added],
         all: rows
     )
@@ -241,7 +242,7 @@ struct StorageTestTag: Component, Equatable {
     let entity = Entity.ID(slot: 0, generation: 1)
 
     let changed = storage.pqDelta(
-        diffIDs: [entity],
+        diffIDs: [entity].span,
         ids: [entity],
         all: [(StorageTestComponent(value: 42), StorageTestTag(label: "updated"))]
     )
@@ -401,7 +402,7 @@ struct StorageTestTag: Component, Equatable {
         storage.upsert(Entity.ID(slot: SlotIndex(rawValue: i), generation: 1), element: StorageTestComponent(value: i * 10))
     }
 
-    let results = QueryObservationResults(elements: storage.elements, storageVersion: storage.storageVersion)
+    let results: QueryObservationResults<StorageTestComponent> = QueryObservationResults(elements: storage.elements, storageVersion: storage.storageVersion)
     #expect(results.count == 5)
     #expect(!results.isEmpty)
 
@@ -510,7 +511,9 @@ private func makeBridgedSystem(
         var idx = 0
         for row in seq {
             guard idx < ids.count else { break }
-            storage.upsert(ids[idx], element: row)
+            let slot = ids[idx].slot
+            let correctedID = Entity.ID(slot: slot, generation: ctx.coordinator.indices[generationFor: slot])
+            storage.upsert(correctedID, element: row)
             idx &+= 1
         }
         return true
@@ -519,7 +522,7 @@ private func makeBridgedSystem(
         let coord = ctx.coordinator
         let diffIDs = diffs.query.fetchAll(ctx).entityIDs
         guard !diffIDs.isEmpty else { return false }
-        let diffSet = Set(diffIDs)
+        let diffSet = Set(diffIDs.map(\.slot))
         var still = diffSet
         var changed = false
         let seq = query.fetchAll(ctx)
@@ -527,15 +530,16 @@ private func makeBridgedSystem(
         var idx = 0
         for row in seq {
             guard idx < ids.count else { break }
-            let eid = ids[idx]
+            let slot = ids[idx].slot
+            let correctedID = Entity.ID(slot: slot, generation: coord.indices[generationFor: slot])
             idx &+= 1
-            if diffSet.contains(eid) {
-                storage.upsert(eid, element: row)
-                still.remove(eid)
+            if diffSet.contains(slot) {
+                storage.upsert(correctedID, element: row)
+                still.remove(slot)
                 changed = true
             }
         }
-        for eid in still where coord.isAlive(eid) {
+        for eid in diffIDs where still.contains(eid.slot) && coord.isAlive(eid) {
             storage.remove(eid)
             changed = true
         }
@@ -685,7 +689,7 @@ private func makeBridgedSystem(
 
 @Suite struct PerceptibleQueryConcurrencyTests {
 
-    @Test func multiThreadedExecutorDoesNotRaceObservationSystem() async {
+    @MainActor @Test func multiThreadedExecutorDoesNotRaceObservationSystem() async {
         // Register a PerceptibleQuery on the perceptionObservation schedule
         // and run the full main loop (which uses SingleThreadedExecutor for
         // .perceptionObservation). The query should complete without data races.
@@ -696,6 +700,9 @@ private func makeBridgedSystem(
         for i in 0..<100 {
             _ = coordinator.spawn(StorageTestComponent(value: i))
         }
+
+        // Register the query before the background thread runs
+        _ = query.observe(coordinator)
 
         // Run the coordinator from a background thread while the query is registered
         let iterations = 50
@@ -714,7 +721,7 @@ private func makeBridgedSystem(
         #expect(results.count == 100)
     }
 
-    @Test func cancelWhileInactiveIsSafe() {
+    @MainActor @Test func cancelWhileInactiveIsSafe() {
         let coordinator = Coordinator()
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
 
@@ -731,7 +738,7 @@ private func makeBridgedSystem(
         query.cancel()
     }
 
-    @Test func cancelAndReobserveWorks() {
+    @MainActor @Test func cancelAndReobserveWorks() {
         let coordinator = Coordinator()
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
         _ = coordinator.spawn(StorageTestComponent(value: 42))
@@ -749,7 +756,7 @@ private func makeBridgedSystem(
         #expect(results.count == 1)
     }
 
-    @Test func coordinatorDeallocationDoesNotCrashOrLeak() {
+    @MainActor @Test func coordinatorDeallocationDoesNotCrashOrLeak() {
         var coordinator: Coordinator? = Coordinator()
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
         _ = coordinator!.spawn(StorageTestComponent(value: 1))
@@ -773,7 +780,7 @@ private func makeBridgedSystem(
         #expect(results.count == 1)
     }
 
-    @Test func coordinatorSwitchUnregistersOldSystem() async {
+    @MainActor @Test func coordinatorSwitchUnregistersOldSystem() async {
         let coordinator1 = Coordinator()
         let coordinator2 = Coordinator()
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
@@ -796,7 +803,7 @@ private func makeBridgedSystem(
         #expect(query.observe(coordinator2).count == 1)
     }
 
-    @Test func observeReturnsIndependentSnapshot() {
+    @MainActor @Test func observeReturnsIndependentSnapshot() {
         let coordinator = Coordinator()
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
 

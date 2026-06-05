@@ -17,6 +17,16 @@ extension Query {
         appending(WithEntityID.self)
     }
 
+    @inlinable @inline(__always)
+    public func withGeneration() -> Query<repeat each T> {
+        Query(
+            backstageComponents: backstageComponents,
+            excludedComponents: excludedComponents,
+            changeFilters: changeFilters,
+            isQueryingForEntityID: true
+        )
+    }
+
     /// Whether the query's output tuple already includes `Entity.ID` through `WithEntityID`
     /// in the user-facing component pack.
     @inlinable @inline(__always)
