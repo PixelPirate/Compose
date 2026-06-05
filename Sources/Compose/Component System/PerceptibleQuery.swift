@@ -25,8 +25,6 @@ final class PerceptionBridge: @unchecked Sendable {
 ///
 /// ## Concurrency
 ///
-/// - `observe(_:)` and `cancel()` are `@MainActor` — call them from the main
-///   actor (e.g. inside `WithPerceptionTracking` view builders).
 /// - `run(context:commands:)` is nonisolated and executes on the
 ///   `.perceptionObservation` schedule thread. That schedule uses a
 ///   `SingleThreadedExecutor` so all observation systems run serially.
@@ -87,7 +85,6 @@ where repeat each T: ComponentResolving {
     /// After calling `cancel()`, subsequent calls to `observe(_:)` will
     /// re-register and perform a fresh full sync. Safe to call when no
     /// observation is active.
-    @MainActor
     public func cancel() {
         lock.lock()
         let coord = _coordinator
@@ -105,7 +102,6 @@ where repeat each T: ComponentResolving {
     ///   unregistered and a new one is installed.
     /// - Returns: A `Results` sequence backed by a copy-on-write snapshot of
     ///   the cached elements. Safe to iterate in SwiftUI `ForEach`.
-    @MainActor
     public func observe(_ coordinator: Coordinator) -> Results {
         registrar.access(bridge, keyPath: \.version)
 
