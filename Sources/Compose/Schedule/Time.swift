@@ -26,14 +26,14 @@ extension TimeSystem {
     }
 }
 
-struct WorldClock {
-    let delta: TimeInterval
-    let elapsed: TimeInterval
+public struct WorldClock {
+    public let delta: TimeInterval
+    public let elapsed: TimeInterval
     let instant: SuspendingClock.Instant
 
-    var isPaused = false
+    public var isPaused = false
 
-    var speed: Double = 1
+    public var speed: Double = 1
 
     var maximumDelta: TimeInterval = 0.25
 
@@ -68,12 +68,11 @@ struct WorldClock {
     }
 }
 
-struct FixedClock {
+public struct FixedClock {
     var timeStep: Double = 1/64 //15625 micros
-    @usableFromInline
-    var delta: TimeInterval { timeStep }
+    public var delta: TimeInterval { timeStep }
     private(set) var elapsed: TimeInterval
-    let speed: Double = 1
+    public let speed: Double = 1
     private var accumulated: TimeInterval = 0
 
     init(timeStep: Double = 1/64, elapsed: TimeInterval = 0, accumulated: TimeInterval = 0) {
