@@ -144,7 +144,7 @@ final class QueryObservationStorage<each T: ComponentResolving>: @unchecked Send
     // MARK: - PerceptibleQuery bridge
 
     @usableFromInline
-    func pqSync(_ ids: [Entity.ID], _ all: [Element]) {
+    func pqSync(_ ids: [Entity.ID], _ all: some Sequence<Element>) {
         guard !ids.isEmpty else { return }
         fullResync(from: zip(ids, all))
     }
