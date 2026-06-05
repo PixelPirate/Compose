@@ -199,6 +199,60 @@ struct StorageTestTag: Component, Equatable {
     }
 }
 
+@Test func storagePQDeltaAppliesChangedMembershipOnly() {
+    let storage = QueryObservationStorage<StorageTestComponent>()
+    let existing = Entity.ID(slot: 0, generation: 1)
+    let updated = Entity.ID(slot: 1, generation: 1)
+    let removed = Entity.ID(slot: 2, generation: 1)
+    let added = Entity.ID(slot: 3, generation: 1)
+
+    storage.fullResync(from: [
+        (existing, StorageTestComponent(value: 10)),
+        (updated, StorageTestComponent(value: 20)),
+        (removed, StorageTestComponent(value: 30)),
+    ])
+
+    let rows: [QueryObservationStorage<StorageTestComponent>.Element] = [
+        StorageTestComponent(value: 10),
+        StorageTestComponent(value: 200),
+        StorageTestComponent(value: 400),
+    ]
+    let changed = storage.pqDelta(
+        diffIDs: [updated, removed, added],
+        ids: [existing, updated, added],
+        all: rows
+    )
+
+    var valuesByEntity: [Entity.ID: Int] = [:]
+    for i in 0 ..< storage.count {
+        valuesByEntity[storage.entityID(at: i)] = storage.element(at: i).value
+    }
+
+    #expect(changed)
+    #expect(storage.count == 3)
+    #expect(valuesByEntity[existing] == 10)
+    #expect(valuesByEntity[updated] == 200)
+    #expect(valuesByEntity[added] == 400)
+    #expect(valuesByEntity[removed] == nil)
+}
+
+@Test func storagePQDeltaSupportsMultiComponentElements() {
+    let storage = QueryObservationStorage<StorageTestComponent, StorageTestTag>()
+    let entity = Entity.ID(slot: 0, generation: 1)
+
+    let changed = storage.pqDelta(
+        diffIDs: [entity],
+        ids: [entity],
+        all: [(StorageTestComponent(value: 42), StorageTestTag(label: "updated"))]
+    )
+
+    let element = storage.element(at: 0)
+    #expect(changed)
+    #expect(storage.count == 1)
+    #expect(element.0.value == 42)
+    #expect(element.1.label == "updated")
+}
+
 @Test func storageUpsertAddsNewRow() {
     let storage = QueryObservationStorage<StorageTestComponent>()
     let entity = Entity.ID(slot: 0, generation: 1)

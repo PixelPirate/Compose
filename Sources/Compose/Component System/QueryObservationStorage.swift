@@ -149,6 +149,42 @@ final class QueryObservationStorage<each T: ComponentResolving>: @unchecked Send
         fullResync(from: zip(ids, all))
     }
 
+    @usableFromInline
+    func pqDelta(diffIDs: [Entity.ID], ids: [Entity.ID], all: some Sequence<Element>) -> Bool {
+        let diffSet = Set(diffIDs)
+        guard !diffSet.isEmpty else { return false }
+        var changed = false
+        var memberSet = Set<Entity.ID>()
+        for (eid, elem) in zip(ids, all) {
+            memberSet.insert(eid)
+            guard diffSet.contains(eid) else { continue }
+
+            let denseIndex = slotToDense[eid.slot]
+            if denseIndex != .notFound {
+                if entityIDs[denseIndex].generation == eid.generation {
+                    entityIDs[denseIndex] = eid
+                    elements[denseIndex] = elem
+                    storageVersion &+= 1
+                    changed = true
+                    continue
+                }
+                _removeAt(denseIndex)
+            }
+
+            slotToDense.ensureCapacity(forIndex: eid.slot)
+            entityIDs.append(eid)
+            elements.append(elem)
+            slotToDense[eid.slot] = count - 1
+            storageVersion &+= 1
+            changed = true
+        }
+        for eid in diffSet where !memberSet.contains(eid) {
+            remove(eid)
+            changed = true
+        }
+        return changed
+    }
+
     // MARK: - Internal
 
     @usableFromInline

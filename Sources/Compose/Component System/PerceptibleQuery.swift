@@ -67,10 +67,7 @@ where repeat each T: ComponentResolving {
             changed = true
         } else {
             let diffIDs = diffingQuery.fetchAll(context).entityIDs
-            if !diffIDs.isEmpty {
-                storage.pqSync(ids, all)
-                changed = true
-            }
+            changed = storage.pqDelta(diffIDs: diffIDs, ids: ids, all: all)
         }
 
         if runCount & 0b111 == 0 || storage.count < 16 {
