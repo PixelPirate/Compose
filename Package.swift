@@ -31,6 +31,11 @@ let package = Package(
                 .product(name: "Perception", package: "swift-perception"),
             ],
 //            swiftSettings: [.define("BITSET_USE_DYNAMIC_ARRAY")]
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableExperimentalFeature("Lifetimes")
+            ]
         ),
         .testTarget(
             name: "ComposeTests",
