@@ -87,12 +87,12 @@ public final class Coordinator {
 
     @usableFromInline
     struct ResourceEntry {
-        @usableFromInline
+        @usableFromInline @inline(__always)
         var value: Any
-        @usableFromInline
+        @usableFromInline @inline(__always)
         var version: UInt64
 
-        @usableFromInline
+        @usableFromInline @inline(__always)
         init(value: Any, version: UInt64) {
             self.value = value
             self.version = version
@@ -428,18 +428,32 @@ public final class Coordinator {
     }
 
     @inlinable @inline(__always)
+    public func withResource<R: Equatable>(_ type: R.Type = R.self, body: (inout R) -> Void) {
+        resourcesLock.lock()
+        defer { resourcesLock.unlock() }
+        var resource = resources[ResourceKey(R.self)]!.value as! R
+        let previous = resource
+        body(&resource)
+        guard previous != resource else { return }
+        resourceClock &+= 1
+        resources[ResourceKey(R.self)] = ResourceEntry(value: resource, version: resourceClock)
+    }
+
+    @inlinable @inline(__always)
     public subscript<R>(resource resourceType: sending R.Type = R.self) -> R {
         @inlinable @inline(__always)
-        get {
+        _read {
             resourcesLock.lock()
             defer { resourcesLock.unlock() }
-            return resources[ResourceKey(R.self)]!.value as! R
+            yield resources[ResourceKey(R.self)]!.value as! R
         }
         @inlinable @inline(__always)
-        set {
+        _modify {
             resourcesLock.lock()
             resourceClock &+= 1
-            resources[ResourceKey(R.self)] = ResourceEntry(value: newValue, version: resourceClock)
+            var value = resources[ResourceKey(R.self)] as! R
+            yield &value
+            resources[ResourceKey(R.self)] = ResourceEntry(value: value, version: resourceClock)
             resourcesLock.unlock()
         }
     }

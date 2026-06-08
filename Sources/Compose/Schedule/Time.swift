@@ -12,9 +12,10 @@ struct TimeSystem: System {
     let clock = SuspendingClock()
 
     func run(context: QueryContext, commands: inout Commands) {
-        let worldClock = context.coordinator[resource: WorldClock.self]
-        let delta =  worldClock.instant.duration(to: clock.now) / .seconds(1)
-        context.coordinator[resource: WorldClock.self] = worldClock.advancing(by: delta)
+        context.coordinator.withResource(WorldClock.self) { worldClock in
+            let delta =  worldClock.instant.duration(to: clock.now) / .seconds(1)
+            worldClock.advance(by: delta)
+        }
     }
 }
 
@@ -26,10 +27,10 @@ extension TimeSystem {
     }
 }
 
-public struct WorldClock {
-    public let delta: TimeInterval
-    public let elapsed: TimeInterval
-    let instant: SuspendingClock.Instant
+public struct WorldClock: Equatable {
+    public private(set) var delta: TimeInterval
+    public private(set) var elapsed: TimeInterval
+    public private(set) var instant: SuspendingClock.Instant
 
     public var isPaused = false
 
@@ -53,18 +54,22 @@ public struct WorldClock {
         self.maximumDelta = maximumDelta
     }
 
-    func advancing(by wallDelta: TimeInterval, clamped: Bool = true) -> WorldClock {
+    mutating func advance(by wallDelta: TimeInterval, clamped: Bool = true) {
         guard !isPaused else {
-            return self
+            return
         }
 
         let newWorldDelta = (clamped ? min(wallDelta, maximumDelta) : wallDelta) * speed // TODO: Test if `min` is correct.
-        return WorldClock(
-            delta: newWorldDelta,
-            elapsed: elapsed + newWorldDelta,
-            instant: instant.advanced(by: .seconds(wallDelta)),
-            speed: speed
-        )
+
+        self.delta = newWorldDelta
+        self.elapsed = elapsed + newWorldDelta
+        self.instant = instant.advanced(by: .seconds(wallDelta))
+    }
+
+    func advancing(by wallDelta: TimeInterval, clamped: Bool = true) -> WorldClock {
+        var new = self
+        new.advance(by: wallDelta, clamped: clamped)
+        return new
     }
 }
 
