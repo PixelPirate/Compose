@@ -451,7 +451,7 @@ public final class Coordinator {
         _modify {
             resourcesLock.lock()
             resourceClock &+= 1
-            var value = resources[ResourceKey(R.self)] as! R
+            var value = resources[ResourceKey(R.self)]!.value as! R
             yield &value
             resources[ResourceKey(R.self)] = ResourceEntry(value: value, version: resourceClock)
             resourcesLock.unlock()
