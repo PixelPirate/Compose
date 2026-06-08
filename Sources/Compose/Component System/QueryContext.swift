@@ -16,6 +16,11 @@ public struct QueryContext: QueryContextConvertible, Sendable {
     }
 
     @inlinable @inline(__always)
+    public func withResource<R: Equatable>(_ type: R.Type = R.self, body: (inout R) -> Void) {
+        coordinator.withResource(type, body: body)
+    }
+
+    @inlinable @inline(__always)
     public subscript<R>(resource resourceType: sending R.Type = R.self) -> R {
         @inlinable @inline(__always)
         _read {
