@@ -22,7 +22,7 @@ public struct EventReaderState<E: Event>: Sendable {
     }
 }
 
-public struct EventSequence<E: Event>: Sequence {
+public struct EventSequence<E: Event>: Sequence { // TODO: Use `BorrowingSequence`
     @usableFromInline
     internal let buffer: ArraySlice<E>
 
