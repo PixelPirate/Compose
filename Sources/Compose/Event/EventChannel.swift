@@ -1,5 +1,12 @@
+public enum EventRetention {
+    /// Retains the event for two frames, the frame in which it was send and the next frame.
+    case doubleBuffered
+    /// Retains the event indefinitely. Using this requires manually calling ``QueryContext/clearEvents(_:)``.
+    case unrestricted
+}
+
 @usableFromInline
-final class NewChannel<E: Event> {
+final class EventChannel<E: Event> {
     @usableFromInline
     internal var events: ContiguousArray<E> = []
 
@@ -14,12 +21,7 @@ final class NewChannel<E: Event> {
     internal var eventIDs: Range<UInt64> = 0..<0
 
     @usableFromInline
-    internal var retention: Retention = .doubleBuffered
-
-    public enum Retention {
-        case doubleBuffered
-        case unrestricted
-    }
+    internal var retention: EventRetention = .doubleBuffered
 
     @inlinable @inline(__always)
     func send(_ event: E) {
@@ -32,6 +34,8 @@ final class NewChannel<E: Event> {
             nextRead = eventIDs.upperBound
             return ArraySlice()
         }
+
+        assert(eventIDs.count == live.upperBound)
 
         // Determine the lowest matching and available event ID.
         let startCount = max(nextRead, eventIDs.lowerBound)
@@ -59,10 +63,11 @@ final class NewChannel<E: Event> {
 
     @inlinable @inline(__always)
     func insertInFlightEvents() {
-        let new = events.count - (live.upperBound - 1)
+        let new = events.count - live.upperBound
         current = current.lowerBound..<events.count
         live = live.lowerBound..<events.count
         eventIDs = eventIDs.lowerBound..<eventIDs.upperBound+UInt64(new)
+        assert(eventIDs.count == events.count)
     }
 
     @inlinable @inline(__always)
@@ -76,6 +81,7 @@ final class NewChannel<E: Event> {
 
     @inlinable @inline(__always)
     func finishFrame() {
+        insertInFlightEvents()
         precondition(live.count == events.count)
         guard retention == .doubleBuffered else { return }
         // Move events from previous frame (`back`) out.
@@ -85,64 +91,5 @@ final class NewChannel<E: Event> {
         back = 0..<events.count
         current = events.count..<events.count
         live = 0..<events.count
-    }
-}
-
-@usableFromInline
-final class EventChannel<E: Event> {
-    @usableFromInline
-    internal var current: ContiguousArray<E> = []
-    @usableFromInline
-    internal var pending: ContiguousArray<E> = []
-
-    @usableFromInline
-    internal var currentStart: UInt64 = 0
-    @usableFromInline
-    internal var currentEnd: UInt64 = 0
-
-    @inlinable @inline(__always)
-    func prepare() {
-        current.append(contentsOf: pending)
-        currentEnd &+= UInt64(pending.count)
-        pending.removeAll(keepingCapacity: true)
-    }
-
-    @inlinable @inline(__always)
-    func clear() {
-        current.removeAll(keepingCapacity: true)
-        swap(&current, &pending)
-        currentStart = currentEnd
-        currentEnd &+= UInt64(current.count)
-    }
-
-    @inlinable @inline(__always)
-    func send(_ event: E) {
-        pending.append(event)
-    }
-
-    @inlinable @inline(__always)
-    func read(state: inout EventReaderState<E>) -> ArraySlice<E> {
-        if current.isEmpty {
-            state.lastRead = currentEnd
-            return []
-        }
-        let startCount = max(state.lastRead, currentStart)
-        let offset = Int(startCount &- currentStart)
-        state.lastRead = currentEnd
-        if offset >= current.count {
-            return []
-        }
-        return current[offset...]
-    }
-
-    @inlinable @inline(__always)
-    func drain() -> [E] {
-        if current.isEmpty {
-            return []
-        }
-        let drained = Array(current)
-        current.removeAll(keepingCapacity: true)
-        currentStart = currentEnd
-        return drained
     }
 }

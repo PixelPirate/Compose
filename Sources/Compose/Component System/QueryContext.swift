@@ -73,8 +73,18 @@ public struct QueryContext: QueryContextConvertible, Sendable {
     }
 
     @inlinable @inline(__always)
-    public func drainEvents<E: Event>(_ type: E.Type = E.self) -> [E] {
+    public func drainEvents<E: Event>(_ type: E.Type = E.self) -> ArraySlice<E> {
         coordinator.drainEvents(type)
+    }
+
+    @inlinable @inline(__always)
+    public func clearEvents<E: Event>(_ type: E.Type = E.self) {
+        coordinator.clearEvents(type)
+    }
+
+    @inlinable @inline(__always)
+    public func setEventRetention<E: Event>(_ type: E.Type = E.self, _ retention: EventRetention) {
+        coordinator.setEventRetention(type, retention)
     }
 
     @inlinable @inline(__always)

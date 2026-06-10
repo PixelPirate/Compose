@@ -37,7 +37,7 @@ public struct Schedule {
     @inlinable
     public func run(_ coordinator: Coordinator) {
         var commands = Commands()
-        coordinator.eventManager.prepare()
+        coordinator.eventManager.insertInFlightEvents()
         executor.run(systems: systems[...], coordinator: coordinator, commands: &commands)
         commands.integrate(into: coordinator)
     }

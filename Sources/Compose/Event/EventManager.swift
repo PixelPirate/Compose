@@ -1,6 +1,7 @@
 @usableFromInline
 protocol EventChannelBox: AnyObject {
-    func prepare()
+    func insertInFlightEvents()
+    func finishFrame()
     func clear()
 }
 
@@ -14,8 +15,13 @@ final class ConcreteEventChannelBox<E: Event>: EventChannelBox {
     }
 
     @inlinable @inline(__always)
-    func prepare() {
-        channel.prepare()
+    func insertInFlightEvents() {
+        channel.insertInFlightEvents()
+    }
+
+    @inlinable @inline(__always)
+    func finishFrame() {
+        channel.finishFrame()
     }
 
     @inlinable @inline(__always)
@@ -30,9 +36,16 @@ struct EventManager {
     internal var channels: [EventKey: any EventChannelBox] = [:]
 
     @inlinable @inline(__always)
-    mutating func prepare() {
+    mutating func insertInFlightEvents() {
         for channel in channels.values {
-            channel.prepare()
+            channel.insertInFlightEvents()
+        }
+    }
+
+    @inlinable @inline(__always)
+    mutating func finishFrame() {
+        for channel in channels.values {
+            channel.finishFrame()
         }
     }
 
@@ -41,6 +54,11 @@ struct EventManager {
         for channel in channels.values {
             channel.clear()
         }
+    }
+
+    @inlinable @inline(__always)
+    mutating func clear<E: Event>(_ type: E.Type = E.self) {
+        channel(for: type).clear()
     }
 
     @inlinable @inline(__always)
@@ -55,11 +73,11 @@ struct EventManager {
 
     @inlinable @inline(__always)
     mutating func read<E: Event>(_ type: E.Type = E.self, state: inout EventReaderState<E>) -> EventSequence<E> {
-        EventSequence(buffer: channel(for: type).read(state: &state))
+        EventSequence(buffer: channel(for: type).read(nextRead: &state.lastRead))
     }
 
     @inlinable @inline(__always)
-    mutating func drain<E: Event>(_ type: E.Type = E.self) -> [E] {
+    mutating func drain<E: Event>(_ type: E.Type = E.self) -> ArraySlice<E> {
         channel(for: type).drain()
     }
 
