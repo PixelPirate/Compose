@@ -25,6 +25,38 @@ public struct SingleThreadedExecutor: Executor {
     }
 }
 
+public struct MainThreadExecutor: Executor {
+    @usableFromInline
+    internal let systemCache = FlattenedStageCache()
+
+    public init() {
+    }
+
+    @inlinable
+    public func run(systems: ArraySlice<any System>, coordinator: Coordinator, commands: inout Commands) {
+        nonisolated(unsafe) let systems = systemCache.cached(systems)
+        nonisolated(unsafe) let coordinator = coordinator
+
+        if Thread.isMainThread {
+            for system in systems {
+                let context = QueryContext(coordinator: coordinator, systemID: system.id)
+                system.run(context: context, commands: &commands)
+                coordinator.advanceChangeTick() // TODO: `advanceChangeTick` is called at very different places in the executors. Is the current implementation correct?
+            }
+        } else {
+            nonisolated(unsafe) var localCommands = Commands()
+            DispatchQueue.main.sync {
+                for system in systems {
+                    let context = QueryContext(coordinator: coordinator, systemID: system.id)
+                    system.run(context: context, commands: &localCommands)
+                    coordinator.advanceChangeTick() // TODO: `advanceChangeTick` is called at very different places in the executors. Is the current implementation correct?
+                }
+            }
+            commands.append(contentsOf: localCommands)
+        }
+    }
+}
+
 /// This executor will group all systems into stages where each stage guarantees that there is no conflicting mutable access to the same component or resource between systems.
 /// The systems in each stage are then run in parallel.
 public struct MultiThreadedExecutor: Executor {

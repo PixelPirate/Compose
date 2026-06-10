@@ -38,7 +38,7 @@ public struct WorldClock: Equatable {
 
     var maximumDelta: TimeInterval = 0.25
 
-    init(
+    public init(
         delta: TimeInterval = 0,
         elapsed: TimeInterval = 0,
         instant: SuspendingClock.Instant,
@@ -80,7 +80,7 @@ public struct FixedClock {
     public let speed: Double = 1
     private var accumulated: TimeInterval = 0
 
-    init(timeStep: Double = 1/64, elapsed: TimeInterval = 0, accumulated: TimeInterval = 0) {
+    public init(timeStep: Double = 1/64, elapsed: TimeInterval = 0, accumulated: TimeInterval = 0) {
         self.timeStep = timeStep
         self.elapsed = elapsed
         self.accumulated = accumulated

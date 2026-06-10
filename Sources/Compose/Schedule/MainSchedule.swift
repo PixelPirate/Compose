@@ -1,8 +1,8 @@
 import Atomics
 
-struct MainScheduleOrder {
-    var labels: [ScheduleLabel]
-    var startup: [ScheduleLabel]
+public struct MainScheduleOrder {
+    public var labels: [ScheduleLabel]
+    public var startup: [ScheduleLabel]
 }
 
 extension MainSystem {
