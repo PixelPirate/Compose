@@ -737,7 +737,7 @@ struct ContiguousDense<Element> {
         guard count < buffer.count else {
             return
         }
-        let newBuffer = UnsafeMutableBufferPointer<Element>.allocate(capacity: min(count, minimumCapacity))
+        let newBuffer = UnsafeMutableBufferPointer<Element>.allocate(capacity: max(count, minimumCapacity))
         _ = newBuffer.moveInitialize(fromContentsOf: buffer[..<count])
         buffer.deallocate()
         buffer = newBuffer

@@ -107,12 +107,13 @@ final class QueryObservationStorage<each T: ComponentResolving>: @unchecked Send
     /// Removes the row for `entityID` if it exists and the generation matches.
     /// Uses swap-remove for O(1) amortized.
     @usableFromInline
-    func remove(_ entityID: Entity.ID) {
+    func remove(_ entityID: Entity.ID) -> Bool {
         let denseIndex = slotToDense[entityID.slot]
         guard denseIndex != .notFound, entityIDs[denseIndex].generation == entityID.generation else {
-            return
+            return false
         }
         _removeAt(denseIndex)
+        return true
     }
 
     /// Drop all rows and reset the sparse mapping.

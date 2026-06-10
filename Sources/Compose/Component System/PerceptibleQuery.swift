@@ -118,8 +118,12 @@ where repeat each T: ComponentResolving {
             lock.unlock()
         }
 
+        // Snapshot under lock to avoid racing with run()'s writes to storage.
+        lock.lock()
         let elements = storage.elements
-        return Results(elements: elements, storageVersion: storage.storageVersion)
+        let version = storage.storageVersion
+        lock.unlock()
+        return Results(elements: elements, storageVersion: version)
     }
 
     public func run(context: QueryContext, commands: inout Commands) {
@@ -137,23 +141,27 @@ where repeat each T: ComponentResolving {
 
         if needsInitialSync {
             guard !ids.isEmpty else { return }
-            storage.pqSync(ids, all)
             lock.lock()
+            storage.pqSync(ids, all)
             _didInitialSync = true
-            lock.unlock()
             changed = true
+            lock.unlock()
         } else {
             let diffIDs = diffingQuery.fetchAll(context).entityIDs
+            lock.lock()
             changed = storage.pqDelta(diffIDs: diffIDs.span, ids: ids, all: all)
+            lock.unlock()
         }
 
         if runCount & 0b111 == 0 || storage.count < 16 {
+            lock.lock()
             var i = 0
             while i < storage.count {
                 let eid = storage.entityID(at: i)
-                if !coord.isAlive(eid) { storage.remove(eid); changed = true }
+                if !coord.isAlive(eid) { if storage.remove(eid) { changed = true } }
                 else { i &+= 1 }
             }
+            lock.unlock()
         }
 
         if changed {
@@ -162,9 +170,9 @@ where repeat each T: ComponentResolving {
                     bridge.bump()
                 }
             } else {
-                DispatchQueue.main.async {
-                    self.registrar.withMutation(of: self.bridge, keyPath: \.version) {
-                        self.bridge.bump()
+                DispatchQueue.main.async { [registrar, bridge] in
+                    registrar.withMutation(of: bridge, keyPath: \.version) {
+                        bridge.bump()
                     }
                 }
             }
