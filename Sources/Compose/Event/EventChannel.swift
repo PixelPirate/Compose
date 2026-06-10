@@ -37,8 +37,7 @@ final class EventChannel<E: Event> {
             return []
         }
         let startCount = max(state.lastRead, currentStart)
-        let safeStart = max(startCount, currentStart)
-        let offset = Int(safeStart &- currentStart)
+        let offset = Int(startCount &- currentStart)
         state.lastRead = currentEnd
         if offset >= current.count {
             return []
