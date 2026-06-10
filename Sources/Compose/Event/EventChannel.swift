@@ -12,6 +12,13 @@ final class EventChannel<E: Event> {
 
     @inlinable @inline(__always)
     func prepare() {
+        current.append(contentsOf: pending)
+        currentEnd &+= UInt64(pending.count)
+        pending.removeAll(keepingCapacity: true)
+    }
+
+    @inlinable @inline(__always)
+    func clear() {
         current.removeAll(keepingCapacity: true)
         swap(&current, &pending)
         currentStart = currentEnd

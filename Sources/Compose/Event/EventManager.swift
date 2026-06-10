@@ -1,6 +1,7 @@
 @usableFromInline
 protocol EventChannelBox: AnyObject {
     func prepare()
+    func clear()
 }
 
 @usableFromInline
@@ -16,6 +17,11 @@ final class ConcreteEventChannelBox<E: Event>: EventChannelBox {
     func prepare() {
         channel.prepare()
     }
+
+    @inlinable @inline(__always)
+    func clear() {
+        channel.clear()
+    }
 }
 
 @usableFromInline
@@ -27,6 +33,13 @@ struct EventManager {
     mutating func prepare() {
         for channel in channels.values {
             channel.prepare()
+        }
+    }
+
+    @inlinable @inline(__always)
+    mutating func clear() {
+        for channel in channels.values {
+            channel.clear()
         }
     }
 
