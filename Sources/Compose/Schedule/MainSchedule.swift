@@ -58,7 +58,7 @@ extension ScheduleLabel {
     /// Uses a `SingleThreadedExecutor` for deterministic execution so that
     /// observation systems update their own storage without racing Perception
     /// publication.
-    static let perceptionObservation = ScheduleLabel()
+    public static let perceptionObservation = ScheduleLabel()
 }
 
 public func installPerception(into coordinator: Coordinator) {
