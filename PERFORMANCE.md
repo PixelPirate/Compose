@@ -390,6 +390,45 @@ Prefer explicit mutation over hidden allocation.
 
 ---
 
+# Temporal Data Partitioning
+
+When data must be split into generations or windows across frames (e.g., "current frame events", "previous frame events"), use `Range<Index>` markers into a single `ContiguousArray` instead of separate collections.
+
+**Do:**
+```swift
+// One array, ranges define temporal partitions
+var storage: ContiguousArray<E>
+var generation1: Range<Index>  // oldest
+var generation2: Range<Index>  // in-between
+var live: Range<Index>         // newest
+```
+
+**Don't:**
+```swift
+// Multiple arrays — pointer indirection, cache-hostile, forces concatenation on access
+var gen1: ContiguousArray<E>
+var gen2: ContiguousArray<E>
+var live: ContiguousArray<E>
+```
+
+**Why the single-array approach wins:**
+- **Cache locality** — one contiguous allocation, linear traversal.
+- **Zero-allocation reads** — return `ArraySlice` views directly into the array.
+- **O(k) frame-end work** — a single memmove shifts the live segment forward, truncate the tail. No per-generational buffer allocation or swap.
+- **O(1) "drain" semantics** — advance the range lower bound; nothing is copied.
+- **ARC avoidance** — no temporary collections created on read, no intermediate `[E]` allocations.
+- **Scalable retention** — adding a generation is adding one more `Range<Index>`, not one more heap allocation.
+
+**Example: EventChannel**
+
+`EventChannel<E>` uses this exact pattern. Three ranges (`back`, `current`, `live`) into one `ContiguousArray<E>` track frame generations. At frame end, a single `events[0...] = events[current]` shifts the current generation to the front, then `removeSubrange(current.count...)` drops everything older. No separate arrays, no per-event overhead.
+
+**General rule:**
+
+When you find yourself modeling "N generations of the same data" or "temporal windows", ask: can this be one array and N ranges instead of N arrays?
+
+---
+
 # What AI Agents Must Not Do
 
 Do not introduce any of the following without explicit justification:
@@ -405,6 +444,7 @@ Do not introduce any of the following without explicit justification:
 - Convenience wrappers around hot-path code.
 - Intermediate collections.
 - Additional copies of large values.
+- **Separate arrays/generations for temporal data** — use `Range<Index>` markers into a single `ContiguousArray` instead (see Temporal Data Partitioning above).
 
 Assume every abstraction has a runtime cost until proven otherwise.
 
