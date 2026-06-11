@@ -38,7 +38,7 @@ extension Tag {
         print("Contiguous:", contDuration, "Sparse:", sparseDuration)
     }
 
-    @Test func testPerformance() throws {
+    @Test func testQueryPerformance() throws {
         let query = Query {
             Write<Transform>.self
             Gravity.self
@@ -1442,6 +1442,49 @@ extension Tag {
         let s1 = seconds(first), s2 = seconds(second)
         if s2 > 0 { print("CacheMicro ratio (second/first):", s2 / s1) }
     }
+
+    @Test func testPerformance() {
+        struct TestComponent: Component, Equatable {
+            static let componentTag = ComponentTag.makeTag()
+            var value: Int
+        }
+        var storage = SparseSet<TestComponent, Int>()
+        storage.ensureEntity(999_999)
+        for value in 0..<1_000_000 {
+            storage.append(TestComponent(value: value), to: value)
+        }
+
+        let clock = ContinuousClock()
+        let duration = clock.measure {
+            for index in 0..<storage.count {
+                storage[index].value *= -1
+            }
+        }
+        // 0.0011
+        print("Dur get:", duration)
+
+        for index in 0..<storage.count {
+            #expect(storage[index].value == index * -1)
+        }
+
+        var storage2 = ContiguousArray<TestComponent>()
+        for value in 0..<1_000_000 {
+            storage2.append(TestComponent(value: value))
+        }
+
+        let duration2 = clock.measure {
+            for index in 0..<storage.count {
+                storage2[index].value *= -1
+            }
+        }
+        // 0.0011
+        print("Dur array:", duration2)
+
+        for index in 0..<storage2.count {
+            #expect(storage2[index].value == index * -1)
+        }
+    }
+
 }
 
 public struct Downward: Component, Sendable {
@@ -1521,47 +1564,5 @@ public struct Person: Component {
     public static let componentTag = ComponentTag.makeTag()
 
     public init() {
-    }
-}
-
-@Test func testPerformance() {
-    struct TestComponent: Component, Equatable {
-        static let componentTag = ComponentTag.makeTag()
-        var value: Int
-    }
-    var storage = SparseSet<TestComponent, Int>()
-    storage.ensureEntity(999_999)
-    for value in 0..<1_000_000 {
-        storage.append(TestComponent(value: value), to: value)
-    }
-
-    let clock = ContinuousClock()
-    let duration = clock.measure {
-        for index in 0..<storage.count {
-            storage[index].value *= -1
-        }
-    }
-    // 0.0011
-    print("Dur get:", duration)
-
-    for index in 0..<storage.count {
-        #expect(storage[index].value == index * -1)
-    }
-
-    var storage2 = ContiguousArray<TestComponent>()
-    for value in 0..<1_000_000 {
-        storage2.append(TestComponent(value: value))
-    }
-
-    let duration2 = clock.measure {
-        for index in 0..<storage.count {
-            storage2[index].value *= -1
-        }
-    }
-    // 0.0011
-    print("Dur array:", duration2)
-
-    for index in 0..<storage2.count {
-        #expect(storage2[index].value == index * -1)
     }
 }
