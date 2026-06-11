@@ -152,6 +152,9 @@ public protocol AnyComponentArrayBox: AnyObject {
     var componentsToEntites: ContiguousSpan<SlotIndex> { get }
 
     @inlinable @inline(__always)
+    var sparseSlotCount: Int { get }
+
+    @inlinable @inline(__always)
     func ensureEntity(_ entityID: Entity.ID)
 
     @inlinable @inline(__always)
@@ -217,6 +220,11 @@ final class ComponentArrayBox<C: Component>: AnyComponentArrayBox {
         _read {
             yield base.entityToComponents
         }
+    }
+
+    @inlinable @inline(__always)
+    var sparseSlotCount: Int {
+        base.storage.slots.count
     }
 
     @inlinable @inline(__always)
@@ -325,6 +333,11 @@ public struct AnyComponentArray {
         _read {
             yield base.componentsToEntites
         }
+    }
+
+    @usableFromInline @inline(__always)
+    var sparseSlotCount: Int {
+        base.sparseSlotCount
     }
 
     @usableFromInline @inline(__always)

@@ -23,6 +23,10 @@ extension ComponentPool {
         for component in components.values {
             component.ensureEntity(entityID)
         }
+        for (tag, var removed) in removedComponents {
+            removed.ensureEntity(entityID)
+            removedComponents[tag] = removed
+        }
     }
 
     @usableFromInline
@@ -56,6 +60,9 @@ extension ComponentPool {
     mutating func recordRemoval(of tag: ComponentTag, entityID: Entity.ID, tick: UInt64) {
         var removedArray = removedComponents[tag] ?? RemovedComponentArray()
         removedArray.ensureEntity(entityID)
+        if let componentArray = components[tag] {
+            removedArray.ensureSlotCapacity(componentArray.sparseSlotCount)
+        }
         removedArray.recordRemoval(of: entityID, at: tick)
         removedComponents[tag] = removedArray
     }

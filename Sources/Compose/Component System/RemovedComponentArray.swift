@@ -21,6 +21,12 @@ public struct RemovedComponentArray {
     }
 
     @inlinable @inline(__always)
+    mutating func ensureSlotCapacity(_ capacity: Int) {
+        guard capacity > 0 else { return }
+        storage.slots.ensureCapacity(forIndex: SlotIndex(index: capacity - 1))
+    }
+
+    @inlinable @inline(__always)
     mutating func recordRemoval(of entityID: Entity.ID, at tick: UInt64) {
         let slot = entityID.slot
         let denseIndex = storage.componentIndex(slot)

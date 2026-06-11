@@ -674,7 +674,7 @@ extension Tag {
                 SystemID(name: "10")
             }
         }
-        coordinator[resource: Float.self] = 0
+        coordinator.addResource(Float(0))
         coordinator.addSystem(System1(), schedule: .update)
         coordinator.addSystem(System2(), schedule: .update)
         coordinator.addSystem(System3(), schedule: .update)
@@ -1221,7 +1221,7 @@ extension Tag {
         }
     }
 
-    // MARK: - PerceptibleQuery performance (Ticket 10)
+    // MARK: - PerceptibleQuery performance
 
     @Test func perceptibleQueryBaselineNoOverhead() {
         // Verify that an inactive (unobserved) PerceptibleQuery adds no
@@ -1374,18 +1374,18 @@ extension Tag {
         let versionBefore = results.storageVersion
 
         // Change a large fraction of entities in one frame.
-//        let allIDs = Array(Query { WithEntityID.self; Transform.self }.fetchAll(coordinator)).map { (id: Entity.ID, _) in id }
-//        let changeCount = Int(Double(N) * changeFraction)
-//        let stride = max(1, allIDs.count / changeCount)
-//        for i in 0..<changeCount {
-//            let idx = i * stride
-//            guard idx < allIDs.count else { break }
-//            coordinator.remove(Transform.self, from: allIDs[idx])
-//            coordinator.add(
-//                Transform(position: Vector3(x: 999, y: 999, z: 999), rotation: .zero, scale: .zero),
-//                to: allIDs[idx]
-//            )
-//        }
+        let allIDs = Query { WithEntityID.self; Transform.self }.fetchAll(coordinator).entityIDs
+        let changeCount = Int(Double(N) * changeFraction)
+        let stride = max(1, allIDs.count / changeCount)
+        for i in 0..<changeCount {
+            let idx = i * stride
+            guard idx < allIDs.count else { break }
+            coordinator.remove(Transform.self, from: allIDs[idx])
+            coordinator.add(
+                Transform(position: Vector3(x: 999, y: 999, z: 999), rotation: .zero, scale: .zero),
+                to: allIDs[idx]
+            )
+        }
 
         let frameDuration = clock.measure {
             coordinator.runSchedule(.perceptionObservation)
@@ -1408,8 +1408,8 @@ extension Tag {
             }
         }
 
-//        print("PerceptibleQuery-ManyChanges: changed=\(changeCount)/\(N) updated=\(updatedCount) frame=\(frameDuration)")
-//        #expect(updatedCount >= changeCount / 2)
+        print("PerceptibleQuery-ManyChanges: changed=\(changeCount)/\(N) updated=\(updatedCount) frame=\(frameDuration)")
+        #expect(updatedCount >= changeCount / 2)
     }
 
     @Test func ecsCacheMicroBenchmark() {
