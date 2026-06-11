@@ -179,6 +179,16 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
         )
     }
 
+    @inlinable @inline(__always)
+    public func withGeneration() -> Query<repeat each T> {
+        Query(
+            backstageComponents: backstageComponents,
+            excludedComponents: excludedComponents,
+            changeFilters: changeFilters,
+            isQueryingForEntityID: true
+        )
+    }
+
     /// Returns a copy of this query that tracks additions and mutations for all queried components.
     ///
     /// - Note: Components that only appear as filters (via `With`/`Without`) and virtual components such as `WithEntityID`
