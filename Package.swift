@@ -17,6 +17,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
         .package(url: "https://github.com/pointfreeco/swift-perception.git", from: "2.0.0"),
+        .package(path: "../Spacer/Observatory"),
         .package(url: "https://github.com/apple/swift-testing.git", revision: "04446f0bc84c51188bf4fd20fc8dadaec758e812"),
     ],
     targets: [
@@ -29,6 +30,7 @@ let package = Package(
                 .product(name: "DequeModule", package: "swift-collections"),
                 .product(name: "Atomics", package: "swift-atomics"),
                 .product(name: "Perception", package: "swift-perception"),
+                .product(name: "Observatory", package: "Observatory"),
             ],
 //            swiftSettings: [.define("BITSET_USE_DYNAMIC_ARRAY")]
             swiftSettings: [
@@ -43,6 +45,7 @@ let package = Package(
                 "Compose",
                 .product(name: "DequeModule", package: "swift-collections"),
                 .product(name: "Perception", package: "swift-perception"),
+                .product(name: "Observatory", package: "Observatory"),
                 .product(name: "Testing", package: "swift-testing"),
             ]
         ),
