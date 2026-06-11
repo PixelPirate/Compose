@@ -35,12 +35,13 @@ final class EventChannel<E: Event> {
             return ArraySlice()
         }
 
-        assert(eventIDs.count == live.upperBound)
+        assert(eventIDs.count == live.count)
 
         // Determine the lowest matching and available event ID.
-        let startCount = max(nextRead, eventIDs.lowerBound)
+        let startEventID = max(nextRead, eventIDs.lowerBound)
         // Calculate array offset of event ID.
-        let offset = Int(startCount - eventIDs.lowerBound)
+        // `startEventID - eventIDs.lowerBound` converts Event ID into an events index, we add `live.lowerBound` to account for drained events.
+        let offset = ContiguousArray<E>.Index(startEventID - eventIDs.lowerBound) + live.lowerBound
 
         nextRead = eventIDs.upperBound
 
@@ -63,11 +64,18 @@ final class EventChannel<E: Event> {
 
     @inlinable @inline(__always)
     func insertInFlightEvents() {
+        /*
+         0 1 2 3 4 5 6 7 8 9 10  -> Count=11
+         1 ^-     9       -^  1  := Live=1..<10
+         Drained  Live        New
+         */
+
+        let drained = live.lowerBound
         let new = events.count - live.upperBound
-        current = current.lowerBound..<events.count
-        live = live.lowerBound..<events.count
         eventIDs = eventIDs.lowerBound..<eventIDs.upperBound+UInt64(new)
-        assert(eventIDs.count == events.count)
+        current = current.lowerBound..<current.upperBound+new
+        live = live.lowerBound..<live.upperBound+new
+        assert(eventIDs.count == events.count - drained)
     }
 
     @inlinable @inline(__always)
@@ -82,7 +90,7 @@ final class EventChannel<E: Event> {
     @inlinable @inline(__always)
     func finishFrame() {
         insertInFlightEvents()
-        precondition(live.count == events.count)
+        assert(live.count == events.count - live.lowerBound) // The number of live events is equal to all events minus drained events.
         guard retention == .doubleBuffered else { return }
         // Move events from previous frame (`back`) out.
         events[0...] = events[current]
