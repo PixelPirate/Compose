@@ -13,24 +13,24 @@ private struct EntityQueryTestComponent: Component {
 
 @Test func includesEntityIDIsTrueWhenQueryHasWithEntityID() {
     let query = Query { WithEntityID.self; Transform.self }
-    #expect(query.includesEntityID)
+    #expect(query.isQueryingForEntityID)
 }
 
 @Test func includesEntityIDIsFalseWhenQueryDoesNotHaveWithEntityID() {
     let query = Query { Transform.self; Gravity.self }
-    #expect(!query.includesEntityID)
+    #expect(!query.isQueryingForEntityID)
 }
 
 @Test func includesEntityIDIsTrueForOnlyWithEntityID() {
     let query = Query { WithEntityID.self }
-    #expect(query.includesEntityID)
+    #expect(query.isQueryingForEntityID)
 }
 
 // MARK: - entityAwareQuery
 
 @Test func entityAwareQueryReturnsCorrectNumberOfElements() {
     let query = Query { Transform.self; Gravity.self }
-    let aware = query.withEntityID()
+    let aware = query.withGeneration()
     let coordinator = Coordinator()
     _ = coordinator.spawn(
         Transform(position: .zero, rotation: .zero, scale: .zero),
@@ -53,8 +53,8 @@ private struct EntityQueryTestComponent: Component {
         Transform(position: .zero, rotation: .zero, scale: .zero)
     )
 
-    let query = Query { Transform.self }
-    let ids = query.matchingEntityIDs(in: coordinator)
+    let query = Query { Transform.self }.withGeneration()
+    let ids = query.fetchAll(coordinator).entityIDs
     #expect(ids.count == 1)
     #expect(ids[0].generation > 0)
     #expect(ids[0] == e2)
@@ -74,8 +74,9 @@ private struct EntityQueryTestComponent: Component {
     )
     _ = coordinator.spawn(Gravity(force: .zero)) // no Transform
 
-    let query = Query { Transform.self; Gravity.self }
-    let ids = query.matchingEntityIDs(in: coordinator)
+    let query = Query { Transform.self; Gravity.self }.withGeneration()
+    let ids = query.fetchAll(coordinator).entityIDs
+    print(e1, e2, ids)
     #expect(ids.count == 2)
     #expect(ids.contains(e1))
     #expect(ids.contains(e2))
@@ -84,7 +85,7 @@ private struct EntityQueryTestComponent: Component {
 @Test func matchingEntityIDsReturnsEmptyWhenNoMatch() {
     let coordinator = Coordinator()
     _ = coordinator.spawn(EntityQueryTestComponent(value: 1))
-    #expect(Query { Transform.self }.matchingEntityIDs(in: coordinator).isEmpty)
+    #expect(Query { Transform.self }.fetchAll(coordinator).entityIDs.isEmpty)
 }
 
 @Test func matchingEntityIDsRespectsWithFilter() {
@@ -95,8 +96,8 @@ private struct EntityQueryTestComponent: Component {
     )
     _ = coordinator.spawn(Transform(position: .zero, rotation: .zero, scale: .zero))
 
-    let query = Query { Transform.self; With<Gravity>.self }
-    let ids = query.matchingEntityIDs(in: coordinator)
+    let query = Query { Transform.self; With<Gravity>.self }.withGeneration()
+    let ids = query.fetchAll(coordinator).entityIDs
     #expect(ids.count == 1)
     #expect(ids[0] == e1)
 }
@@ -111,8 +112,8 @@ private struct EntityQueryTestComponent: Component {
         Gravity(force: .zero)
     )
 
-    let query = Query { Transform.self; Without<Gravity>.self }
-    let ids = query.matchingEntityIDs(in: coordinator)
+    let query = Query { Transform.self; Without<Gravity>.self }.withGeneration()
+    let ids = query.fetchAll(coordinator).entityIDs
     #expect(ids.count == 1)
     #expect(ids[0] == e1)
 }
@@ -132,7 +133,7 @@ private struct EntityQueryTestComponent: Component {
 
     let query = Query { WithEntityID.self; Transform.self; Gravity.self }
     let fetchAllResults = Array(query.fetchAll(coordinator))
-    let ids = query.matchingEntityIDs(in: coordinator)
+    let ids = query.fetchAll(coordinator).entityIDs
 
     #expect(ids.count == fetchAllResults.count)
     for (id, (entityID, _, _)) in zip(ids, fetchAllResults) {
@@ -142,14 +143,25 @@ private struct EntityQueryTestComponent: Component {
 
 // MARK: - Optional-only queries
 
-@Test func optionalOnlyQueryReturnsLiveSlots() {
+@Test func optionalOnlyQueryReturnsNoSlots() {
     let coordinator = Coordinator()
     let e1 = coordinator.spawn(
         Transform(position: .zero, rotation: .zero, scale: .zero)
     )
 
     let query = Query { Optional<Transform>.self }
-    let ids = query.matchingEntityIDs(in: coordinator)
+    let ids = query.fetchAll(coordinator).entityIDs
+    #expect(ids.count == 0)
+}
+
+@Test func optionalOnlyQueryReturnsLiveSlots() {
+    let coordinator = Coordinator()
+    let e1 = coordinator.spawn(
+        Transform(position: .zero, rotation: .zero, scale: .zero)
+    )
+
+    let query = Query { WithEntityID.self; Optional<Transform>.self }
+    let ids = query.fetchAll(coordinator).entityIDs
     #expect(ids.count == 1)
     #expect(ids[0] == e1)
 }
@@ -158,7 +170,7 @@ private struct EntityQueryTestComponent: Component {
 
 @Test func matchingEntityIDsFromEmptyWorldIsEmpty() {
     let coordinator = Coordinator()
-    #expect(Query { Transform.self }.matchingEntityIDs(in: coordinator).isEmpty)
+    #expect(Query { Transform.self }.fetchAll(coordinator).entityIDs.isEmpty)
 }
 
 // MARK: - Edge case: query with only WithEntityID
@@ -174,7 +186,7 @@ private struct EntityQueryTestComponent: Component {
 
     // WithEntityID only — unconstrained, returns all live slots
     let query = Query { WithEntityID.self }
-    let ids = query.matchingEntityIDs(in: coordinator)
+    let ids = query.fetchAll(coordinator).entityIDs
     #expect(ids.count == 2)
     #expect(ids.contains(e1))
     #expect(ids.contains(e2))
@@ -184,7 +196,7 @@ private struct EntityQueryTestComponent: Component {
 
 @Test func includesEntityIDIsTrueAfterEntityAwareQuery() {
     let query = Query { Transform.self }
-    let aware = query.withEntityID()
-    #expect(aware.includesEntityID)
+    let aware = query.withGeneration()
+    #expect(aware.isQueryingForEntityID)
 }
 

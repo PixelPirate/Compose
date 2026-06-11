@@ -2333,6 +2333,36 @@ private final class EventDrainSystem: System {
     #expect(reader.seen == [0, 1])
 }
 
+@Test func eventsAreDoubleBuffered() {
+    let eventEmitterSystem = EventEmitterSystem()
+    EventEmitterSystem.reset()
+    defer { EventEmitterSystem.reset() }
+    let coordinator = Coordinator()
+    coordinator.update(.update) { schedule in
+        schedule.executor = SingleThreadedExecutor()
+    }
+
+    coordinator.addSystem(eventEmitterSystem, schedule: .update)
+
+    // Send event and finish frame.
+    coordinator.run()
+
+    coordinator.remove(eventEmitterSystem.id)
+    let reader = EventReaderSystem()
+    coordinator.addSystem(reader, schedule: .update)
+
+    // New reader on next frame reads event from previous frame
+    coordinator.run()
+    #expect(reader.seen == [0])
+
+    // Event does not exist anymore on third frame.
+    coordinator.remove(reader.id)
+    let reader2 = EventReaderSystem()
+    coordinator.addSystem(reader2, schedule: .update)
+    coordinator.run()
+    #expect(reader2.seen == [])
+}
+
 @Test func drainingEventsConsumesPendingValues() {
     let eventEmitterSystem = EventEmitterSystem()
     EventEmitterSystem.reset()
@@ -2369,17 +2399,35 @@ private final class EventDrainSystem: System {
     let events = EventChannel<DrainEvent>()
 
     events.send(DrainEvent(id: 1))
-    events.prepare()
+    // [] drained, [] live, [1] in-flight
+    #expect(events.live.isEmpty)
+    #expect(events.events.count == 1)
+
+    events.insertInFlightEvents()
+    // [] drained, [1] live, [] in-flight
+    #expect(events.live.count == 1)
+    #expect(events.events.count == 1)
 
     events.send(DrainEvent(id: 2))
+    // [] drained, [1] live, [2] in-flight
+    #expect(events.live.count == 1)
+    #expect(events.events.count == 2)
 
     let drained = events.drain()
+    // [1] drained, [] live, [2] in-flight
+    #expect(events.live.count == 0)
+    #expect(events.events.count == 2)
+    #expect(events.live.lowerBound == 1)
     #expect(drained == [DrainEvent(id: 1)])
 
-    events.prepare()
+    events.insertInFlightEvents()
+    // [1] drained, [2] live, [] in-flight
+    #expect(events.live.count == 1)
+    #expect(events.events.count == 2)
+    #expect(events.live.lowerBound == 1)
 
     var state = EventReaderState<DrainEvent>()
-    #expect(events.read(state: &state) == [DrainEvent(id: 2)])
+    #expect(events.read(nextRead: &state.lastRead) == [DrainEvent(id: 2)])
 }
 
 @Test func addedFilterDetectsNewComponents() {

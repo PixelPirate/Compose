@@ -31,6 +31,7 @@ import Foundation
     }
 
     let coordinator = Coordinator()
+    installPerception(into: coordinator)
     coordinator.addSystem(FlagLastSystem(flag: lastRan), schedule: .last)
     coordinator.addSystem(FlagObservationSystem(lastFlag: lastRan, result: observedAfterLast), schedule: .perceptionObservation)
     coordinator.run()
@@ -75,6 +76,7 @@ import Foundation
     }
 
     let coordinator = Coordinator()
+    installPerception(into: coordinator)
     coordinator.addSystem(SpawnLastSystem(), schedule: .last)
     coordinator.addSystem(VerifyObservationSystem(found: foundEntity), schedule: .perceptionObservation)
     coordinator.run()
@@ -694,6 +696,7 @@ private func makeBridgedSystem(
         // and run the full main loop (which uses SingleThreadedExecutor for
         // .perceptionObservation). The query should complete without data races.
         let coordinator = Coordinator()
+        installPerception(into: coordinator)
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
 
         // Spawn some entities
@@ -740,6 +743,7 @@ private func makeBridgedSystem(
 
     @MainActor @Test func cancelAndReobserveWorks() {
         let coordinator = Coordinator()
+        installPerception(into: coordinator)
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
         _ = coordinator.spawn(StorageTestComponent(value: 42))
 
@@ -757,7 +761,11 @@ private func makeBridgedSystem(
     }
 
     @MainActor @Test func coordinatorDeallocationDoesNotCrashOrLeak() {
-        var coordinator: Coordinator? = Coordinator()
+        var coordinator: Coordinator? = {
+            let c = Coordinator()
+            installPerception(into: c)
+            return c
+        }()
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
         _ = coordinator!.spawn(StorageTestComponent(value: 1))
 
@@ -782,7 +790,9 @@ private func makeBridgedSystem(
 
     @MainActor @Test func coordinatorSwitchUnregistersOldSystem() async {
         let coordinator1 = Coordinator()
+        installPerception(into: coordinator1)
         let coordinator2 = Coordinator()
+        installPerception(into: coordinator2)
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
 
         _ = coordinator1.spawn(StorageTestComponent(value: 1))
@@ -805,6 +815,7 @@ private func makeBridgedSystem(
 
     @MainActor @Test func observeReturnsIndependentSnapshot() {
         let coordinator = Coordinator()
+        installPerception(into: coordinator)
         let query = PerceptibleQuery(query: Query { StorageTestComponent.self })
 
         _ = coordinator.spawn(StorageTestComponent(value: 10))

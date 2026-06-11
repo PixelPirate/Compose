@@ -94,8 +94,8 @@ private func runSchedule(_ coordinator: Coordinator, _ label: ScheduleLabel) {
 
 // MARK: - Tests
 
+@MainActor
 @Suite struct QueryObservationSystemTests {
-
     @Test func initialSyncPopulatesStorage() {
         let coordinator = Coordinator()
         _ = coordinator.spawn(StorageTestComponent(value: 1))
@@ -255,6 +255,7 @@ private func runSchedule(_ coordinator: Coordinator, _ label: ScheduleLabel) {
         // Observation systems on .perceptionObservation must see
         // mutations applied by earlier schedules.
         let coordinator = Coordinator()
+        installPerception(into: coordinator)
 
         let query = Query { StorageTestComponent.self }
         let diffs = query.buildObservationDiffingQuery()
@@ -281,6 +282,7 @@ private func runSchedule(_ coordinator: Coordinator, _ label: ScheduleLabel) {
 
     @Test func destroyedEntityIsRemovedFromStorage() {
         let coordinator = Coordinator()
+        installPerception(into: coordinator)
         let entity = coordinator.spawn(StorageTestComponent(value: 55))
 
         let query = Query { StorageTestComponent.self }
