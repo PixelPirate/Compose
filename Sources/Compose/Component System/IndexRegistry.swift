@@ -1,13 +1,13 @@
 @usableFromInline
 struct IndexRegistry {
     @usableFromInline
-    private(set) var generation: [UInt32] = [] // Indexed by `SlotIndex`
+    internal var generation: [UInt32] = [] // Indexed by `SlotIndex`
 
     @usableFromInline
-    private(set) var freeIDs: Set<SlotIndex> = []
+    internal var freeIDs: Set<SlotIndex> = []
 
     @usableFromInline
-    private(set) var nextID: SlotIndex = 0
+    internal var nextID: SlotIndex = 0
 
     @inlinable @inline(__always)
     mutating func allocateID() -> Entity.ID {

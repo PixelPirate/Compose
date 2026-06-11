@@ -18,7 +18,7 @@ struct RemovedEvent: Sendable {
 @usableFromInline
 struct RemovedEventBuffer {
     @usableFromInline
-    private(set) var events: ContiguousArray<RemovedEvent>
+    internal var events: ContiguousArray<RemovedEvent>
 
     @inlinable @inline(__always)
     init() {

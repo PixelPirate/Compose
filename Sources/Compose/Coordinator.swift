@@ -47,7 +47,7 @@ public final class Coordinator {
     var systemManager = SystemManager()
 
     @usableFromInline
-    internal private(set) var entitySignatures: ContiguousArray<ComponentSignature> = [] // Indexed by SlotIndex
+    internal var entitySignatures: ContiguousArray<ComponentSignature> = [] // Indexed by SlotIndex
 
     @usableFromInline
     var eventManager = EventManager()
@@ -74,7 +74,7 @@ public final class Coordinator {
     var knownGroupsMeta: [GroupSignature: GroupMetadata] = [:]
 
     @usableFromInline
-    private(set) var worldVersion: UInt64 = 0
+    internal var worldVersion: UInt64 = 0
 
     @usableFromInline
     private(set) var changeTick: UInt64 = 1
@@ -100,12 +100,12 @@ public final class Coordinator {
     }
 
     @usableFromInline
-    internal private(set) var resources: [ResourceKey: ResourceEntry] = [:] // TODO: I don't think the mutex is needed. The executors already guarantee that a system has unique mutable access.
+    internal var resources: [ResourceKey: ResourceEntry] = [:] // TODO: I don't think the mutex is needed. The executors already guarantee that a system has unique mutable access.
     @usableFromInline
     internal let resourcesLock = OSAllocatedUnfairLock()
 
     @usableFromInline
-    private(set) var resourceClock: UInt64 = 0
+    internal var resourceClock: UInt64 = 0
 
     public init() {
         MainSystem.install(into: self)

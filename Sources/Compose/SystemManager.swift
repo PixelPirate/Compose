@@ -10,7 +10,7 @@ struct SystemManager {
     internal var schedule: [SystemID: ScheduleLabel] = [:]
 
     @usableFromInline
-    private(set) var schedules: [ScheduleLabel: Schedule] = [:]
+    internal var schedules: [ScheduleLabel: Schedule] = [:]
 
     @inlinable @inline(__always)
     mutating func setSignature(_ metadata: SystemMetadata, systemID: SystemID) {

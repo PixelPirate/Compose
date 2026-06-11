@@ -502,7 +502,7 @@ public struct ContiguousSpan<Element>: Sequence {
         let count: Int
 
         @usableFromInline
-        private(set) var index: Int = 0
+        internal var index: Int = 0
 
         @usableFromInline @inline(__always) @_transparent
         init(pointer: UnsafePointer<IterationElement>, count: Int) {
@@ -609,7 +609,7 @@ public struct MutableContiguousSpan<Element>: Sequence {
         let count: Int
 
         @usableFromInline
-        private(set) var index: Int = 0
+        internal var index: Int = 0
 
         @usableFromInline @inline(__always) @_transparent
         init(pointer: UnsafeMutablePointer<IterationElement>, count: Int) {

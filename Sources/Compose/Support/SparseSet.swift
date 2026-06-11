@@ -4,15 +4,15 @@ public struct SparseSet<Component, SlotIndex: SparseSetIndex>: Collection, Rando
 //    @usableFromInline
 //    private(set) var storage: ContiguousStorage<Component> = ContiguousStorage(initialPageCapacity: 1024)
     @usableFromInline
-    private(set) var storage: ContiguousDense<Component> = ContiguousDense()
+    internal var storage: ContiguousDense<Component> = ContiguousDense()
 
     /// Indexed by `SlotIndex`.
     @usableFromInline
-    private(set) var slots: SparseArray<ContiguousArray.Index, SlotIndex> = []
+    internal var slots: SparseArray<ContiguousArray.Index, SlotIndex> = []
 
     /// Indexed by `components`  index.
     @usableFromInline
-    private(set) var keys: ContiguousDense<SlotIndex> = ContiguousDense()
+    internal var keys: ContiguousDense<SlotIndex> = ContiguousDense()
 
     @inlinable @inline(__always)
     public var startIndex: ContiguousArray.Index { 0 }
@@ -248,7 +248,7 @@ public protocol SparseArrayValue: Hashable, Comparable {
 
 public struct SparseArray<Value: SparseArrayValue, Index: SparseSetIndex>: Collection, ExpressibleByArrayLiteral, RandomAccessCollection {
     @usableFromInline
-    private(set) var values: PagedSlotToDense<Value, Index> = PagedSlotToDense()
+    internal var values: PagedSlotToDense<Value, Index> = PagedSlotToDense()
 
     @inlinable @inline(__always)
     public var startIndex: Index {
