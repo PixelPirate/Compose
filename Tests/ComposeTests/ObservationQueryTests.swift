@@ -1,5 +1,5 @@
 import Testing
-@testable import Compose
+import Compose
 import Observatory
 import Foundation
 
@@ -120,6 +120,44 @@ import Foundation
         // Version bump is dispatched to the main queue when off-thread; here we
         // run on the main actor / main thread so it is synchronous.
         #expect(notified.value == true)
+    }
+
+    struct StorageTestComponent: Component, Equatable {
+        static let componentTag = ComponentTag.makeTag()
+        var value: Int
+    }
+
+    /// Mirrors the SpacerRun game loop: an existing entity's component changes
+    /// every frame, and the view re-registers tracking each frame (like the UI
+    /// reconciler). Every frame must both update storage AND fire the change
+    /// notification. This is the scenario that fails in release builds.
+    @MainActor @Test func continuousComponentChangesNotifyEachFrame() {
+        let coordinator = Coordinator()
+        installPerception(into: coordinator)
+        let query = ObservationQuery(query: Query { StorageTestComponent.self })
+        let entity = coordinator.spawn(StorageTestComponent(value: 0))
+
+        _ = query.observe(coordinator)
+        coordinator.run()
+        #expect(query.observe(coordinator).count == 1)
+
+        for frame in 1...8 {
+            let notified = ManagedBox(false)
+            withObservationTracking {
+                _ = query.observe(coordinator)
+            } onChange: {
+                notified.value = true
+            }
+
+            // Mutate the existing entity's component (replace pattern marks it changed).
+            coordinator.remove(StorageTestComponent.self, from: entity)
+            coordinator.add(StorageTestComponent(value: frame), to: entity)
+            coordinator.run()
+
+            let observed = Array(query.observe(coordinator)).first?.value
+            #expect(observed == frame, "frame \(frame): storage value")
+            #expect(notified.value == true, "frame \(frame): change notification")
+        }
     }
 }
 

@@ -71,7 +71,10 @@ struct IndexRegistry {
     var generationView: SlotGenerationSpan {
         @inlinable @_transparent
         _read {
-            yield SlotGenerationSpan(pointer: generation.withUnsafeBufferPointer { $0.baseAddress.unsafelyUnwrapped })
+            yield generation.withUnsafeBufferPointer { buf in
+                assert(buf.baseAddress != nil, "IndexRegistry.generation buffer is nil.")
+                return SlotGenerationSpan(pointer: buf.baseAddress.unsafelyUnwrapped)
+            }
         }
     }
 }
@@ -83,6 +86,7 @@ struct SlotGenerationSpan {
 
     @inlinable @_transparent
     init(pointer: UnsafePointer<UInt32>) {
+        assert(Int(bitPattern: pointer) != 0, "SlotGenerationSpan initialized with nil pointer.")
         self.pointer = pointer
     }
 
@@ -90,7 +94,8 @@ struct SlotGenerationSpan {
     subscript(_ index: SlotIndex) -> UInt32 {
         @inlinable @_transparent
         unsafeAddress {
-            pointer.advanced(by: index.rawValue)
+            assert(Int(bitPattern: pointer) != 0, "SlotGenerationSpan pointer is nil.")
+            return pointer.advanced(by: index.rawValue)
         }
     }
 }

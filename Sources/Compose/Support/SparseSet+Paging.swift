@@ -17,7 +17,11 @@ public struct SlotsSpan<Dense: SparseArrayValue, Slot: SparseSetIndex> {
         unsafeAddress {
             let page = slot.index >> PagedSlotToDenseConstants.pageShift
             let offset = slot.index & PagedSlotToDenseConstants.pageMask
-            return UnsafePointer(pages[page].advanced(by: offset))
+            assert(pages.baseAddress != nil, "SlotsSpan pages baseAddress is nil.")
+            assert(page < pages.count, "SlotsSpan page \(page) out of bounds (pages count \(pages.count)).")
+            let pagePointer = pages[page]
+            assert(Int(bitPattern: pagePointer) != 0, "SlotsSpan page \(page) pointer is nil.")
+            return UnsafePointer(pagePointer.advanced(by: offset))
         }
     }
 
@@ -220,6 +224,8 @@ public struct PagedSpan<Element> {
     public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
         let page = index >> PagedDenseConstants.pageShift
         let offset = index & PagedDenseConstants.pageMask
+        assert(page < pages.count, "PagedSpan page \(page) out of bounds (pages count \(pages.count)).")
+        assert(pages.baseAddress != nil, "PagedSpan pages baseAddress is nil.")
         return pages[page].advanced(by: offset)
     }
 
@@ -451,8 +457,9 @@ public struct ContiguousSpan<Element>: Sequence {
 
     @inlinable @_transparent
     public func pointer(at index: Int) -> UnsafePointer<Element> {
-        assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+        assert(count > 0, "Attempted to access an empty ContiguousSpan buffer.")
         assert(index < count, "Index \(index) out of bounds (Count is \(count)).")
+        assert(Int(bitPattern: buffer) != 0, "ContiguousSpan buffer is nil.")
         return buffer.advanced(by: index)
     }
 
@@ -468,7 +475,8 @@ public struct ContiguousSpan<Element>: Sequence {
     public subscript(range: PartialRangeUpTo<Int>) -> ContiguousSpan<Element> {
         @_transparent
         _read {
-            assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(count > 0, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(Int(bitPattern: buffer) != 0, "ContiguousSpan buffer is nil.")
             yield ContiguousSpan(
                 buffer: buffer,
                 count: range.upperBound
@@ -480,7 +488,8 @@ public struct ContiguousSpan<Element>: Sequence {
     public subscript(range: Range<Int>) -> ContiguousSpan<Element> {
         @_transparent
         _read {
-            assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(count > 0, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(Int(bitPattern: buffer) != 0, "ContiguousSpan buffer is nil.")
             yield ContiguousSpan(
                 buffer: buffer.advanced(by: range.lowerBound),
                 count: range.count
@@ -490,7 +499,8 @@ public struct ContiguousSpan<Element>: Sequence {
 
     @inlinable @inline(__always) @_transparent
     public func makeIterator() -> some IteratorProtocol<Element> {
-        assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+        assert(count > 0, "Attempted to access an empty ContiguousSpan buffer.")
+        assert(Int(bitPattern: buffer) != 0, "ContiguousSpan buffer is nil.")
         return ContiguousIterator(pointer: buffer, count: count)
     }
 
@@ -553,8 +563,9 @@ public struct MutableContiguousSpan<Element>: Sequence {
 
     @inlinable @_transparent
     public func mutablePointer(at index: Int) -> UnsafeMutablePointer<Element> {
-        assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+        assert(count > 0, "Attempted to access an empty MutableContiguousSpan buffer.")
         assert(index < count, "Index \(index) out of bounds (Count is \(count)).")
+        assert(Int(bitPattern: buffer) != 0, "MutableContiguousSpan buffer is nil.")
         return buffer.advanced(by: index)
     }
 
@@ -575,7 +586,8 @@ public struct MutableContiguousSpan<Element>: Sequence {
     public subscript(range: PartialRangeUpTo<Int>) -> ContiguousSpan<Element> {
         @_transparent
         _read {
-            assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(count > 0, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(Int(bitPattern: buffer) != 0, "MutableContiguousSpan buffer is nil.")
             yield ContiguousSpan(
                 buffer: buffer,
                 count: range.upperBound
@@ -587,7 +599,8 @@ public struct MutableContiguousSpan<Element>: Sequence {
     public subscript(range: Range<Int>) -> ContiguousSpan<Element> {
         @_transparent
         _read {
-            assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(count > 0, "Attempted to access an empty ContiguousSpan buffer.")
+            assert(Int(bitPattern: buffer) != 0, "MutableContiguousSpan buffer is nil.")
             yield ContiguousSpan(
                 buffer: buffer.advanced(by: range.lowerBound),
                 count: range.count
@@ -597,7 +610,8 @@ public struct MutableContiguousSpan<Element>: Sequence {
 
     @inlinable @inline(__always) @_transparent
     public func makeIterator() -> some IteratorProtocol<Element> {
-        assert(count != 0, "Attempted to access an empty ContiguousSpan buffer.")
+        assert(count > 0, "Attempted to access an empty ContiguousSpan buffer.")
+        assert(Int(bitPattern: buffer) != 0, "MutableContiguousSpan buffer is nil.")
         return ContiguousIterator(pointer: buffer, count: count)
     }
 
@@ -651,6 +665,7 @@ struct ContiguousDense<Element> {
     @inlinable @_transparent
     var view: Span {
         _read {
+            assert(count == 0 || buffer.baseAddress != nil, "ContiguousDense buffer is nil with non-zero count.")
             yield ContiguousSpan(view: buffer, count: count)
         }
     }
@@ -658,6 +673,7 @@ struct ContiguousDense<Element> {
     @inlinable @_transparent
     var mutableView: MutableSpan {
         _read {
+            assert(count == 0 || buffer.baseAddress != nil, "ContiguousDense buffer is nil with non-zero count.")
             yield MutableContiguousSpan(view: buffer, count: count)
         }
     }

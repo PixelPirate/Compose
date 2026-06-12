@@ -71,7 +71,7 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
     @inline(__always)
     public let changeFilters: Set<ChangeFilter>
 
-    @usableFromInline
+    @usableFromInline @inline(__always)
     let changeFilterMasks: [ComponentTag: ChangeFilterComponentMask]
 
     /// Includes all components where this query touches their storage. This includes reads, writes and backstage components.
@@ -97,7 +97,7 @@ public struct Query<each T: Component>: Sendable where repeat each T: ComponentR
     @inline(__always)
     public let querySignature: QuerySignature
 
-    @inline(__always)
+    @usableFromInline @inline(__always)
     let hash: QueryHash
 
     @usableFromInline
@@ -414,6 +414,7 @@ extension Query {
 
         let result: (repeat (each T).ReadOnlyResolvedType)? = context.coordinator.indices.generation.withUnsafeBufferPointer { generationsBuffer in
             let generationsPointer = generationsBuffer.baseAddress.unsafelyUnwrapped
+            assert(generationsBuffer.count > 0 || baseSlots.count == 0, "Generation buffer is empty but baseSlots has \(baseSlots.count) slots.")
             return withTypedBuffers(&context.coordinator.pool, changeTick: context.coordinator.changeTick) { (accessors: repeat TypedAccess<each T>) in
                 otherComponents.withUnsafeBufferPointer { otherBuffer in
                     excludedComponents.withUnsafeBufferPointer { excludedBuffer in
@@ -467,7 +468,8 @@ extension Query {
                                         removedMask: removedMask,
                                         lastRun: lastRun,
                                         thisRun: thisRun,
-                                        generations: generationsPointer
+                                        generations: generationsPointer,
+                                        generationsCount: generationsBuffer.count
                                     ) {
                                     case .passes:
                                         hasMatches = true
@@ -544,6 +546,7 @@ extension Query {
 
         let entitiesAndMatch: (hasMatches: Bool, entities: [Entity.ID]) = context.coordinator.indices.generation.withUnsafeBufferPointer { generationsBuffer in
             let generationsPointer = generationsBuffer.baseAddress.unsafelyUnwrapped
+            assert(generationsBuffer.count > 0 || baseSlots.count == 0, "Generation buffer is empty but baseSlots has \(baseSlots.count) slots.")
             return otherComponents.withUnsafeBufferPointer { otherBuffer in
                 excludedComponents.withUnsafeBufferPointer { excludedBuffer in
                     let otherPointer = otherBuffer.baseAddress.unsafelyUnwrapped
@@ -593,7 +596,8 @@ extension Query {
                                     removedMask: removedMask,
                                     lastRun: lastRun,
                                     thisRun: thisRun,
-                                    generations: generationsPointer
+                                    generations: generationsPointer,
+                                    generationsCount: generationsBuffer.count
                                 ) {
                                 case .passes:
                                     hasMatches = true
@@ -1268,8 +1272,11 @@ extension Query {
         removedMask: UInt8,
         lastRun: UInt64,
         thisRun: UInt64,
-        generations: UnsafePointer<UInt32>
+        generations: UnsafePointer<UInt32>,
+        generationsCount: Int
     ) -> PassResult {
+        assert(Int(bitPattern: generations) != 0, "Generations pointer is nil in passes().")
+        assert(slot.rawValue < generationsCount, "Slot \(slot.rawValue) out of bounds for generations (count \(generationsCount)).")
         for index in Range(uncheckedBounds: (0, requiredComponentsCount)) where requiredComponents[index][slot] == .notFound {
             return .noMatch
         }
@@ -1344,6 +1351,8 @@ extension Query {
         excludedBuffer: UnsafePointer<SlotsSpan<Int, SlotIndex>>,
         excludedCount: Int
     ) -> Bool {
+        assert(otherCount == 0 || Int(bitPattern: otherBuffer) != 0, "otherBuffer is nil with otherCount=\(otherCount) in passesMembership().")
+        assert(excludedCount == 0 || Int(bitPattern: excludedBuffer) != 0, "excludedBuffer is nil with excludedCount=\(excludedCount) in passesMembership().")
         for index in Range(uncheckedBounds: (0, otherCount)) where otherBuffer[index][slot] == .notFound {
             return false
         }
@@ -1500,6 +1509,9 @@ extension Query {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
         let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        defer {
+            extendLifetime(ids)
+        }
         if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
@@ -1849,6 +1861,7 @@ extension Query {
 
         let entities: [Entity.ID] = context.coordinator.indices.generation.withUnsafeBufferPointer { generationsBuffer in
             let generationsPointer = generationsBuffer.baseAddress.unsafelyUnwrapped
+            assert(generationsBuffer.count > 0 || baseSlots.count == 0, "Generation buffer is empty but baseSlots has \(baseSlots.count) slots.")
             return otherComponents.withUnsafeBufferPointer { otherBuffer in
                 excludedComponents.withUnsafeBufferPointer { excludedBuffer in
                     let otherPointer = otherBuffer.baseAddress.unsafelyUnwrapped
@@ -1897,7 +1910,8 @@ extension Query {
                                     removedMask: removedMask,
                                     lastRun: lastRun,
                                     thisRun: thisRun,
-                                    generations: generationsPointer
+                                    generations: generationsPointer,
+                                    generationsCount: generationsBuffer.count
                                 ) == .passes else {
                                     continue
                                 }

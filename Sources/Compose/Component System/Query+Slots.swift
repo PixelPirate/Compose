@@ -1,5 +1,7 @@
+import os
+
 extension Query {
-    @usableFromInline @inline(__always)
+    @inlinable @inline(__always)
     internal func getCachedArrays(_ coordinator: Coordinator)
     -> (base: ContiguousSpan<SlotIndex>, others: [SlotsSpan<ContiguousArray.Index, SlotIndex>], excluded: [SlotsSpan<ContiguousArray.Index, SlotIndex>])
     {
@@ -34,7 +36,7 @@ extension Query {
         }
     }
 
-    @usableFromInline @inline(__always)
+    @inlinable @inline(__always)
     internal func getCachedBaseSlots(_ coordinator: Coordinator) -> ContiguousSpan<SlotIndex> {
         coordinator.signatureQueryCacheLock.lock()
         if
