@@ -399,6 +399,9 @@ extension Query {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
         let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        defer {
+            extendLifetime(ids)
+        }
         if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
@@ -517,7 +520,13 @@ extension Query {
     public func fetchAllWithStatus(_ context: some QueryContextConvertible) -> QueryFetchResult<LazyQuerySequence<repeat each T>> {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
+        // Hoisted to outer scope: `ids` must outlive `baseSlots`, because
+        // ContiguousSpan is a non-owning view of the array's buffer.
         let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        defer {
+            // `extendLifetime` keeps `ids` alive while baseSlots (a non-owning ContiguousSpan into ids' buffer) is iterated.
+            extendLifetime(ids)
+        }
         if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             // This is for cases like `Query { WithEntityID.self }` or `Query { WithEntityID.self; Optional<…>.self }`
             ids.withUnsafeBufferPointer { buffer in
@@ -668,6 +677,9 @@ extension Query {
         let context = context.queryContext
         var slots = getCachedBaseSlots(context.coordinator)
         let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        defer {
+            extendLifetime(ids)
+        }
         if slots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 slots = ContiguousSpan(view: buffer, count: buffer.count)
@@ -770,6 +782,9 @@ extension Query {
         let context = context.queryContext
         var baseSlots = getCachedBaseSlots(context.coordinator)
         let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        defer {
+            extendLifetime(ids)
+        }
         if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
@@ -887,6 +902,9 @@ extension Query {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
         let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        defer {
+            extendLifetime(ids)
+        }
         if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
@@ -1814,6 +1832,9 @@ extension Query {
         let context = context.queryContext
         var (baseSlots, otherComponents, excludedComponents) = getCachedArrays(context.coordinator)
         let ids = isQueryingOnlyForEntityID ? context.coordinator.indices.liveSlots : []
+        defer {
+            extendLifetime(ids)
+        }
         if baseSlots.isEmpty, isQueryingOnlyForEntityID {
             ids.withUnsafeBufferPointer { buffer in
                 baseSlots = ContiguousSpan(view: buffer, count: buffer.count)
