@@ -133,8 +133,13 @@ where repeat each T: ComponentResolving {
         var changed = false
         let coord = context.coordinator
 
-        let all = query.fetchAll(context)
-        let ids = all.entityIDs
+        let fetched = query.fetchAll(context)
+        let ids = fetched.entityIDs
+        // Materialize eagerly: `fetched` is a lazy sequence backed by live pool
+        // accessors. A subsequent query fetch (the diffing query below) re-borrows
+        // the component pool, invalidating those accessors. Reading them lazily
+        // afterwards is a use-after-free that manifests only in optimized builds.
+        let all = Array(fetched)
 
         lock.lock()
         let needsInitialSync = !_didInitialSync
